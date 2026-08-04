@@ -29,6 +29,9 @@ public sealed class AspireAppFixture : IAsyncLifetime
     /// </summary>
     public const string ApiKey = "test-fixture-api-key";
 
+    /// <summary>The password configured for the <c>postgres-password</c> AppHost parameter in this test run.</summary>
+    public const string PostgresPassword = "test-fixture-postgres-password";
+
     private DistributedApplication? _app;
 
     /// <summary><see langword="true"/> once the AppHost graph started successfully.</summary>
@@ -45,8 +48,18 @@ public sealed class AspireAppFixture : IAsyncLifetime
     {
         try
         {
-            var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.RaceIntelligence_AppHost>();
+            // IsIntegrationTest must arrive via `args`, not a post-CreateAsync Configuration write:
+            // CreateAsync captures the builder as soon as AppHost.cs's own
+            // DistributedApplication.CreateBuilder(args) call returns, but the rest of that
+            // top-level script — including the isIntegrationTest config read that decides whether
+            // Postgres gets WithDataVolume() — keeps running concurrently with no ordering
+            // guarantee against a Configuration write made here afterwards. A late write was
+            // silently losing that race, so the test's Postgres container kept attaching the real
+            // dev data volume (and its incompatible password) instead of a throwaway one.
+            var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.RaceIntelligence_AppHost>(
+                args: ["--RaceIntelligence:IsIntegrationTest=true"]);
             appHost.Configuration["Parameters:ingest-api-key"] = ApiKey;
+            appHost.Configuration["Parameters:postgres-password"] = PostgresPassword;
 
             appHost.Services.ConfigureHttpClientDefaults(http => http.AddStandardResilienceHandler());
 
