@@ -1,0 +1,31 @@
+<Solution>
+  <Folder Name="/Future/">
+    <Project Path="src/RaceIntelligence.AI.RaceEngineer/RaceIntelligence.AI.RaceEngineer.csproj" />
+    <Project Path="src/RaceIntelligence.ML/RaceIntelligence.ML.csproj" />
+  </Folder>
+  <Folder Name="/Core/">
+    <Project Path="src/RaceIntelligence.Analysis/RaceIntelligence.Analysis.csproj" />
+    <Project Path="src/RaceIntelligence.Core/RaceIntelligence.Core.csproj" />
+    <Project Path="src/RaceIntelligence.Strategy/RaceIntelligence.Strategy.csproj" />
+  </Folder>
+  <Folder Name="/Hosts/">
+    <Project Path="src/RaceIntelligence.AppHost/RaceIntelligence.AppHost.csproj" />
+    <Project Path="src/RaceIntelligence.Collector/RaceIntelligence.Collector.csproj" />
+    <Project Path="src/RaceIntelligence.Ingest.Api/RaceIntelligence.Ingest.Api.csproj" />
+  </Folder>
+  <Folder Name="/Infrastructure/">
+    <Project Path="src/RaceIntelligence.Connectors.RaceRoom/RaceIntelligence.Connectors.RaceRoom.csproj" />
+    <Project Path="src/RaceIntelligence.Persistence/RaceIntelligence.Persistence.csproj" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="src/RaceIntelligence.Ingest.Contracts/RaceIntelligence.Ingest.Contracts.csproj" />
+    <Project Path="src/RaceIntelligence.ServiceDefaults/RaceIntelligence.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="tests/RaceIntelligence.Collector.Tests/RaceIntelligence.Collector.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Connectors.RaceRoom.Tests/RaceIntelligence.Connectors.RaceRoom.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Persistence.Tests/RaceIntelligence.Persistence.Tests.csproj" />
+  </Folder>
+</Solution>

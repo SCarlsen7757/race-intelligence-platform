@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RaceIntelligence.Ingest.Contracts\RaceIntelligence.Ingest.Contracts.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Persistence\RaceIntelligence.Persistence.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.ServiceDefaults\RaceIntelligence.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

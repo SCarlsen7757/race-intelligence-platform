@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- xUnit1051 wants every async call to thread TestContext.Current.CancellationToken through
+         directly. The state-machine tests link a per-test timeout CancellationTokenSource to
+         TestContext.Current.CancellationToken instead, so a hung state machine still fails fast
+         and cooperates with test-runner cancellation; the analyzer can't see through that
+         linked-token pattern. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RaceIntelligence.Connectors.RaceRoom\RaceIntelligence.Connectors.RaceRoom.csproj" />
+  </ItemGroup>
+
+</Project>

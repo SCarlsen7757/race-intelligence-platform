@@ -1,0 +1,33 @@
+<Project>
+
+  <!-- Chain to the repository-root props first: MSBuild stops at the *nearest* Directory.Build.props,
+       so without this import the test projects would silently lose TargetFramework, Nullable,
+       TreatWarningsAsErrors and everything else defined at the root. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove($(MSBuildThisFile), $(MSBuildThisFileDirectory)..))" />
+
+  <PropertyGroup>
+    <!-- Microsoft.Testing.Platform runs test assemblies as executables rather than through a
+         separate runner host, so every test project is an Exe. -->
+    <OutputType>Exe</OutputType>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- One shared runner config for the whole suite, linked into each project's output so the
+         settings cannot drift between test projects. -->
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)xunit.runner.json"
+             Link="xunit.runner.json"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
+  </ItemGroup>
+
+</Project>

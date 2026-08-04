@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-RaceIntelligence.Collector-75b1646c-6f95-416a-8b71-ab37234ee54a</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Connectors.RaceRoom\RaceIntelligence.Connectors.RaceRoom.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Ingest.Contracts\RaceIntelligence.Ingest.Contracts.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.ServiceDefaults\RaceIntelligence.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>

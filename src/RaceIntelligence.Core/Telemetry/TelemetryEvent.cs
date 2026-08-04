@@ -1,0 +1,69 @@
+using RaceIntelligence.Core.Sessions;
+
+namespace RaceIntelligence.Core.Telemetry;
+
+/// <summary>The connectivity state of an <see cref="ITelemetrySource"/>.</summary>
+public enum ConnectionState
+{
+    /// <summary>No connection has been attempted, or a previous connection was cleanly closed.</summary>
+    Disconnected,
+
+    /// <summary>The source is actively trying to reach the simulator but has not yet succeeded.</summary>
+    WaitingForSimulator,
+
+    /// <summary>Connected to the simulator, but no session is currently active (e.g. sim is at the main menu).</summary>
+    Connected,
+
+    /// <summary>Connected and an on-track session is active.</summary>
+    InSession,
+
+    /// <summary>The source encountered an unrecoverable error and stopped producing events.</summary>
+    Faulted,
+}
+
+/// <summary>
+/// Base type for every event an <see cref="ITelemetrySource"/> can emit.
+/// </summary>
+public abstract record TelemetryEvent
+{
+    /// <summary>UTC time the event occurred, as observed by the source/connector.</summary>
+    public required DateTimeOffset OccurredAtUtc { get; init; }
+}
+
+/// <summary>Raised when a new session begins.</summary>
+public sealed record SessionStarted : TelemetryEvent
+{
+    /// <summary>The session that started.</summary>
+    public required SessionInfo Session { get; init; }
+}
+
+/// <summary>Raised for every telemetry sample captured during a session.</summary>
+public sealed record TelemetrySampleReceived : TelemetryEvent
+{
+    /// <summary>The sample that was captured.</summary>
+    public required TelemetrySample Sample { get; init; }
+}
+
+/// <summary>Raised when a lap completes.</summary>
+public sealed record LapCompleted : TelemetryEvent
+{
+    /// <summary>The lap that completed.</summary>
+    public required LapInfo Lap { get; init; }
+}
+
+/// <summary>Raised when a session ends.</summary>
+public sealed record SessionEnded : TelemetryEvent
+{
+    /// <summary>The identifier of the session that ended.</summary>
+    public required Guid SessionId { get; init; }
+}
+
+/// <summary>Raised whenever the source's <see cref="ConnectionState"/> changes.</summary>
+public sealed record ConnectionStateChanged : TelemetryEvent
+{
+    /// <summary>The new connection state.</summary>
+    public required ConnectionState State { get; init; }
+
+    /// <summary>An optional human-readable explanation (e.g. an error message when transitioning to <see cref="Telemetry.ConnectionState.Faulted"/>).</summary>
+    public string? Reason { get; init; }
+}

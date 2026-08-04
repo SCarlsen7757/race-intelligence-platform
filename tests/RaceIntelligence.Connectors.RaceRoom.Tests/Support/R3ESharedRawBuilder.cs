@@ -1,0 +1,290 @@
+using System.Runtime.InteropServices;
+using System.Text;
+using RaceIntelligence.Connectors.RaceRoom.Interop;
+
+namespace RaceIntelligence.Connectors.RaceRoom.Tests.Support;
+
+/// <summary>
+/// Fluent builder for a plausible, fully-populated <see cref="R3ESharedRaw"/> snapshot in managed
+/// memory, for use with <see cref="FakeSharedMemoryView"/>. Defaults to a sane idle/in-menus
+/// state with a valid version header (major 3, minor 5) and every documented "-1 = N/A" sentinel
+/// field set to its N/A value, so tests only need to override the handful of fields they actually
+/// care about.
+/// </summary>
+internal sealed class R3ESharedRawBuilder
+{
+    private R3ESharedRaw _raw = CreateDefault();
+
+    private static R3ESharedRaw CreateDefault()
+    {
+        R3ESharedRaw raw = default;
+
+        raw.VersionMajor = R3EVersionGate.RequiredMajor;
+        raw.VersionMinor = R3EVersionGate.MinimumMinor;
+
+        raw.GameInMenus = 1;
+        raw.GamePaused = 0;
+        raw.GameInReplay = 0;
+        raw.GameUsingVr = 0;
+        raw.GamePlayerInGarage = 1;
+
+        raw.SessionType = (int)R3ESessionType.Unavailable;
+        raw.SessionPhase = (int)R3ESessionPhase.Unavailable;
+        raw.SessionIteration = -1;
+        raw.SessionLengthFormat = -1;
+        raw.NumberOfLaps = -1;
+        raw.SessionTimeDuration = -1f;
+        raw.SessionTimeRemaining = -1f;
+        raw.MaxIncidentPoints = -1;
+
+        raw.PitWindowStatus = -1;
+        raw.PitWindowStart = -1;
+        raw.PitWindowEnd = -1;
+        raw.InPitlane = -1;
+        raw.PitState = -1;
+        raw.PitAction = -1;
+        raw.NumPitstopsPerformed = -1;
+        raw.PitMinDurationTotal = -1f;
+        raw.PitMinDurationLeft = -1f;
+
+        raw.Position = 0;
+        raw.PositionClass = 0;
+        raw.FinishStatus = -1;
+        raw.CutTrackWarnings = -1;
+        raw.CompletedLaps = -1;
+        raw.TrackSector = 0;
+        raw.LapDistanceFraction = -1f;
+        raw.LapTimeBestLeader = -1f;
+        raw.LapTimeBestLeaderClass = -1f;
+        raw.LapTimeBestSelf = -1f;
+        raw.LapTimePreviousSelf = -1f;
+        raw.LapTimeCurrentSelf = -1f;
+        raw.LapTimeDeltaLeader = -1f;
+        raw.LapTimeDeltaLeaderClass = -1f;
+        raw.TimeDeltaFront = -1f;
+        raw.TimeDeltaBehind = -1f;
+        raw.TimeDeltaBestSelf = -1000f;
+        raw.IncidentPoints = -1;
+        raw.LapValidState = -1;
+        raw.PrevLapValid = -1;
+        raw.DischargeRate = -1f;
+        raw.BrakeRegen = -1f;
+
+        raw.ControlType = (int)R3EControlType.Player;
+        raw.EngineRps = 0f;
+        raw.Gear = -2;
+        raw.NumGears = -1;
+        raw.FuelLeft = 0f;
+        raw.FuelPerLap = -1f;
+        raw.VirtualEnergyLeft = -1f;
+        raw.Throttle = -1f;
+        raw.Brake = -1f;
+        raw.Clutch = -1f;
+        raw.SteerInputRaw = 0f;
+        raw.PitLimiter = -1;
+        raw.BrakeBias = -1f;
+        raw.DrsNumActivationsTotal = -1;
+        raw.PtpNumActivationsTotal = -1;
+        raw.BatterySoC = -1f;
+        raw.WaterLeft = -1f;
+        raw.AbsSetting = -1;
+        raw.HeadLights = -1;
+        raw.SteerWheelMaxRotation = -1;
+
+        SetAllFour(ref raw.TireGrip, -1f);
+        SetAllFour(ref raw.TireWear, -1f);
+        SetAllFour(ref raw.TirePressure, -1f);
+        SetAllFour(ref raw.TireDirt, -1f);
+        SetAllFour(ref raw.TireLoad, -1f);
+
+        raw.TractionControlSetting = -1;
+        raw.TractionControlPercent = -1f;
+
+        raw.CarDamage.Engine = -1f;
+        raw.CarDamage.Transmission = -1f;
+        raw.CarDamage.Aerodynamics = -1f;
+        raw.CarDamage.Suspension = -1f;
+
+        return raw;
+    }
+
+    private static void SetAllFour(ref Float4 field, float value)
+    {
+        field[0] = value;
+        field[1] = value;
+        field[2] = value;
+        field[3] = value;
+    }
+
+    /// <summary>Puts the snapshot back into a sane idle/in-menus state (the default).</summary>
+    public R3ESharedRawBuilder InMenus()
+    {
+        _raw.GameInMenus = 1;
+        _raw.SessionType = (int)R3ESessionType.Unavailable;
+        _raw.SessionPhase = (int)R3ESessionPhase.Unavailable;
+        return this;
+    }
+
+    /// <summary>Puts the snapshot into an on-track race session at the given track/layout.</summary>
+    public R3ESharedRawBuilder InRaceSession(string track, string layout)
+    {
+        _raw.GameInMenus = 0;
+        _raw.GamePlayerInGarage = 0;
+        _raw.TrackName = EncodeName(track);
+        _raw.LayoutName = EncodeName(layout);
+        _raw.SessionType = (int)R3ESessionType.Race;
+        _raw.SessionPhase = (int)R3ESessionPhase.Green;
+        _raw.CompletedLaps = 0;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithSessionType(R3ESessionType sessionType)
+    {
+        _raw.SessionType = (int)sessionType;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithSessionPhase(R3ESessionPhase sessionPhase)
+    {
+        _raw.SessionPhase = (int)sessionPhase;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithTicks(int ticks)
+    {
+        _raw.Player.GameSimulationTicks = ticks;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithSimulationTime(double seconds)
+    {
+        _raw.Player.GameSimulationTime = seconds;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithSpeed(float metersPerSecond)
+    {
+        _raw.CarSpeed = metersPerSecond;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithThrottle(float value)
+    {
+        _raw.Throttle = value;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithBrake(float value)
+    {
+        _raw.Brake = value;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithGear(int gear)
+    {
+        _raw.Gear = gear;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithEngineRps(float radiansPerSecond)
+    {
+        _raw.EngineRps = radiansPerSecond;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithFuel(float liters)
+    {
+        _raw.FuelLeft = liters;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithCompletedLaps(int laps)
+    {
+        _raw.CompletedLaps = laps;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithTyrePressures(float frontLeft, float frontRight, float rearLeft, float rearRight)
+    {
+        _raw.TirePressure[0] = frontLeft;
+        _raw.TirePressure[1] = frontRight;
+        _raw.TirePressure[2] = rearLeft;
+        _raw.TirePressure[3] = rearRight;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithTyreWear(float frontLeft, float frontRight, float rearLeft, float rearRight)
+    {
+        _raw.TireWear[0] = frontLeft;
+        _raw.TireWear[1] = frontRight;
+        _raw.TireWear[2] = rearLeft;
+        _raw.TireWear[3] = rearRight;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithVersion(int major, int minor)
+    {
+        _raw.VersionMajor = major;
+        _raw.VersionMinor = minor;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithPlayerName(string name)
+    {
+        _raw.PlayerName = EncodeName(name);
+        return this;
+    }
+
+    /// <summary>
+    /// Escape hatch for fields with no dedicated fluent method: apply an arbitrary mutation to the
+    /// in-progress raw struct directly (every field on <see cref="R3ESharedRaw"/> is public).
+    /// </summary>
+    public R3ESharedRawBuilder Configure(RawEditor edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        edit(ref _raw);
+        return this;
+    }
+
+    /// <summary>A mutation applied directly to a builder's in-progress <see cref="R3ESharedRaw"/>.</summary>
+    public delegate void RawEditor(ref R3ESharedRaw raw);
+
+    public R3ESharedRaw Build() => _raw;
+
+    /// <summary>Builds and serializes directly to the byte layout <see cref="FakeSharedMemoryView"/> expects.</summary>
+    public byte[] BuildBytes() => _raw.ToBytes();
+
+    /// <summary>
+    /// Encodes a UTF-8, NUL-terminated 64-byte name buffer, matching how RaceRoom's shared memory
+    /// stores <c>track_name</c>/<c>layout_name</c>/<c>player_name</c>. The remaining bytes stay
+    /// zero (NUL padding), which is also what makes an unset name decode as empty.
+    /// </summary>
+    internal static Utf8Name64 EncodeName(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        Utf8Name64 name = default;
+        Span<byte> destination = name;
+        int byteCount = Encoding.UTF8.GetByteCount(value);
+        if (byteCount > destination.Length)
+        {
+            throw new ArgumentException(
+                $"'{value}' encodes to {byteCount} UTF-8 bytes, which does not fit in a {destination.Length}-byte name buffer.",
+                nameof(value));
+        }
+
+        Encoding.UTF8.GetBytes(value, destination);
+        return name;
+    }
+
+}
+
+/// <summary>Converts a built <see cref="R3ESharedRaw"/> into the byte layout <see cref="FakeSharedMemoryView"/> expects.</summary>
+internal static class R3ESharedRawSerialization
+{
+    internal static byte[] ToBytes(this in R3ESharedRaw raw)
+    {
+        ReadOnlySpan<R3ESharedRaw> single = MemoryMarshal.CreateReadOnlySpan(in raw, 1);
+        return MemoryMarshal.AsBytes(single).ToArray();
+    }
+}
