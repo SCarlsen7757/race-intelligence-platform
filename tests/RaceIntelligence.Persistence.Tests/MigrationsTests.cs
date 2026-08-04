@@ -23,8 +23,10 @@ public sealed class MigrationsTests(PostgresFixture fixture)
         var pendingBefore = await db.Database.GetPendingMigrationsAsync();
         pendingBefore.ShouldBeEmpty();
 
+        // Migration ids carry a timestamp prefix (e.g. "20260803214154_InitialCreate"), so match by
+        // suffix rather than the bare migration class name.
         var applied = await db.Database.GetAppliedMigrationsAsync();
-        applied.ShouldContain("InitialCreate");
+        applied.ShouldContain(migrationId => migrationId.EndsWith("_InitialCreate", StringComparison.Ordinal));
     }
 
     [Fact]
