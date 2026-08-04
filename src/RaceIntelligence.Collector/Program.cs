@@ -13,7 +13,8 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddSerilog((services, configuration) => configuration
     .ReadFrom.Configuration(builder.Configuration)
     .ReadFrom.Services(services)
-    .Enrich.FromLogContext());
+    .Enrich.FromLogContext()
+    .WriteTo.Console());
 
 // Service discovery, HTTP resilience defaults, health checks, and OpenTelemetry (Aspire).
 builder.AddServiceDefaults();

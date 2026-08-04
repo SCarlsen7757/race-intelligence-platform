@@ -24,13 +24,20 @@ developing the pipeline itself and want to see telemetry land in a database.
 # One-time: set the shared secret the collector and API both use.
 dotnet user-secrets set "Parameters:ingest-api-key" "dev-local-only-key" --project src/RaceIntelligence.AppHost
 
+# One-time: fix the local Postgres password so it doesn't regenerate on every run — otherwise any
+# external tool (DataGrip, psql, ...) has to be reconfigured each time you restart AppHost.
+dotnet user-secrets set "Parameters:postgres-password" "dev-local-only-password" --project src/RaceIntelligence.AppHost
+
 dotnet run --project src/RaceIntelligence.AppHost
 ```
 
 The Aspire dashboard opens in a browser with all three resources. PostgreSQL runs in a container
 with a persistent data volume, so telemetry survives restarts — deliberately, since losing a test
 session's data on every restart would make the "raw data is permanent" behaviour impossible to
-exercise.
+exercise. It's also reachable on a fixed host port (`55432`, chosen to avoid colliding with a
+locally installed Postgres on the default `5432`) with the fixed password set above, so an external
+tool's connection settings — host `localhost`, port `55432`, user `postgres`, database
+`raceintel` — stay valid across restarts too.
 
 **Database migrations apply automatically here.** That only happens in Development
 (`Program.cs`); production applies them out-of-band as an explicit step.

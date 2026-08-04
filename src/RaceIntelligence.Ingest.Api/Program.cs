@@ -11,7 +11,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((context, services, configuration) => configuration
     .ReadFrom.Configuration(context.Configuration)
     .ReadFrom.Services(services)
-    .Enrich.FromLogContext());
+    .Enrich.FromLogContext()
+    .WriteTo.Console());
 
 // Service discovery, resilience, health checks (/health, /alive), and OpenTelemetry.
 builder.AddServiceDefaults();
