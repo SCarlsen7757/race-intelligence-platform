@@ -17,12 +17,15 @@ namespace RaceIntelligence.Ingest.Contracts;
 /// <param name="TrackName">Name of the track.</param>
 /// <param name="LayoutName">Name of the specific layout/configuration of the track used.</param>
 /// <param name="LayoutLengthMeters">Length of the layout, in meters, if known.</param>
-/// <param name="SessionType">The <see cref="RaceIntelligence.Core.Sessions.SessionType"/> value describing the kind of session.</param>
+/// <param name="SessionType">The kind of session, as the sim's raw session-type value reinterpreted through <see cref="RaceIntelligence.Core.Sessions.SessionType"/>'s underlying type — collectors don't translate it to the enum's named values, since the correct mapping depends on which sim produced it.</param>
 /// <param name="StartedAtUtc">UTC time the session started.</param>
 /// <param name="PlayerName">Name of the player/driver, if known.</param>
 /// <param name="CarName">Name of the car driven, if known.</param>
 /// <param name="CarClassName">Name of the car's class, if known.</param>
 /// <param name="ManufacturerName">Name of the car's manufacturer, if known.</param>
+/// <param name="SimCarId">The sim's own internal identifier for the car driven, if known — populated even when <paramref name="CarName"/> isn't, for sims that expose only numeric ids.</param>
+/// <param name="SimCarClassId">The sim's own internal identifier for the car's class, if known. See <paramref name="SimCarId"/>.</param>
+/// <param name="SimManufacturerId">The sim's own internal identifier for the car's manufacturer, if known. See <paramref name="SimCarId"/>.</param>
 /// <param name="ExtrasJson">Simulator-specific session metadata with no canonical equivalent, as a raw JSON string. <see langword="null"/> if none.</param>
 public sealed record SessionCreateRequest(
     int SchemaVersion,
@@ -38,4 +41,7 @@ public sealed record SessionCreateRequest(
     string? CarName,
     string? CarClassName,
     string? ManufacturerName,
-    string? ExtrasJson);
+    string? ExtrasJson,
+    string? SimCarId = null,
+    string? SimCarClassId = null,
+    string? SimManufacturerId = null);

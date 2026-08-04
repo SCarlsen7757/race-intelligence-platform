@@ -32,6 +32,8 @@ internal static class R3ETelemetryMapper
     /// </remarks>
     private static float? NullIfNegative(float value) => value < 0f ? null : value;
 
+    private static int? NullIfNegative(int value) => value < 0 ? null : value;
+
     private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;
 
     /// <summary>Converts engine speed from RaceRoom's native rad/s to RPM.</summary>
@@ -52,14 +54,6 @@ internal static class R3ETelemetryMapper
         return Encoding.UTF8.GetString(content);
     }
 
-    private static SessionType MapSessionType(int rawSessionType) => (R3ESessionType)rawSessionType switch
-    {
-        R3ESessionType.Practice => SessionType.Practice,
-        R3ESessionType.Qualify => SessionType.Qualifying,
-        R3ESessionType.Race => SessionType.Race,
-        R3ESessionType.Warmup => SessionType.Warmup,
-        _ => SessionType.Unknown,
-    };
 
     /// <remarks>
     /// Tread and window temperatures use the same <c>-1.0 = N/A</c> convention as the rest of the
@@ -147,15 +141,24 @@ internal static class R3ETelemetryMapper
             TrackName = DecodeUtf8Name(raw.TrackName),
             LayoutName = DecodeUtf8Name(raw.LayoutName),
             LayoutLengthMeters = raw.LayoutLength > 0f ? raw.LayoutLength : null,
-            SessionType = MapSessionType(raw.SessionType),
+            // The connector performs no analysis (see file remarks), so it does not translate
+            // RaceRoom's raw session_type into the canonical enum's own numbering — that mapping
+            // is really a property of the game/analysis layer, not the collector, since it depends
+            // on which sim produced the value. The raw sim int is carried through as-is (reinterpreted
+            // through the enum's underlying type); a later analysis pass, which knows the sim, is
+            // expected to rewrite it to the canonical numbering.
+            SessionType = (SessionType)raw.SessionType,
             StartedAtUtc = startedAtUtc,
             PlayerName = NullIfEmpty(DecodeUtf8Name(raw.PlayerName)),
-            // RaceRoom's shared memory exposes only numeric car/class/manufacturer ids
-            // (VehicleInfo.ClassId/ModelId/ManufacturerId) — never human-readable names. There is
-            // no in-memory lookup table, so these stay null; the ids are preserved in Extras.
+            // Likewise, RaceRoom's shared memory exposes only numeric car/class/manufacturer ids
+            // (VehicleInfo.ClassId/ModelId/ManufacturerId) — never human-readable names, and there
+            // is no in-memory lookup table. These stay null; the raw ids are carried below instead.
             CarName = null,
             CarClassName = null,
             ManufacturerName = null,
+            SimCarId = NullIfNegative(raw.VehicleInfo.ModelId)?.ToString(),
+            SimCarClassId = NullIfNegative(raw.VehicleInfo.ClassId)?.ToString(),
+            SimManufacturerId = NullIfNegative(raw.VehicleInfo.ManufacturerId)?.ToString(),
             Extras = BuildSessionExtras(in raw),
         };
     }

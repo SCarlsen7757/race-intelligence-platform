@@ -20,6 +20,9 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
         builder.Property(s => s.DriverId).HasColumnName("driver_id");
         builder.Property(s => s.TrackLayoutId).HasColumnName("track_layout_id");
         builder.Property(s => s.CarId).HasColumnName("car_id");
+        builder.Property(s => s.SimCarId).HasColumnName("sim_car_id");
+        builder.Property(s => s.SimCarClassId).HasColumnName("sim_car_class_id");
+        builder.Property(s => s.SimManufacturerId).HasColumnName("sim_manufacturer_id");
 
         // Stored as smallint, not a native Postgres enum: see TelemetrySample entity remarks.
         builder.Property(s => s.SessionType)

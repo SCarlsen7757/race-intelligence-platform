@@ -35,7 +35,13 @@ public sealed record SessionInfo
     /// <summary>Length of the layout, in meters, if known.</summary>
     public float? LayoutLengthMeters { get; init; }
 
-    /// <summary>The type of session.</summary>
+    /// <summary>
+    /// The type of session. Collectors that perform no analysis (the norm) carry the sim's raw
+    /// session-type value through unmapped, reinterpreted through this enum's underlying type
+    /// rather than translated to its named values — the correct mapping depends on which sim
+    /// produced it, which is a property of the analysis layer, not the collector. A later analysis
+    /// pass (which does know the sim) is expected to rewrite this to the canonical numbering.
+    /// </summary>
     public required SessionType SessionType { get; init; }
 
     /// <summary>UTC time the session started.</summary>
@@ -55,6 +61,19 @@ public sealed record SessionInfo
 
     /// <summary>Name of the car's manufacturer, if known.</summary>
     public string? ManufacturerName { get; init; }
+
+    /// <summary>
+    /// The sim's own internal identifier for the car driven, if known. Populated even when
+    /// <see cref="CarName"/> isn't — some sims (e.g. RaceRoom) expose only numeric car/class/
+    /// manufacturer ids over their telemetry API, with no in-process way to resolve them to names.
+    /// </summary>
+    public string? SimCarId { get; init; }
+
+    /// <summary>The sim's own internal identifier for the car's class, if known. See <see cref="SimCarId"/>.</summary>
+    public string? SimCarClassId { get; init; }
+
+    /// <summary>The sim's own internal identifier for the car's manufacturer, if known. See <see cref="SimCarId"/>.</summary>
+    public string? SimManufacturerId { get; init; }
 
     /// <summary>Simulator-specific session metadata with no canonical equivalent (e.g. weather, setup).</summary>
     public JsonElement Extras { get; init; }

@@ -30,6 +30,9 @@ public static class SessionContractMapper
         CarName = request.CarName,
         CarClassName = request.CarClassName,
         ManufacturerName = request.ManufacturerName,
+        SimCarId = request.SimCarId,
+        SimCarClassId = request.SimCarClassId,
+        SimManufacturerId = request.SimManufacturerId,
         Extras = ParseJson(request.ExtrasJson),
     };
 

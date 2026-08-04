@@ -48,7 +48,27 @@ public sealed class Session
     /// <summary>Navigation to the <see cref="Entities.Car"/>, if known.</summary>
     public Car? Car { get; set; }
 
-    /// <summary>The type of session. Stored as <c>smallint</c>, not a native Postgres enum — see <see cref="TelemetrySample"/> remarks for why.</summary>
+    /// <summary>
+    /// The sim's own internal identifier for the car driven, if known. Populated even when
+    /// <see cref="CarId"/> isn't — some sims expose only numeric car/class/manufacturer ids with
+    /// no in-process way to resolve them to names, so this is stored raw rather than dropped.
+    /// </summary>
+    public string? SimCarId { get; set; }
+
+    /// <summary>The sim's own internal identifier for the car's class, if known. See <see cref="SimCarId"/>.</summary>
+    public string? SimCarClassId { get; set; }
+
+    /// <summary>The sim's own internal identifier for the car's manufacturer, if known. See <see cref="SimCarId"/>.</summary>
+    public string? SimManufacturerId { get; set; }
+
+    /// <summary>
+    /// The type of session. Collectors that perform no analysis (the norm) store the sim's raw
+    /// session-type value here unmapped, reinterpreted through this enum's underlying type rather
+    /// than translated to its named values — the correct mapping depends on which sim produced it.
+    /// A later analysis pass (which does know the sim) is expected to rewrite this to the canonical
+    /// numbering. Stored as <c>smallint</c>, not a native Postgres enum — see
+    /// <see cref="TelemetrySample"/> remarks for why.
+    /// </summary>
     public SessionType SessionType { get; set; }
 
     /// <summary>
