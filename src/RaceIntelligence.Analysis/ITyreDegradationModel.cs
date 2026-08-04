@@ -22,9 +22,9 @@ public sealed record TyreDegradationEstimate(double DegradationSecondsPerLap, do
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Phase 2 — not yet implemented.</b> This interface exists now so that the dependency
-/// direction and the versioning/capability contract are visible in the architecture from the
-/// start.
+/// The Phase 2 deliverable. <see cref="LinearTyreDegradationModel"/> is the first implementation;
+/// the interface exists separately so the dependency direction and the versioning/capability
+/// contract stay visible regardless of which implementation is active.
 /// </para>
 /// <para>
 /// Deliberately an <see cref="IAnalysisAlgorithm{TInput, TOutput}"/>: every implementation carries

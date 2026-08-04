@@ -22,6 +22,7 @@
     <Project Path="src/RaceIntelligence.ServiceDefaults/RaceIntelligence.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="tests/RaceIntelligence.Analysis.Tests/RaceIntelligence.Analysis.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Collector.Tests/RaceIntelligence.Collector.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Connectors.RaceRoom.Tests/RaceIntelligence.Connectors.RaceRoom.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj" />
