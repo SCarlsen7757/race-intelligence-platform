@@ -9,14 +9,10 @@ public sealed class Track
     /// <summary>The game this track belongs to.</summary>
     public Guid GameId { get; set; }
 
-    /// <summary>Navigation to the owning <see cref="Game"/>.</summary>
     public Game? Game { get; set; }
 
     /// <summary>Track name, unique within its game.</summary>
     public required string Name { get; set; }
-
-    /// <summary>The simulator's own internal identifier for this track, if known. Opaque to the platform.</summary>
-    public string? SimTrackId { get; set; }
 
     /// <summary>The layouts/configurations available on this track.</summary>
     public ICollection<TrackLayout> Layouts { get; set; } = new List<TrackLayout>();

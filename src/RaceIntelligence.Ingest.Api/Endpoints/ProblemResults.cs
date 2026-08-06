@@ -12,6 +12,12 @@ internal static class ProblemResults
         title: "Unsupported schema version",
         detail: $"Schema version {received} is not supported. This server accepts schema version {SchemaVersion.Current}.");
 
+    /// <summary>400: a request field carrying raw JSON text did not contain valid JSON.</summary>
+    public static IResult MalformedJson(string field, string reason) => Results.Problem(
+        statusCode: StatusCodes.Status400BadRequest,
+        title: "Malformed JSON",
+        detail: $"'{field}' is not valid JSON: {reason}");
+
     /// <summary>404: no session exists with the given id.</summary>
     public static IResult SessionNotFound(Guid id) => Results.Problem(
         statusCode: StatusCodes.Status404NotFound,

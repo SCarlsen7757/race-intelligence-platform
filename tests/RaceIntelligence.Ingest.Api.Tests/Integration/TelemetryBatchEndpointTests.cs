@@ -104,6 +104,90 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task Batch_whose_samples_member_arrived_as_nil_returns_400()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var session = DtoFactory.SessionCreateRequest();
+        (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // `required`/non-nullable is a C# compile-time promise; MessagePack decodes nil into it
+        // regardless, which is why null! here produces a payload a real client could hand-write.
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 0, null!);
+
+        using var response = await PostBatchAsync(session.SessionId, batch);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, "a missing member is a malformed request, not a server fault");
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).ShouldContain("Samples");
+    }
+
+    [Fact]
+    public async Task Batch_with_a_nil_tyre_temperature_member_returns_400()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var session = DtoFactory.SessionCreateRequest();
+        (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var samples = new[] { DtoFactory.TelemetrySample(session.SessionId, 0) with { TyreTemperatureRearRight = null! } };
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 0, samples);
+
+        using var response = await PostBatchAsync(session.SessionId, batch);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .ShouldContain(nameof(TelemetrySampleDto.TyreTemperatureRearRight));
+    }
+
+    [Fact]
+    public async Task Batch_with_nil_extras_returns_400()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var session = DtoFactory.SessionCreateRequest();
+        (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var samples = new[] { DtoFactory.TelemetrySample(session.SessionId, 0) with { Extras = null! } };
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 0, samples);
+
+        using var response = await PostBatchAsync(session.SessionId, batch);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .ShouldContain(nameof(TelemetrySampleDto.Extras));
+    }
+
+    [Fact]
+    public async Task Batch_body_past_the_size_cap_is_rejected_without_being_decoded()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var sessionId = Guid.CreateVersion7();
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/sessions/{sessionId}/telemetry:batch")
+        {
+            Content = new ByteArrayContent(new byte[(9 * 1024 * 1024) + 1]),
+        };
+        message.Headers.Add("X-Api-Key", AspireAppFixture.ApiKey);
+
+        using var response = await fixture.ApiClient.SendAsync(message, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.RequestEntityTooLarge);
+    }
+
     private async Task<HttpResponseMessage> PostBatchAsync(Guid sessionId, TelemetryBatchRequest batch)
     {
         var bytes = MessagePackSerializer.Serialize(batch, TelemetryMessagePackOptions.Default);

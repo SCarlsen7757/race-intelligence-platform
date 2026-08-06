@@ -53,7 +53,7 @@ namespace RaceIntelligence.Persistence.Bulk;
 /// <see cref="RaceIntelligenceDbContext"/> deliberately — this writer never touches the change
 /// tracker, so it has no reason to share a context instance or its lifetime.
 /// </param>
-public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource) : ITelemetryWriter
+public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource)
 {
     private const string TempTableName = "tmp_telemetry_import";
 
@@ -67,7 +67,19 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource) : ITeleme
 
     private static readonly string ColumnList = string.Join(", ", Columns);
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Writes a batch of telemetry samples for <paramref name="sessionId"/>, idempotently.
+    /// Re-submitting a batch (or a batch overlapping one already written, e.g. after a retried
+    /// upload) never creates duplicate rows: samples whose primary key
+    /// <c>(session_id, timestamp, sequence_number)</c> already exists are silently skipped and
+    /// counted as <see cref="TelemetryWriteResult.Duplicates"/>.
+    /// </summary>
+    /// <param name="sessionId">
+    /// The session every sample in <paramref name="samples"/> is expected to belong to. Used to
+    /// validate the batch; every sample's own <c>SessionId</c> must match.
+    /// </param>
+    /// <param name="samples">The samples to write. May be empty.</param>
+    /// <param name="ct">Cancellation token.</param>
     public async Task<TelemetryWriteResult> WriteAsync(
         Guid sessionId,
         IReadOnlyList<CoreTelemetry.TelemetrySample> samples,
@@ -103,9 +115,14 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource) : ITeleme
             $"COPY {TempTableName} ({ColumnList}) FROM STDIN (FORMAT BINARY)",
             ct).ConfigureAwait(false))
         {
+            // The four per-wheel arrays are built once and refilled per row. Npgsql copies their
+            // contents into the COPY buffer during the write, so reuse is safe — and it turns four
+            // allocations per sample (240 a second, per active session) into four per batch.
+            var buffers = new RowBuffers();
+
             foreach (var sample in samples)
             {
-                await WriteRowAsync(importer, sample, ct).ConfigureAwait(false);
+                await WriteRowAsync(importer, sample, buffers, ct).ConfigureAwait(false);
             }
 
             await importer.CompleteAsync(ct).ConfigureAwait(false);
@@ -129,33 +146,84 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource) : ITeleme
         return new TelemetryWriteResult(inserted, samples.Count - inserted);
     }
 
-    private static async Task WriteRowAsync(NpgsqlBinaryImporter importer, CoreTelemetry.TelemetrySample sample, CancellationToken ct)
+    /// <summary>
+    /// Writes one sample straight from its canonical form. Deliberately does <i>not</i> go through
+    /// <see cref="TelemetrySampleMapper.ToEntity"/>: that builds a tracked-entity-shaped object this
+    /// path immediately discards, and every field it copies is one this method reads anyway.
+    /// </summary>
+    private static async Task WriteRowAsync(
+        NpgsqlBinaryImporter importer,
+        CoreTelemetry.TelemetrySample sample,
+        RowBuffers buffers,
+        CancellationToken ct)
     {
-        var row = TelemetrySampleMapper.ToEntity(sample);
-
         await importer.StartRowAsync(ct).ConfigureAwait(false);
 
-        await importer.WriteAsync(row.SessionId, NpgsqlDbType.Uuid, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.Timestamp, NpgsqlDbType.TimestampTz, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.SequenceNumber, NpgsqlDbType.Bigint, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.SimulationTime, NpgsqlDbType.Double, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.LapNumber, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.Sector, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.Speed, NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await WriteNullableAsync(importer, row.Throttle, NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await WriteNullableAsync(importer, row.Brake, NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.Steering, NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.Gear, NpgsqlDbType.Smallint, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.EngineRpm, NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.FuelLeft, NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await WriteNullableAsync(importer, row.Position, NpgsqlDbType.Smallint, ct).ConfigureAwait(false);
-        await WriteNullableAsync(importer, row.TrackPositionFraction, NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.WheelSpeed, NpgsqlDbType.Array | NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await importer.WriteAsync(row.SuspensionTravel, NpgsqlDbType.Array | NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await WriteNullableArrayAsync(importer, row.TyrePressure, ct).ConfigureAwait(false);
-        await WriteNullableArrayAsync(importer, row.TyreWear, ct).ConfigureAwait(false);
-        await importer.WriteAsync(JsonElementConverter.Serialize(row.TyreTemperature), NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
-        await importer.WriteAsync(JsonElementConverter.Serialize(row.Extras), NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.SessionId, NpgsqlDbType.Uuid, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.Timestamp, NpgsqlDbType.TimestampTz, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.SequenceNumber, NpgsqlDbType.Bigint, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.SimulationTime, NpgsqlDbType.Double, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.LapNumber, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.Sector, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.Speed, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, sample.Throttle, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, sample.Brake, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.Steering, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await importer.WriteAsync(TelemetrySampleMapper.ToSmallInt(sample.Gear), NpgsqlDbType.Smallint, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.EngineRpm, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.FuelLeft, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableAsync<short>(
+            importer,
+            sample.Position.HasValue ? TelemetrySampleMapper.ToSmallInt(sample.Position.Value) : null,
+            NpgsqlDbType.Smallint,
+            ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, sample.TrackPositionFraction, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await importer.WriteAsync(Fill(buffers.WheelSpeed, sample.WheelSpeed), NpgsqlDbType.Array | NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await importer.WriteAsync(Fill(buffers.SuspensionTravel, sample.SuspensionTravel), NpgsqlDbType.Array | NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableArrayAsync(importer, Fill(buffers.TyrePressure, sample.TyrePressure), ct).ConfigureAwait(false);
+        await WriteNullableArrayAsync(importer, Fill(buffers.TyreWear, sample.TyreWear), ct).ConfigureAwait(false);
+        await importer.WriteAsync(
+            TelemetrySampleMapper.SerializeTyreTemperatureText(sample.TyreTemperature), NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
+        await importer.WriteAsync(JsonElementConverter.Serialize(sample.Extras), NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
+    }
+
+    private static float[] Fill(float[] buffer, CoreTelemetry.WheelData<float> wheelData)
+    {
+        buffer[0] = wheelData.FrontLeft;
+        buffer[1] = wheelData.FrontRight;
+        buffer[2] = wheelData.RearLeft;
+        buffer[3] = wheelData.RearRight;
+        return buffer;
+    }
+
+    /// <summary>
+    /// Fills <paramref name="buffer"/> in FL/FR/RL/RR order, or returns <see langword="null"/> when
+    /// no wheel reported anything — matching <see cref="TelemetrySampleMapper.ToNullableArray"/>,
+    /// which is what the EF path writes into the same nullable <c>real[]</c> columns.
+    /// </summary>
+    private static float?[]? Fill(float?[] buffer, CoreTelemetry.WheelData<float?> wheelData)
+    {
+        if (wheelData is { FrontLeft: null, FrontRight: null, RearLeft: null, RearRight: null })
+        {
+            return null;
+        }
+
+        buffer[0] = wheelData.FrontLeft;
+        buffer[1] = wheelData.FrontRight;
+        buffer[2] = wheelData.RearLeft;
+        buffer[3] = wheelData.RearRight;
+        return buffer;
+    }
+
+    private sealed class RowBuffers
+    {
+        public float[] WheelSpeed { get; } = new float[4];
+
+        public float[] SuspensionTravel { get; } = new float[4];
+
+        public float?[] TyrePressure { get; } = new float?[4];
+
+        public float?[] TyreWear { get; } = new float?[4];
     }
 
     private static async Task WriteNullableAsync<T>(NpgsqlBinaryImporter importer, T? value, NpgsqlDbType type, CancellationToken ct)

@@ -56,9 +56,8 @@ namespace RaceIntelligence.Persistence.Repositories;
 /// it — no guess is made and a separate row is kept instead.
 /// </para>
 /// Both paths are backed by a unique index (the second a partial one, filtered to
-/// <c>sim_driver_id IS NULL</c>), so both use the same insert + unique-violation-retry pattern as
-/// <see cref="GameRepository"/> and <see cref="CarRepository"/> — see
-/// <see cref="UniqueViolationDetection"/> for why.
+/// <c>sim_driver_id IS NULL</c>), so both insert through <see cref="ResolveOrCreate.InsertRowAsync"/>
+/// and re-select on conflict like every other repository here.
 /// </remarks>
 /// <param name="db">The context to resolve/create through.</param>
 public sealed class DriverRepository(RaceIntelligenceDbContext db)
@@ -142,19 +141,7 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
-        db.Drivers.Add(driver);
-        try
-        {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return driver;
-        }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
-        {
-            db.Entry(driver).State = EntityState.Detached;
-            return await FindBySimIdAsync(gameId, simDriverId, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    "Unique-constraint violation on drivers was reported, but the conflicting row could not be re-selected.");
-        }
+        return await db.InsertRowAsync(driver, token => FindBySimIdAsync(gameId, simDriverId, token), "drivers", ct).ConfigureAwait(false);
     }
 
     private async Task<Driver> ResolveByNameAsync(Guid gameId, string displayName, CancellationToken ct)
@@ -191,19 +178,7 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
-        db.Drivers.Add(driver);
-        try
-        {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return driver;
-        }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
-        {
-            db.Entry(driver).State = EntityState.Detached;
-            return await FindByNameAsync(gameId, displayName, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    "Unique-constraint violation on drivers was reported, but the conflicting row could not be re-selected.");
-        }
+        return await db.InsertRowAsync(driver, token => FindByNameAsync(gameId, displayName, token), "drivers", ct).ConfigureAwait(false);
     }
 
     private Task<Driver?> FindBySimIdAsync(Guid gameId, string simDriverId, CancellationToken ct) =>

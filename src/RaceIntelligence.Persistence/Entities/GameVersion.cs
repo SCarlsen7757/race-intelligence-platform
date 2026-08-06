@@ -21,7 +21,6 @@ public sealed class GameVersion
     /// <summary>The game this version belongs to.</summary>
     public Guid GameId { get; set; }
 
-    /// <summary>Navigation to the owning <see cref="Game"/>.</summary>
     public Game? Game { get; set; }
 
     /// <summary>

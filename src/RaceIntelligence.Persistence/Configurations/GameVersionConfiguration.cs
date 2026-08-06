@@ -4,10 +4,8 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Configurations;
 
-/// <summary>Maps <see cref="GameVersion"/> to the <c>game_versions</c> table.</summary>
 public sealed class GameVersionConfiguration : IEntityTypeConfiguration<GameVersion>
 {
-    /// <inheritdoc />
     public void Configure(EntityTypeBuilder<GameVersion> builder)
     {
         builder.ToTable("game_versions");

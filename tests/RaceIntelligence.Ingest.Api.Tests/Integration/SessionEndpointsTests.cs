@@ -296,6 +296,168 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
             .ShouldBe(1);
     }
 
+    [Fact]
+    public async Task A_cars_sim_id_and_display_name_are_stored_in_their_own_columns()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // The two must differ: posting the same string as both is what hid sim_car_id being fed the
+        // display name for every row ever written.
+        var simCarId = $"sim-car-{Guid.NewGuid():N}";
+        var request = DtoFactory.SessionCreateRequest() with { SimCarId = simCarId, CarName = "Audi R8 LMS GT3" };
+
+        (await PostAsync("/api/v1/sessions", request)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = await OpenDatabaseAsync();
+
+        (await ScalarAsync(db, "SELECT name FROM cars WHERE sim_car_id = @simCarId", ("simCarId", simCarId)))
+            .ShouldBe("Audi R8 LMS GT3", "sim_car_id identifies the car; name is the label shown for it");
+    }
+
+    [Fact]
+    public async Task Renaming_a_car_updates_the_one_car_row_rather_than_forking_a_second()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var gameVersion = DtoFactory.UniqueGameVersion();
+        var simCarId = $"sim-car-{Guid.NewGuid():N}";
+
+        var before = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = gameVersion,
+            SimCarId = simCarId,
+            CarName = "Car Name Before Rename",
+        };
+        var after = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = gameVersion,
+            SimCarId = simCarId,
+            CarName = "Car Name After Rename",
+        };
+
+        (await PostAsync("/api/v1/sessions", before)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await PostAsync("/api/v1/sessions", after)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = await OpenDatabaseAsync();
+
+        (await CountAsync(db, "SELECT count(*) FROM cars WHERE sim_car_id = @simCarId", ("simCarId", simCarId)))
+            .ShouldBe(1, "a car renamed between sims' content updates must not fork into a second row");
+
+        (await ScalarAsync(db, "SELECT name FROM cars WHERE sim_car_id = @simCarId", ("simCarId", simCarId)))
+            .ShouldBe("Car Name After Rename");
+
+        (await CountAsync(
+            db,
+            "SELECT count(DISTINCT car_id) FROM sessions WHERE id IN (@first, @second)",
+            ("first", before.SessionId),
+            ("second", after.SessionId)))
+            .ShouldBe(1, "both sessions were driven in the same car");
+    }
+
+    [Fact]
+    public async Task A_session_create_that_fails_at_the_last_step_leaves_no_reference_rows_behind()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // PostgreSQL text cannot hold U+0000, so a car name containing one fails at the car insert —
+        // by which point the game, its version, the driver, the track and the layout have each
+        // already been committed by their own SaveChanges. This is the shape of the failure that
+        // used to leave orphan rows behind.
+        var gameVersion = DtoFactory.UniqueGameVersion();
+        var playerName = $"Orphan Check Driver {Guid.NewGuid():N}";
+        var trackName = $"Orphan Check Track {Guid.NewGuid():N}";
+
+        var doomed = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = gameVersion,
+            PlayerName = playerName,
+            SimDriverId = null,
+            TrackName = trackName,
+            CarName = "Rejected\0Car Name",
+            SimCarId = null,
+        };
+
+        var response = await PostAsync("/api/v1/sessions", doomed);
+        response.StatusCode.ShouldNotBe(HttpStatusCode.OK, "the session row cannot be written, so the request must not report success");
+
+        await using var db = await OpenDatabaseAsync();
+
+        (await CountAsync(db, "SELECT count(*) FROM sessions WHERE id = @id", ("id", doomed.SessionId)))
+            .ShouldBe(0);
+        (await CountAsync(db, "SELECT count(*) FROM games WHERE key = @key", ("key", gameVersion.GameKey)))
+            .ShouldBe(0, "the game resolved on the way to the failed insert must be rolled back with it");
+        (await CountAsync(db, "SELECT count(*) FROM drivers WHERE display_name = @name", ("name", playerName)))
+            .ShouldBe(0, "an orphan driver row is exactly the residue this transaction exists to prevent");
+        (await CountAsync(db, "SELECT count(*) FROM tracks WHERE name = @name", ("name", trackName)))
+            .ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Malformed_extras_json_on_create_is_a_400_not_a_500()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var gameVersion = DtoFactory.UniqueGameVersion();
+        var request = DtoFactory.SessionCreateRequest() with { GameVersion = gameVersion, ExtrasJson = "{not json" };
+
+        using var response = await PostAsync("/api/v1/sessions", request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .ShouldContain(nameof(SessionCreateRequest.ExtrasJson), Case.Insensitive);
+
+        // Rejected before the transaction opens, so nothing was written on the way to the failure.
+        await using var db = await OpenDatabaseAsync();
+        (await CountAsync(db, "SELECT count(*) FROM games WHERE key = @key", ("key", gameVersion.GameKey))).ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("weather")]
+    [InlineData("setup")]
+    [InlineData("extras")]
+    public async Task Malformed_json_on_patch_is_a_400_not_a_500(string field)
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var session = DtoFactory.SessionCreateRequest();
+        (await PostAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        const string Malformed = "{\"unterminated\": ";
+        var update = new SessionUpdateRequest(
+            SchemaVersion.Current,
+            null,
+            WeatherJson: field == "weather" ? Malformed : null,
+            SetupJson: field == "setup" ? Malformed : null,
+            ExtrasJson: field == "extras" ? Malformed : null);
+
+        using var message = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/sessions/{session.SessionId}")
+        {
+            Content = JsonContent.Create(update),
+        };
+        message.Headers.Add("X-Api-Key", AspireAppFixture.ApiKey);
+
+        using var response = await fixture.ApiClient.SendAsync(message, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, "malformed client JSON is a client error, like every other rejection this endpoint makes");
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .ShouldContain(field, Case.Insensitive);
+    }
+
     private async Task<HttpResponseMessage> PostAsync<T>(string path, T body)
     {
         using var message = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };

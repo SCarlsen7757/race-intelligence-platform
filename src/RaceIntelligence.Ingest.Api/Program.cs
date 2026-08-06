@@ -32,7 +32,7 @@ builder.Services.AddDbContext<RaceIntelligenceDbContext>(options => options.UseN
 // NpgsqlDataSource is the bulk telemetry writer's own connection source, kept separate from the
 // DbContext because it never touches EF's change tracker (see NpgsqlTelemetryWriter remarks).
 builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
-builder.Services.AddScoped<ITelemetryWriter, NpgsqlTelemetryWriter>();
+builder.Services.AddScoped<NpgsqlTelemetryWriter>();
 
 builder.Services.AddScoped<GameRepository>();
 builder.Services.AddScoped<TrackRepository>();

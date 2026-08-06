@@ -4,10 +4,8 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Configurations;
 
-/// <summary>Maps <see cref="Driver"/> to the <c>drivers</c> table.</summary>
 public sealed class DriverConfiguration : IEntityTypeConfiguration<Driver>
 {
-    /// <inheritdoc />
     public void Configure(EntityTypeBuilder<Driver> builder)
     {
         builder.ToTable("drivers");

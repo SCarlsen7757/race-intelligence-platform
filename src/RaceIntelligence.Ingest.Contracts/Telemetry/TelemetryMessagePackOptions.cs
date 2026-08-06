@@ -24,9 +24,19 @@ namespace RaceIntelligence.Ingest.Contracts.Telemetry;
 /// the collector nor this API is deployed as Native AOT/trimmed today. Revisit this if that
 /// changes.
 /// </para>
+/// <para>
+/// <b>Why <see cref="MessagePackSecurity.UntrustedData"/>:</b> the telemetry batch endpoint is
+/// reachable by anyone holding an API key, so the bytes it decodes are attacker-influenced.
+/// <see cref="MessagePackSecurity.TrustedData"/> — the <c>Standard</c> default — caps recursion at
+/// <see cref="int.MaxValue"/> and uses collision-prone hashing for map keys, which turns a small
+/// hand-written payload into a stack overflow or a quadratic-time hash flood. Security settings
+/// affect decoding only, so applying them to the one shared options instance costs the collector
+/// (which only ever encodes) nothing.
+/// </para>
 /// </remarks>
 public static class TelemetryMessagePackOptions
 {
     /// <summary>The shared serializer options for <see cref="TelemetryBatchRequest"/> and its members.</summary>
-    public static readonly MessagePackSerializerOptions Default = MessagePackSerializerOptions.Standard;
+    public static readonly MessagePackSerializerOptions Default =
+        MessagePackSerializerOptions.Standard.WithSecurity(MessagePackSecurity.UntrustedData);
 }
