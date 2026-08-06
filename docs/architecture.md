@@ -106,8 +106,6 @@ LMU
 
 Every simulator only needs a connector.
 
-The backend should never know which simulator produced the data.
-
 ---
 
 ## Canonical Telemetry Model
@@ -176,7 +174,7 @@ Example
 }
 ```
 
-This makes the system future-proof.
+A new simulator with fields nobody anticipated should cost a connector, not a migration.
 
 ---
 
@@ -215,20 +213,12 @@ This keeps the system simulator-independent.
 
 ## Database Design
 
-Recommended database:
+**PostgreSQL**, for three reasons specific to this workload:
 
-**PostgreSQL**
-
-Reason:
-
-- Mature
-- Reliable
-- Fast
-- Excellent indexing
-- JSON support
-- Widely supported
-- Easy cloud deployment
-- Can migrate to TimescaleDB later if needed
+- Native JSON columns, which the simulator-specific metadata above depends on.
+- Indexing good enough to slice a large telemetry table by session, lap and time.
+- TimescaleDB is an extension rather than a different database, so the time-series upgrade path
+  stays open without a rewrite.
 
 At the current estimated data rate (~20 MB for a 30-minute race), plain PostgreSQL should comfortably handle the workload for a long time.
 
@@ -286,30 +276,17 @@ This applies the same principle as algorithm versioning:
 
 ---
 
-### Drivers
+### Drivers, Tracks and Cars
+
+Plain reference tables that sessions point at, so a name is stored once and can be corrected in one
+place:
 
 ```
 Driver
-```
 
----
+Track / Layout / Length
 
-### Tracks
-
-```
-Track
-Layout
-Length
-```
-
----
-
-### Cars
-
-```
-Car
-Class
-Manufacturer
+Car / Class / Manufacturer
 ```
 
 ---
@@ -373,10 +350,6 @@ Reasons:
 - Machine learning benefits from large datasets.
 - Historical comparisons become possible.
 - Bugs in algorithms can be fixed by replaying history.
-
-Raw telemetry should never be modified.
-
-It is the source of truth.
 
 ---
 
