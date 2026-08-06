@@ -296,6 +296,70 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
             .ShouldBe(1);
     }
 
+    [Fact]
+    public async Task A_cars_sim_id_and_display_name_are_stored_in_their_own_columns()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // The two must differ: posting the same string as both is what hid sim_car_id being fed the
+        // display name for every row ever written.
+        var simCarId = $"sim-car-{Guid.NewGuid():N}";
+        var request = DtoFactory.SessionCreateRequest() with { SimCarId = simCarId, CarName = "Audi R8 LMS GT3" };
+
+        (await PostAsync("/api/v1/sessions", request)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = await OpenDatabaseAsync();
+
+        (await ScalarAsync(db, "SELECT name FROM cars WHERE sim_car_id = @simCarId", ("simCarId", simCarId)))
+            .ShouldBe("Audi R8 LMS GT3", "sim_car_id identifies the car; name is the label shown for it");
+    }
+
+    [Fact]
+    public async Task Renaming_a_car_updates_the_one_car_row_rather_than_forking_a_second()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var gameVersion = DtoFactory.UniqueGameVersion();
+        var simCarId = $"sim-car-{Guid.NewGuid():N}";
+
+        var before = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = gameVersion,
+            SimCarId = simCarId,
+            CarName = "Car Name Before Rename",
+        };
+        var after = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = gameVersion,
+            SimCarId = simCarId,
+            CarName = "Car Name After Rename",
+        };
+
+        (await PostAsync("/api/v1/sessions", before)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await PostAsync("/api/v1/sessions", after)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = await OpenDatabaseAsync();
+
+        (await CountAsync(db, "SELECT count(*) FROM cars WHERE sim_car_id = @simCarId", ("simCarId", simCarId)))
+            .ShouldBe(1, "a car renamed between sims' content updates must not fork into a second row");
+
+        (await ScalarAsync(db, "SELECT name FROM cars WHERE sim_car_id = @simCarId", ("simCarId", simCarId)))
+            .ShouldBe("Car Name After Rename");
+
+        (await CountAsync(
+            db,
+            "SELECT count(DISTINCT car_id) FROM sessions WHERE id IN (@first, @second)",
+            ("first", before.SessionId),
+            ("second", after.SessionId)))
+            .ShouldBe(1, "both sessions were driven in the same car");
+    }
+
     private async Task<HttpResponseMessage> PostAsync<T>(string path, T body)
     {
         using var message = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };

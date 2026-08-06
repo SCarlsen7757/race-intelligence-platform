@@ -65,10 +65,10 @@ public static class SessionEndpoints
         var (_, layout) = await trackRepo.ResolveOrCreateAsync(
             game.Id, request.TrackName, request.LayoutName, request.LayoutLengthMeters ?? 0, ct: ct).ConfigureAwait(false);
 
-        Guid? carId = string.IsNullOrWhiteSpace(request.CarName)
-            ? null
-            : (await carRepo.ResolveOrCreateCarAsync(
-                game.Id, request.CarName, request.CarName, request.ManufacturerName, request.CarClassName, ct).ConfigureAwait(false)).Id;
+        // As with the driver above, the repository decides for itself whether there is anything to
+        // resolve. SimCarId is the identity; CarName is only the label shown for it.
+        Guid? carId = (await carRepo.ResolveOrCreateCarAsync(
+            game.Id, request.SimCarId, request.CarName, request.ManufacturerName, request.CarClassName, ct).ConfigureAwait(false))?.Id;
 
         var sessionInfo = SessionContractMapper.ToSessionInfo(request);
         var entity = SessionMapper.ToEntity(sessionInfo, gameVersion.Id, driverId, layout.Id, carId, request.SchemaVersion);
