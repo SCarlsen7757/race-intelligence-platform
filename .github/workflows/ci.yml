@@ -11,11 +11,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build and test
-    # ubuntu-latest ships a running Docker daemon. The Testcontainers (Persistence) and Aspire
-    # (Ingest.Api) integration suites skip themselves when no container runtime is present, so a
-    # runner without Docker would report green while silently testing nothing.
+  # Everything that needs a Linux container runtime. The Testcontainers (Persistence) and Aspire
+  # (Ingest.Api) suites skip themselves when no container runtime is present, so a runner without
+  # Docker would report green while silently testing nothing — ubuntu-latest ships a running daemon.
+  linux:
+    name: Build and test (Linux)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -41,7 +41,45 @@ jobs:
         run: dotnet build RaceIntelligence.slnx --configuration Release --no-restore --no-incremental -warnaserror
 
       - name: Test
-        # Not --no-build: the test projects run on Microsoft.Testing.Platform (see global.json) and
-        # rebuilding takes seconds on a repo this size, which is cheaper than debugging argument
-        # forwarding between `dotnet test` and the platform host.
-        run: dotnet test RaceIntelligence.slnx --configuration Release
+        # Every suite except the RaceRoom connector, which is covered by the windows job below.
+        # Listed explicitly rather than filtered: if a new test project is added and nobody adds it
+        # here, that is visible in this file rather than silently unrun.
+        #
+        # Two things here are load-bearing and were both verified by running them in a Linux
+        # container, because getting either wrong fails quietly rather than loudly:
+        #   - the full .csproj path, not the directory: a directory reports "No test projects were
+        #     found" instead of running anything;
+        #   - no --no-build: these projects run on Microsoft.Testing.Platform, and --no-build makes
+        #     discovery report "No test projects were found" too. Rebuilding costs seconds.
+        run: |
+          dotnet test tests/RaceIntelligence.Analysis.Tests/RaceIntelligence.Analysis.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Collector.Tests/RaceIntelligence.Collector.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Persistence.Tests/RaceIntelligence.Persistence.Tests.csproj --configuration Release
+
+  # The RaceRoom connector reads the sim's shared memory through a *named* memory-mapped file
+  # (MemoryMappedFile.OpenExisting(name, ...)), and named maps are a Windows-only feature — on Unix
+  # they throw PlatformNotSupportedException. So this suite cannot run on the Linux job, and
+  # skipping it there instead would leave the interop code with no CI coverage at all.
+  # Windows runners have no Linux Docker, which is why they run only this suite: it needs no
+  # container, and everything that does stays on the Linux job.
+  windows:
+    name: Connector interop tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Test
+        # Builds as part of the run: this job compiles only the connector suite and its references,
+        # so a separate build step would duplicate that work for no extra signal. The Linux job is
+        # the one that enforces a zero-warning full-solution compile.
+        run: dotnet test tests/RaceIntelligence.Connectors.RaceRoom.Tests/RaceIntelligence.Connectors.RaceRoom.Tests.csproj --configuration Release
