@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.Extensions.Logging.Abstractions;
 using RaceIntelligence.Collector.Tests.Support;
 using RaceIntelligence.Collector.Upload;
 using RaceIntelligence.Ingest.Contracts;
@@ -18,7 +17,7 @@ public class IngestClientTests
     {
         httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://ingest.example/") };
         httpClient.DefaultRequestHeaders.Add("X-Api-Key", ApiKey);
-        return new IngestClient(httpClient, NullLogger<IngestClient>.Instance);
+        return new IngestClient(httpClient);
     }
 
     [Fact]
