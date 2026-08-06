@@ -34,6 +34,8 @@ coverage*.info
 TestResults/
 
 ## Local secrets & environment
+# `*.env` matches foo.env and `.env.*` matches .env.local, but neither matches a bare `.env`.
+.env
 *.env
 .env.*
 appsettings.Local.json
