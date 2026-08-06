@@ -125,6 +125,8 @@ public class RaceRoomTelemetrySourceStateMachineTests
         var lapCompleted = await NextAsync<LapCompleted>(enumerator);
         lapCompleted.Lap.SessionId.ShouldBe(sessionId);
         lapCompleted.Lap.LapNumber.ShouldBe(1);
+        lapCompleted.Lap.IsValid.ShouldBeTrue(
+            "a clean on-track lap must be reported as valid -- this went unnoticed while the builder defaulted prev_lap_valid to -1 (N/A).");
 
         // 5. Back to menus (checkered) -> SessionEnded, then back to Connected.
         view.SetFrame(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
