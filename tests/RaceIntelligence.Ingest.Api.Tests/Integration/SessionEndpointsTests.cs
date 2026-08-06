@@ -401,6 +401,63 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
             .ShouldBe(0);
     }
 
+    [Fact]
+    public async Task Malformed_extras_json_on_create_is_a_400_not_a_500()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var gameVersion = DtoFactory.UniqueGameVersion();
+        var request = DtoFactory.SessionCreateRequest() with { GameVersion = gameVersion, ExtrasJson = "{not json" };
+
+        using var response = await PostAsync("/api/v1/sessions", request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .ShouldContain(nameof(SessionCreateRequest.ExtrasJson), Case.Insensitive);
+
+        // Rejected before the transaction opens, so nothing was written on the way to the failure.
+        await using var db = await OpenDatabaseAsync();
+        (await CountAsync(db, "SELECT count(*) FROM games WHERE key = @key", ("key", gameVersion.GameKey))).ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("weather")]
+    [InlineData("setup")]
+    [InlineData("extras")]
+    public async Task Malformed_json_on_patch_is_a_400_not_a_500(string field)
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var session = DtoFactory.SessionCreateRequest();
+        (await PostAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        const string Malformed = "{\"unterminated\": ";
+        var update = new SessionUpdateRequest(
+            SchemaVersion.Current,
+            null,
+            WeatherJson: field == "weather" ? Malformed : null,
+            SetupJson: field == "setup" ? Malformed : null,
+            ExtrasJson: field == "extras" ? Malformed : null);
+
+        using var message = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/sessions/{session.SessionId}")
+        {
+            Content = JsonContent.Create(update),
+        };
+        message.Headers.Add("X-Api-Key", AspireAppFixture.ApiKey);
+
+        using var response = await fixture.ApiClient.SendAsync(message, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, "malformed client JSON is a client error, like every other rejection this endpoint makes");
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .ShouldContain(field, Case.Insensitive);
+    }
+
     private async Task<HttpResponseMessage> PostAsync<T>(string path, T body)
     {
         using var message = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };

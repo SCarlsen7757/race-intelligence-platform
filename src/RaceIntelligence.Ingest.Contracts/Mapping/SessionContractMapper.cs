@@ -56,7 +56,22 @@ public static class SessionContractMapper
         IsValid = request.IsValid,
     };
 
-    /// <summary>Parses an optional raw JSON string into a <see cref="JsonElement"/>, defaulting to an empty object when absent.</summary>
-    private static JsonElement ParseJson(string? json) =>
-        string.IsNullOrWhiteSpace(json) ? EmptyObject : JsonDocument.Parse(json).RootElement;
+    /// <summary>
+    /// Parses an optional raw JSON string into a <see cref="JsonElement"/>, defaulting to an empty
+    /// object when absent. Throws <see cref="JsonException"/> on malformed input rather than
+    /// silently substituting the empty object — callers on the request path must be able to tell
+    /// "the client sent nothing" from "the client sent garbage" and answer 400 for the latter.
+    /// </summary>
+    private static JsonElement ParseJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return EmptyObject;
+        }
+
+        // Cloned so the document's pooled buffers can be released here; the element would otherwise
+        // keep the whole document alive for as long as the session info is.
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
 }

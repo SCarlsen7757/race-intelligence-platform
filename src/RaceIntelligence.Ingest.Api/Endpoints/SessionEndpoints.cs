@@ -7,6 +7,7 @@ using RaceIntelligence.Ingest.Contracts.Mapping;
 using RaceIntelligence.Persistence;
 using RaceIntelligence.Persistence.Mapping;
 using RaceIntelligence.Persistence.Repositories;
+using CoreSessions = RaceIntelligence.Core.Sessions;
 
 namespace RaceIntelligence.Ingest.Api.Endpoints;
 
@@ -65,6 +66,18 @@ public static class SessionEndpoints
             return Results.Ok(new { existing.Id });
         }
 
+        // ExtrasJson is raw client-supplied text, so parsing it is a client error when it fails, not
+        // a server one. Done before the transaction opens so a doomed request costs no database work.
+        CoreSessions.SessionInfo sessionInfo;
+        try
+        {
+            sessionInfo = SessionContractMapper.ToSessionInfo(request);
+        }
+        catch (JsonException ex)
+        {
+            return ProblemResults.MalformedJson(nameof(SessionCreateRequest.ExtrasJson), ex.Message);
+        }
+
         await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
 
         var (game, gameVersion) = await gameRepo.ResolveOrCreateAsync(
@@ -83,7 +96,6 @@ public static class SessionEndpoints
         Guid? carId = (await carRepo.ResolveOrCreateCarAsync(
             game.Id, request.SimCarId, request.CarName, request.ManufacturerName, request.CarClassName, ct).ConfigureAwait(false))?.Id;
 
-        var sessionInfo = SessionContractMapper.ToSessionInfo(request);
         var entity = SessionMapper.ToEntity(sessionInfo, gameVersion.Id, driverId, layout.Id, carId, request.SchemaVersion);
 
         db.Sessions.Add(entity);
@@ -129,17 +141,32 @@ public static class SessionEndpoints
 
         if (request.WeatherJson is not null)
         {
-            session.Weather = JsonDocument.Parse(request.WeatherJson).RootElement;
+            if (!TryParseJson(request.WeatherJson, out var weather))
+            {
+                return ProblemResults.MalformedJson(nameof(SessionUpdateRequest.WeatherJson), weather.Reason!);
+            }
+
+            session.Weather = weather.Value;
         }
 
         if (request.SetupJson is not null)
         {
-            session.Setup = JsonDocument.Parse(request.SetupJson).RootElement;
+            if (!TryParseJson(request.SetupJson, out var setup))
+            {
+                return ProblemResults.MalformedJson(nameof(SessionUpdateRequest.SetupJson), setup.Reason!);
+            }
+
+            session.Setup = setup.Value;
         }
 
         if (request.ExtrasJson is not null)
         {
-            session.Extras = JsonDocument.Parse(request.ExtrasJson).RootElement;
+            if (!TryParseJson(request.ExtrasJson, out var extras))
+            {
+                return ProblemResults.MalformedJson(nameof(SessionUpdateRequest.ExtrasJson), extras.Reason!);
+            }
+
+            session.Extras = extras.Value;
         }
 
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -190,4 +217,26 @@ public static class SessionEndpoints
 
     private static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is PostgresException { SqlState: UniqueViolationSqlState };
+
+    /// <summary>
+    /// Parses client-supplied raw JSON text, reporting failure rather than throwing. The document is
+    /// cloned and disposed instead of being kept alive by the returned element, so its pooled
+    /// buffers go back to the pool.
+    /// </summary>
+    private static bool TryParseJson(string json, out ParsedJson parsed)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            parsed = new ParsedJson(document.RootElement.Clone(), null);
+            return true;
+        }
+        catch (JsonException ex)
+        {
+            parsed = new ParsedJson(default, ex.Message);
+            return false;
+        }
+    }
+
+    private readonly record struct ParsedJson(JsonElement Value, string? Reason);
 }
