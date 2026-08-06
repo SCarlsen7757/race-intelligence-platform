@@ -21,11 +21,21 @@ namespace RaceIntelligence.Core.Buffering;
 public interface ITelemetryBuffer : IAsyncDisposable
 {
     /// <summary>
-    /// Attempts to enqueue a sample without blocking. Returns <see langword="false"/> if the
-    /// buffer is full or has been completed, in which case the sample is dropped and
-    /// <see cref="BufferMetrics.TotalDropped"/> is incremented.
+    /// Attempts to enqueue a sample. Returns <see langword="false"/> if the sample was dropped, in
+    /// which case <see cref="BufferMetrics.TotalDropped"/> is incremented.
     /// </summary>
-    bool TryWrite(TelemetrySample sample);
+    /// <param name="sample">The sample to enqueue.</param>
+    /// <param name="cancellationToken">Unparks an implementation that is applying backpressure.</param>
+    /// <remarks>
+    /// Whether this blocks is the implementation's choice, and both answers are legitimate: an
+    /// implementation that drops on a full buffer returns immediately, while one that applies real
+    /// backpressure has no other way to do so from a synchronous method and will block the calling
+    /// thread until space frees, the buffer completes, or <paramref name="cancellationToken"/> is
+    /// cancelled. Callers on a loop that must stay responsive to shutdown are therefore expected to
+    /// pass their stopping token — without it, a blocking implementation cannot be unparked by
+    /// anything other than <see cref="Complete"/>.
+    /// </remarks>
+    bool TryWrite(TelemetrySample sample, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Waits until a sample is available to read, the buffer completes, or

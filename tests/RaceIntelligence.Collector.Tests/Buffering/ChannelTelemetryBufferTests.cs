@@ -125,6 +125,40 @@ public class ChannelTelemetryBufferTests
     }
 
     [Fact]
+    public async Task Cancelling_the_callers_token_releases_a_writer_blocked_on_a_full_buffer()
+    {
+        // The other half of the unpark contract: a caller that passes its stopping token can free
+        // its own parked producer without completing the buffer, which matters because the reader
+        // may still have samples to drain.
+        await using var buffer = CreateBuffer(capacity: 1, BoundedChannelFullMode.Wait);
+        var sessionId = Guid.NewGuid();
+        using var cts = new CancellationTokenSource();
+
+        buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 0)).ShouldBeTrue();
+
+        var writerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockedWrite = Task.Run(
+            () =>
+            {
+                writerEntered.SetResult();
+                return buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 1), cts.Token);
+            },
+            TestContext.Current.CancellationToken);
+
+        await writerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        await cts.CancelAsync();
+
+        (await blockedWrite.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken))
+            .ShouldBeFalse("the cancelled write did not store the sample, so it must report a drop.");
+        buffer.Metrics.TotalDropped.ShouldBe(1);
+
+        // The buffer itself is still usable — cancelling one write must not complete it.
+        buffer.TryRead(out _).ShouldBeTrue();
+        buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 2)).ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Complete_lets_readers_drain_remaining_samples_then_stop()
     {
         await using var buffer = CreateBuffer(capacity: 10, BoundedChannelFullMode.Wait);

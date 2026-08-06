@@ -10,9 +10,9 @@ namespace RaceIntelligence.Collector.Tests.Support;
 /// </summary>
 internal sealed class LoggingTelemetryBuffer(ITelemetryBuffer inner, List<string> sharedLog) : ITelemetryBuffer
 {
-    public bool TryWrite(TelemetrySample sample)
+    public bool TryWrite(TelemetrySample sample, CancellationToken cancellationToken = default)
     {
-        bool written = inner.TryWrite(sample);
+        bool written = inner.TryWrite(sample, cancellationToken);
         if (written)
         {
             lock (sharedLog)

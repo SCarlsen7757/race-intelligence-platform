@@ -42,7 +42,6 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
     // Cancels a producer parked inside a backpressure-blocking TryWrite. Without it, shutdown with
     // a full buffer deadlocks: the blocking write owns the producer's thread, so the producer can
     // never observe its own stopping token, and the host waits out its whole ShutdownTimeout.
-    private readonly CancellationTokenSource _shutdown = new();
 
     private long _totalWritten;
     private long _totalRead;
@@ -78,23 +77,21 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
     }
 
     /// <inheritdoc />
-    public bool TryWrite(TelemetrySample sample)
+    public bool TryWrite(TelemetrySample sample, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sample);
 
         if (_fullMode == BoundedChannelFullMode.Wait)
         {
             // Block the calling thread (deliberately — see class remarks) until space frees up, the
-            // buffer completes, or shutdown is signalled. This is the one place this type's
-            // behaviour diverges from ITelemetryBuffer.TryWrite's "without blocking" doc comment: a
-            // synchronous TryWrite has no other way to apply real backpressure, and
-            // CollectorOptions.BufferFullMode defaults to Wait specifically so this path is the
-            // common case. Passing _shutdown.Token is what keeps that divergence bounded — Complete
-            // or DisposeAsync unparks the producer instead of leaving it stuck until the host's
-            // ShutdownTimeout expires.
+            // buffer completes, or the caller's token is cancelled. This is the backpressure the
+            // Wait mode exists to apply, and CollectorOptions.BufferFullMode defaults to Wait so
+            // this is the common path. A parked producer holds its own thread and cannot observe
+            // anything else, so the token is what bounds the wait: without it, only Complete can
+            // unpark this.
             try
             {
-                _channel.Writer.WriteAsync(sample, _shutdown.Token).AsTask().GetAwaiter().GetResult();
+                _channel.Writer.WriteAsync(sample, cancellationToken).AsTask().GetAwaiter().GetResult();
                 Interlocked.Increment(ref _totalWritten);
                 return true;
             }
@@ -146,8 +143,9 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
     /// <remarks>Also unparks a producer currently blocked in <see cref="TryWrite"/>; that write is counted as dropped.</remarks>
     public void Complete()
     {
+        // Completing the writer faults any pending WriteAsync with ChannelClosedException, which is
+        // what unparks a producer blocked in TryWrite without a cancellable token of its own.
         _channel.Writer.TryComplete();
-        _shutdown.Cancel();
     }
 
     /// <inheritdoc />
@@ -161,7 +159,6 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
     public ValueTask DisposeAsync()
     {
         Complete();
-        _shutdown.Dispose();
         return ValueTask.CompletedTask;
     }
 }

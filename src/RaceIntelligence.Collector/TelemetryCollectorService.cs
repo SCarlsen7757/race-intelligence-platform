@@ -111,7 +111,7 @@ public sealed class TelemetryCollectorService(
     private Task HandleEventAsync(TelemetryEvent telemetryEvent, CancellationToken cancellationToken) => telemetryEvent switch
     {
         SessionStarted started => HandleSessionStartedAsync(started, cancellationToken),
-        TelemetrySampleReceived sample => HandleSampleReceived(sample),
+        TelemetrySampleReceived sample => HandleSampleReceived(sample, cancellationToken),
         LapCompleted lap => HandleLapCompletedAsync(lap, cancellationToken),
         SessionEnded ended => HandleSessionEndedAsync(ended, cancellationToken),
         ConnectionStateChanged stateChanged => HandleConnectionStateChanged(stateChanged),
@@ -130,7 +130,7 @@ public sealed class TelemetryCollectorService(
             started.Session.SessionId, started.Session.SessionType, started.Session.TrackName, started.Session.LayoutName);
     }
 
-    private Task HandleSampleReceived(TelemetrySampleReceived sampleReceived)
+    private Task HandleSampleReceived(TelemetrySampleReceived sampleReceived, CancellationToken cancellationToken)
     {
         var sample = sampleReceived.Sample;
 
@@ -143,8 +143,10 @@ public sealed class TelemetryCollectorService(
 
         // The return value is intentionally ignored: ChannelTelemetryBuffer already logs and
         // counts a drop itself (see its TryWrite), so logging again here would just double the
-        // log volume for the same event without adding information.
-        _ = buffer.TryWrite(sample);
+        // log volume for the same event without adding information. The token matters — under
+        // BufferFullMode.Wait this call parks the poll loop's thread until space frees, and it is
+        // the only thing that lets shutdown unpark it.
+        _ = buffer.TryWrite(sample, cancellationToken);
 
         return Task.CompletedTask;
     }
