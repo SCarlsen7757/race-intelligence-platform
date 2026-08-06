@@ -5,10 +5,8 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Configurations;
 
-/// <summary>Maps <see cref="Session"/> to the <c>sessions</c> table.</summary>
 public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 {
-    /// <inheritdoc />
     public void Configure(EntityTypeBuilder<Session> builder)
     {
         builder.ToTable("sessions");

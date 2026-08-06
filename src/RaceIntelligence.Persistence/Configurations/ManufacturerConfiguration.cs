@@ -4,10 +4,8 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Configurations;
 
-/// <summary>Maps <see cref="Manufacturer"/> to the <c>manufacturers</c> table.</summary>
 public sealed class ManufacturerConfiguration : IEntityTypeConfiguration<Manufacturer>
 {
-    /// <inheritdoc />
     public void Configure(EntityTypeBuilder<Manufacturer> builder)
     {
         builder.ToTable("manufacturers");

@@ -5,9 +5,11 @@ namespace RaceIntelligence.Persistence.Mapping;
 
 /// <summary>Maps the canonical <see cref="CoreTelemetry.TelemetrySample"/> to its persisted row shape.</summary>
 /// <remarks>
-/// Used both by <see cref="Entities.TelemetrySample"/> (the EF entity, for tests/ad-hoc writes)
-/// and directly by <c>Bulk/NpgsqlTelemetryWriter</c>, which writes the same field values through
-/// the binary <c>COPY</c> protocol rather than through EF's change tracker.
+/// <see cref="ToEntity"/> is the EF path, used for tests and ad-hoc writes. The bulk
+/// <c>Bulk/NpgsqlTelemetryWriter</c> deliberately does not go through it — it writes the same field
+/// values straight into the binary <c>COPY</c> stream — but it does share this type's per-field
+/// conversion rules (<see cref="ToSmallInt"/>, <see cref="SerializeTyreTemperatureText"/>, and the
+/// all-null-means-null-column rule on the nullable wheel arrays), so the two paths cannot drift.
 /// </remarks>
 public static class TelemetrySampleMapper
 {

@@ -25,7 +25,6 @@ public sealed class Driver
     /// <summary>The game that issued this driver's identity. Required — sim driver ids share a numeric namespace across sims.</summary>
     public Guid GameId { get; set; }
 
-    /// <summary>Navigation to the owning <see cref="Entities.Game"/>.</summary>
     public Game? Game { get; set; }
 
     /// <summary>

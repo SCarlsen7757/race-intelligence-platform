@@ -56,9 +56,8 @@ namespace RaceIntelligence.Persistence.Repositories;
 /// it — no guess is made and a separate row is kept instead.
 /// </para>
 /// Both paths are backed by a unique index (the second a partial one, filtered to
-/// <c>sim_driver_id IS NULL</c>), so both use the same insert + unique-violation-retry pattern as
-/// <see cref="GameRepository"/> and <see cref="CarRepository"/> — see
-/// <see cref="UniqueViolationDetection"/> for why.
+/// <c>sim_driver_id IS NULL</c>), so both insert through <see cref="ResolveOrCreate.InsertRowAsync"/>
+/// and re-select on conflict like every other repository here.
 /// </remarks>
 /// <param name="db">The context to resolve/create through.</param>
 public sealed class DriverRepository(RaceIntelligenceDbContext db)

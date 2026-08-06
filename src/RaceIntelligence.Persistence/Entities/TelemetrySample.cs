@@ -9,8 +9,10 @@ namespace RaceIntelligence.Persistence.Entities;
 /// <remarks>
 /// <para>
 /// <b>Raw telemetry is immutable and permanent</b> — this table is insert-only. There are
-/// deliberately no update/delete helpers anywhere in this project for this entity; the only write
-/// path is <c>Bulk/NpgsqlTelemetryWriter</c>, and even that only ever inserts.
+/// deliberately no update/delete helpers anywhere in this project for this entity. The running
+/// system's only write path is <c>Bulk/NpgsqlTelemetryWriter</c>, and even that only ever inserts;
+/// this entity itself is written through EF only by tests, which use it to check that the bulk
+/// path and the mapped model agree.
 /// </para>
 /// <para>
 /// <b>Why the primary key is <c>(session_id, timestamp, sequence_number)</c> and not a surrogate
@@ -51,7 +53,6 @@ public sealed class TelemetrySample
     /// <summary>The session this sample belongs to. Part of the composite primary key.</summary>
     public Guid SessionId { get; set; }
 
-    /// <summary>Navigation to the owning <see cref="Session"/>.</summary>
     public Session? Session { get; set; }
 
     /// <summary>Wall-clock time the sample was captured. Part of the composite primary key (and the future TimescaleDB partitioning column).</summary>

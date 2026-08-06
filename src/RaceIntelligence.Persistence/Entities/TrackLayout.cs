@@ -9,7 +9,6 @@ public sealed class TrackLayout
     /// <summary>The track this layout belongs to.</summary>
     public Guid TrackId { get; set; }
 
-    /// <summary>Navigation to the owning <see cref="Track"/>.</summary>
     public Track? Track { get; set; }
 
     /// <summary>Layout name, unique within its track.</summary>

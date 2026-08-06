@@ -27,13 +27,11 @@ public sealed class Session
     /// <summary>The exact game build / telemetry API version / connector version that produced this session.</summary>
     public Guid GameVersionId { get; set; }
 
-    /// <summary>Navigation to the <see cref="Entities.GameVersion"/>.</summary>
     public GameVersion? GameVersion { get; set; }
 
     /// <summary>The driver, if known.</summary>
     public Guid? DriverId { get; set; }
 
-    /// <summary>Navigation to the <see cref="Entities.Driver"/>, if known.</summary>
     public Driver? Driver { get; set; }
 
     /// <summary>
@@ -47,13 +45,11 @@ public sealed class Session
     /// <summary>The track layout used, if known.</summary>
     public Guid? TrackLayoutId { get; set; }
 
-    /// <summary>Navigation to the <see cref="Entities.TrackLayout"/>, if known.</summary>
     public TrackLayout? TrackLayout { get; set; }
 
     /// <summary>The car driven, if known.</summary>
     public Guid? CarId { get; set; }
 
-    /// <summary>Navigation to the <see cref="Entities.Car"/>, if known.</summary>
     public Car? Car { get; set; }
 
     /// <summary>

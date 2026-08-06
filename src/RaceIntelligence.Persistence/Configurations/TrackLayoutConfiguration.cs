@@ -4,10 +4,8 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Configurations;
 
-/// <summary>Maps <see cref="TrackLayout"/> to the <c>track_layouts</c> table.</summary>
 public sealed class TrackLayoutConfiguration : IEntityTypeConfiguration<TrackLayout>
 {
-    /// <inheritdoc />
     public void Configure(EntityTypeBuilder<TrackLayout> builder)
     {
         builder.ToTable("track_layouts");

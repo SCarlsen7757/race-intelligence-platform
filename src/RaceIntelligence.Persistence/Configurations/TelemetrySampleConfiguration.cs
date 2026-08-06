@@ -5,10 +5,8 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Configurations;
 
-/// <summary>Maps <see cref="TelemetrySample"/> to the <c>telemetry_samples</c> table.</summary>
 public sealed class TelemetrySampleConfiguration : IEntityTypeConfiguration<TelemetrySample>
 {
-    /// <inheritdoc />
     public void Configure(EntityTypeBuilder<TelemetrySample> builder)
     {
         builder.ToTable("telemetry_samples");
