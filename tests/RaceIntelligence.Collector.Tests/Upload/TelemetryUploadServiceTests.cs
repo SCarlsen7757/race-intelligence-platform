@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -40,16 +41,14 @@ public class TelemetryUploadServiceTests
             buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 0));
             await WaitUntilAsync(() => buffer.Metrics.TotalRead > 0, cts.Token);
 
-            // Give the background loop real wall-clock time to open the batch and register its
-            // age-timeout wait against the fake clock before we advance it.
-            await Task.Delay(250, cts.Token);
-
-            // Well under MaxBatchSize and MaxBatchAge: nothing should have uploaded yet.
+            // Safe without any sleep: one sample is far under MaxBatchSize, and the only other
+            // trigger is batch age on a clock that does not move unless this test moves it.
             ingestClient.UploadedBatches.ShouldBeEmpty();
 
-            timeProvider.Advance(TimeSpan.FromSeconds(2));
-
-            await WaitUntilAsync(() => ingestClient.UploadedBatches.Count > 0, cts.Token);
+            // Advance in a loop rather than once: a single Advance is a no-op if the background
+            // loop has not registered its age-timeout wait yet, which is the race the old
+            // Task.Delay(250) was papering over.
+            await AdvanceUntilAsync(timeProvider, TimeSpan.FromSeconds(2), () => ingestClient.UploadedBatches.Count > 0, cts.Token);
         }
         finally
         {
@@ -146,12 +145,152 @@ public class TelemetryUploadServiceTests
         }
     }
 
+    [Fact]
+    public async Task A_batch_that_still_fails_after_resilience_is_logged_as_an_error_and_discarded()
+    {
+        // The one place the pipeline knowingly loses data. It was unreachable in tests because the
+        // fake ingest client had no failure mode, so nothing verified that the loss is reported
+        // rather than silent, that the samples are not re-queued, and that the service survives it.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
+
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var collectorOptions = Options.Create(new CollectorOptions
+        {
+            IngestBaseUrl = "https://localhost/",
+            ApiKey = "key",
+            MaxBatchSize = 2,
+            MaxBatchAge = TimeSpan.FromMinutes(10),
+        });
+
+        await using var buffer = CreateBuffer();
+        var ingestClient = new RecordingIngestClient { FailUploadsWith = new HttpRequestException("ingest API is down") };
+        var logger = new CapturingLogger<TelemetryUploadService>();
+        var service = new TelemetryUploadService(buffer, ingestClient, collectorOptions, new OpenBatchTracker(), timeProvider, logger);
+
+        var sessionId = Guid.NewGuid();
+        await service.StartAsync(cts.Token);
+        try
+        {
+            buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 0));
+            buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 1));
+
+            await WaitUntilAsync(() => ingestClient.FailedUploadAttempts.Count > 0, cts.Token);
+
+            // Discarded, not re-queued: re-queuing would reorder these behind samples read after
+            // them, and the buffer may already be full again by now.
+            buffer.Metrics.CurrentDepth.ShouldBe(0);
+
+            // ...and the service must still be running, so a later batch still uploads.
+            ingestClient.FailUploadsWith = null;
+            buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 2));
+            buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 3));
+
+            await WaitUntilAsync(() => ingestClient.UploadedBatches.Count > 0, cts.Token);
+        }
+        finally
+        {
+            await service.StopAsync(cts.Token);
+        }
+
+        ingestClient.FailedUploadAttempts.ShouldHaveSingleItem().Samples.Count.ShouldBe(2);
+        ingestClient.UploadedBatches.ShouldHaveSingleItem().Samples.Select(s => s.SequenceNumber).ShouldBe([2L, 3L]);
+
+        var error = logger.Entries.Where(entry => entry.Level == LogLevel.Error).ShouldHaveSingleItem();
+        error.Exception.ShouldBeOfType<HttpRequestException>();
+        error.Message.ShouldContain(sessionId.ToString());
+    }
+
+    [Fact]
+    public async Task Shutdown_uploads_the_still_open_batch_instead_of_dropping_it()
+    {
+        // The final flush is the difference between "the last few seconds of a session are stored"
+        // and "they are lost every single time the collector stops". Asserting it directly, rather
+        // than arranging assertions to avoid it.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
+
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var collectorOptions = Options.Create(new CollectorOptions
+        {
+            IngestBaseUrl = "https://localhost/",
+            ApiKey = "key",
+            MaxBatchSize = 500, // never reached
+            MaxBatchAge = TimeSpan.FromMinutes(10), // never reached: the clock is never advanced
+        });
+
+        await using var buffer = CreateBuffer();
+        var ingestClient = new RecordingIngestClient();
+        var service = new TelemetryUploadService(
+            buffer, ingestClient, collectorOptions, new OpenBatchTracker(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
+
+        var sessionId = Guid.NewGuid();
+        await service.StartAsync(cts.Token);
+
+        buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 0));
+        buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 1));
+        await WaitUntilAsync(() => buffer.Metrics.TotalRead == 2, cts.Token);
+
+        ingestClient.UploadedBatches.ShouldBeEmpty("neither the size nor the age trigger has fired.");
+
+        await service.StopAsync(cts.Token);
+
+        var batch = ingestClient.UploadedBatches.ShouldHaveSingleItem();
+        batch.SessionId.ShouldBe(sessionId);
+        batch.Samples.Select(s => s.SequenceNumber).ShouldBe([0L, 1L]);
+    }
+
+    [Fact]
+    public async Task A_shutdown_flush_that_fails_is_logged_rather_than_swallowed()
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
+
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var collectorOptions = Options.Create(new CollectorOptions
+        {
+            IngestBaseUrl = "https://localhost/",
+            ApiKey = "key",
+            MaxBatchSize = 500,
+            MaxBatchAge = TimeSpan.FromMinutes(10),
+        });
+
+        await using var buffer = CreateBuffer();
+        var ingestClient = new RecordingIngestClient { FailUploadsWith = new HttpRequestException("ingest API is down") };
+        var logger = new CapturingLogger<TelemetryUploadService>();
+        var service = new TelemetryUploadService(buffer, ingestClient, collectorOptions, new OpenBatchTracker(), timeProvider, logger);
+
+        await service.StartAsync(cts.Token);
+        buffer.TryWrite(TelemetrySampleFactory.Create(Guid.NewGuid(), 0));
+        await WaitUntilAsync(() => buffer.Metrics.TotalRead == 1, cts.Token);
+
+        await service.StopAsync(cts.Token);
+
+        ingestClient.FailedUploadAttempts.ShouldHaveSingleItem();
+        logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Error);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken cancellationToken)
     {
         while (!condition())
         {
             cancellationToken.ThrowIfCancellationRequested();
             await Task.Delay(10, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Steps a <see cref="FakeTimeProvider"/> forward until <paramref name="condition"/> holds. A
+    /// single Advance is not enough on its own: it does nothing if the code under test has not
+    /// registered its timer yet, and the fake clock never moves by itself.
+    /// </summary>
+    private static async Task AdvanceUntilAsync(FakeTimeProvider timeProvider, TimeSpan step, Func<bool> condition, CancellationToken cancellationToken)
+    {
+        while (!condition())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            timeProvider.Advance(step);
+            await Task.Delay(5, cancellationToken);
         }
     }
 }
