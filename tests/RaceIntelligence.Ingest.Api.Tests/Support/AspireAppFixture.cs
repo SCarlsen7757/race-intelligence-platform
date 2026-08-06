@@ -40,7 +40,7 @@ public sealed class AspireAppFixture : IAsyncLifetime
     /// <summary>Human-readable reason <see cref="IsAvailable"/> is <see langword="false"/>, if it is.</summary>
     public string? SkipReason { get; private set; }
 
-    /// <summary>An <see cref="HttpClient"/> pointed at the running ingest API, resolved via Aspire service discovery. Only valid when <see cref="IsAvailable"/>.</summary>
+    /// <summary>An <see cref="HttpClient"/> pointed at the running ingest API's plaintext HTTP endpoint, resolved via Aspire service discovery. Only valid when <see cref="IsAvailable"/>.</summary>
     public HttpClient ApiClient { get; private set; } = null!;
 
     /// <summary>
@@ -89,7 +89,20 @@ public sealed class AspireAppFixture : IAsyncLifetime
                 .WaitAsync(TimeSpan.FromMinutes(3))
                 .ConfigureAwait(false);
 
-            ApiClient = _app.CreateHttpClient("ingest-api");
+            // The "http" endpoint name is load-bearing. The launch profile Aspire starts ingest-api
+            // with exposes both https://localhost:7038 and http://localhost:5047, and CreateHttpClient
+            // with no endpoint name picks the https one. That works on a developer machine only
+            // because `dotnet dev-certs https --trust` has been run there; on a CI runner the ASP.NET
+            // Core development certificate is a self-signed root nothing trusts, so every request
+            // fails with AuthenticationException "UntrustedRoot" and the whole suite reports red for
+            // a reason that has nothing to do with the code under test.
+            //
+            // Naming the http endpoint takes TLS out of the picture entirely rather than teaching CI
+            // to trust a dev cert. Nothing is lost: these tests assert API behaviour (status codes,
+            // validation, duplicate handling), the app registers no HTTPS redirection or HSTS
+            // middleware, and transport security in production is the reverse proxy's job, not
+            // Kestrel's dev certificate.
+            ApiClient = _app.CreateHttpClient("ingest-api", "http");
             IsAvailable = true;
         }
         catch (Exception ex)
