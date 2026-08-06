@@ -217,7 +217,20 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
     private void ProcessConnectedTick(List<TelemetryEvent> events, DateTimeOffset now)
     {
         var view = _run.View;
-        if (view is null || !view.IsValid || !TryReadRaw(view, out R3ESharedRaw raw))
+        R3ESharedRaw raw = default;
+        var outcome = view is null || !view.IsValid
+            ? ReadOutcome.Failed
+            : TryReadRaw(view, out raw);
+
+        if (outcome == ReadOutcome.Torn)
+        {
+            // The game rewrote the block underneath us; this snapshot mixes two frames and must not
+            // be published. Skipping the tick is free — the next poll is 1/60th of a second away —
+            // whereas a torn frame would be stored permanently.
+            return;
+        }
+
+        if (outcome == ReadOutcome.Failed)
         {
             EndCurrentSessionIfAny(events, now);
             _run.View?.Dispose();
@@ -354,24 +367,57 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         events.Add(new ConnectionStateChanged { OccurredAtUtc = now, State = newState, Reason = reason });
     }
 
-    /// <summary>Reads one raw snapshot. Returns <see langword="false"/> instead of throwing on any failure.</summary>
-    private static bool TryReadRaw(ISharedMemoryView view, out R3ESharedRaw raw)
+    /// <summary>What one attempt to read a snapshot produced.</summary>
+    private enum ReadOutcome
+    {
+        /// <summary>A whole, self-consistent frame.</summary>
+        Ok,
+
+        /// <summary>The game wrote to the block while we were reading it; the snapshot mixes two frames.</summary>
+        Torn,
+
+        /// <summary>The view could not be read at all.</summary>
+        Failed,
+    }
+
+    /// <summary>
+    /// Byte offset of <c>player.game_simulation_ticks</c> within the block — the field re-read to
+    /// detect a torn frame.
+    /// </summary>
+    private static readonly long SimulationTicksOffset =
+        Marshal.OffsetOf<R3ESharedRaw>(nameof(R3ESharedRaw.Player)).ToInt64()
+        + Marshal.OffsetOf<R3EPlayerData>(nameof(R3EPlayerData.GameSimulationTicks)).ToInt64();
+
+    /// <summary>
+    /// Reads one raw snapshot. Never throws — every failure is reported as a
+    /// <see cref="ReadOutcome"/> instead.
+    /// </summary>
+    /// <remarks>
+    /// RaceRoom publishes the block with no sequence lock, version counter, or any other
+    /// synchronization: it simply overwrites the memory in place while we read it, so a ~2 KB read
+    /// can straddle two frames and produce a snapshot that never existed (e.g. this frame's speed
+    /// beside last frame's gear). Re-reading <c>game_simulation_ticks</c> after the copy and
+    /// comparing it against the copy's own value catches exactly that — the counter advances every
+    /// physics tick, so a write that landed during our read almost always moved it.
+    /// </remarks>
+    private static ReadOutcome TryReadRaw(ISharedMemoryView view, out R3ESharedRaw raw)
     {
         try
         {
             if (view.Length < Unsafe.SizeOf<R3ESharedRaw>())
             {
                 raw = default;
-                return false;
+                return ReadOutcome.Failed;
             }
 
             raw = view.Read<R3ESharedRaw>();
-            return true;
+            int ticksAfterRead = view.Read<int>(SimulationTicksOffset);
+            return ticksAfterRead == raw.Player.GameSimulationTicks ? ReadOutcome.Ok : ReadOutcome.Torn;
         }
         catch (ObjectDisposedException)
         {
             raw = default;
-            return false;
+            return ReadOutcome.Failed;
         }
     }
 

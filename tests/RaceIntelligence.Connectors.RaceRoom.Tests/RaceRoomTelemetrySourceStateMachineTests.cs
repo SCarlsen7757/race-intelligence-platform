@@ -230,6 +230,52 @@ public class RaceRoomTelemetrySourceStateMachineTests
     }
 
     [Fact]
+    public async Task TornFrame_IsDiscardedRatherThanPublishedAsASample()
+    {
+        // RaceRoom overwrites the shared memory block in place with no sequence lock, so a read can
+        // straddle two frames and yield a snapshot that never existed. Such a sample would be
+        // stored permanently, so the tick counter is re-read after the copy and a mismatch discards
+        // the tick.
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await using var source = new RaceRoomTelemetrySource(FastOptions, () => view);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+
+        byte[] staleFrame = new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(100)
+            .WithSpeed(10f)
+            .Build()
+            .ToBytes();
+
+        byte[] freshFrame = new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(200)
+            .WithSpeed(99f)
+            .Build()
+            .ToBytes();
+
+        view.SetFrame(staleFrame);
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+        await NextAsync<SessionStarted>(enumerator);
+        (await NextAsync<TelemetrySampleReceived>(enumerator)).Sample.Speed.ShouldBe(10f);
+
+        // The next poll copies the stale frame, but the "game" swaps in the fresh one before the
+        // consistency re-read lands -- the classic torn read.
+        view.RewriteAfterNextRead(freshFrame);
+
+        var next = await NextAsync<TelemetrySampleReceived>(enumerator);
+        next.Sample.Speed.ShouldBe(
+            99f,
+            "the torn snapshot must be discarded; the next sample published must come from a whole frame.");
+    }
+
+    [Fact]
     public async Task FrozenTickCounterMidSession_EndsTheSessionAndReconnects()
     {
         // Regression test for the "game exited but the mapping outlives it" bug: RaceRoom's shared
