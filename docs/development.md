@@ -64,19 +64,28 @@ correctly with `HttpClient.BaseAddress`.
 
 ## Option C — API and collector separately, no Aspire
 
-Occasionally useful for debugging one service in isolation. The catch: the ingest API gets its
-connection string from Aspire, so standalone it will throw
-`Connection string 'raceintel' is not configured.` at startup. Supply one yourself:
+Occasionally useful for debugging one service in isolation. Two things are missing without Aspire:
+a database, and the connection string pointing at it.
+
+Nothing in this repo starts a bare PostgreSQL for you, so use the one AppHost creates — start
+AppHost once as in Option A and leave its container running, then stop the AppHost-launched API and
+run it yourself. That container listens on `55432` with the fixed password you set in Option A.
+
+Without a connection string the API throws `Connection string 'raceintel' is not configured.` at
+startup, so supply one:
 
 ```powershell
-$env:ConnectionStrings__raceintel = "Host=localhost;Database=raceintel;Username=postgres;Password=postgres"
+$env:ConnectionStrings__raceintel = "Host=localhost;Port=55432;Database=raceintel;Username=postgres;Password=dev-local-only-password"
 dotnet run --project src/RaceIntelligence.Ingest.Api --launch-profile https
 ```
 
-Then run the collector as in Option B. The development defaults already line up — the API's
-`appsettings.Development.json` sets `Ingest:ApiKey` to `dev-local-only-key`, the collector's sets the
-same key and points at `https://localhost:7038/`, which is the API's `https` launch profile. So the
-two talk to each other with no extra configuration.
+Any other PostgreSQL works too — adjust host, port and password to match it.
+
+Then run the collector as in Option B. The development defaults already line up: the API's
+`appsettings.Development.json` sets `Ingest:ApiKey` to `dev-local-only-key`, and the collector's sets
+the same key and points `IngestBaseUrl` at the API's `https` launch profile URL (see
+`src/RaceIntelligence.Ingest.Api/Properties/launchSettings.json` for the port). So the two talk to
+each other with no extra configuration.
 
 ---
 
