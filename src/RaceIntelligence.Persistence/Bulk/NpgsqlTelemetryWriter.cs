@@ -53,7 +53,7 @@ namespace RaceIntelligence.Persistence.Bulk;
 /// <see cref="RaceIntelligenceDbContext"/> deliberately — this writer never touches the change
 /// tracker, so it has no reason to share a context instance or its lifetime.
 /// </param>
-public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource) : ITelemetryWriter
+public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource)
 {
     private const string TempTableName = "tmp_telemetry_import";
 
@@ -67,7 +67,19 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource) : ITeleme
 
     private static readonly string ColumnList = string.Join(", ", Columns);
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Writes a batch of telemetry samples for <paramref name="sessionId"/>, idempotently.
+    /// Re-submitting a batch (or a batch overlapping one already written, e.g. after a retried
+    /// upload) never creates duplicate rows: samples whose primary key
+    /// <c>(session_id, timestamp, sequence_number)</c> already exists are silently skipped and
+    /// counted as <see cref="TelemetryWriteResult.Duplicates"/>.
+    /// </summary>
+    /// <param name="sessionId">
+    /// The session every sample in <paramref name="samples"/> is expected to belong to. Used to
+    /// validate the batch; every sample's own <c>SessionId</c> must match.
+    /// </param>
+    /// <param name="samples">The samples to write. May be empty.</param>
+    /// <param name="ct">Cancellation token.</param>
     public async Task<TelemetryWriteResult> WriteAsync(
         Guid sessionId,
         IReadOnlyList<CoreTelemetry.TelemetrySample> samples,

@@ -48,7 +48,7 @@ public static class TelemetryEndpoints
         Guid id,
         HttpContext context,
         RaceIntelligenceDbContext db,
-        ITelemetryWriter writer,
+        NpgsqlTelemetryWriter writer,
         CancellationToken ct)
     {
         if (context.Request.ContentLength > MaxBatchBodyBytes)
@@ -119,7 +119,7 @@ public static class TelemetryEndpoints
             samples.Add(TelemetrySampleContractMapper.ToCore(dto));
         }
 
-        RaceIntelligence.Persistence.Bulk.TelemetryWriteResult result;
+        TelemetryWriteResult result;
         try
         {
             result = await writer.WriteAsync(id, samples, ct).ConfigureAwait(false);
