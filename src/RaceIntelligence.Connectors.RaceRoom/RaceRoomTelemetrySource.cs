@@ -336,10 +336,20 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
 
         if (raw.CompletedLaps > _run.LastCompletedLaps)
         {
-            int completedLapNumber = _run.LastCompletedLaps + 1;
-            _run.LastCompletedLaps = raw.CompletedLaps;
-            var lap = R3ETelemetryMapper.ToLapInfo(in raw, _run.SessionId, completedLapNumber);
-            events.Add(new LapCompleted { OccurredAtUtc = now, Lap = lap });
+            // One LapCompleted per lap actually completed, not one per observation. A skipped poll
+            // (GC pause, a stalled frame, the process descheduled) can advance completed_laps by
+            // more than one, and emitting a single event would silently delete the laps in between.
+            // Only the newest of them is described by this snapshot's lap-scoped fields — the rest
+            // are reported with their timings unknown rather than with the newest lap's numbers.
+            int firstNewLap = _run.LastCompletedLaps + 1;
+            int newestLap = raw.CompletedLaps;
+            _run.LastCompletedLaps = newestLap;
+
+            for (int lapNumber = firstNewLap; lapNumber <= newestLap; lapNumber++)
+            {
+                var lap = R3ETelemetryMapper.ToLapInfo(in raw, _run.SessionId, lapNumber, snapshotDescribesThisLap: lapNumber == newestLap);
+                events.Add(new LapCompleted { OccurredAtUtc = now, Lap = lap });
+            }
         }
 
         _run.LastTicks = raw.Player.GameSimulationTicks;

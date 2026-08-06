@@ -164,9 +164,34 @@ internal static class R3ETelemetryMapper
     }
 
     /// <summary>Builds the canonical lap record for a lap that just completed.</summary>
+    /// <param name="raw">The snapshot in which the lap counter was observed to have advanced.</param>
+    /// <param name="sessionId">The session the lap belongs to.</param>
     /// <param name="completedLapNumber">The 1-indexed number of the lap that just completed.</param>
-    public static LapInfo ToLapInfo(in R3ESharedRaw raw, Guid sessionId, int completedLapNumber)
+    /// <param name="snapshotDescribesThisLap">
+    /// Whether <paramref name="raw"/>'s lap-scoped fields (<c>lap_time_previous_self</c>,
+    /// <c>prev_lap_valid</c>, ...) actually describe lap <paramref name="completedLapNumber"/>.
+    /// They only ever describe the <i>most recently</i> completed lap, so when a poll is missed and
+    /// the counter jumps by more than one, the earlier laps in that jump must be reported with
+    /// their timings unknown rather than with the last lap's numbers copied onto them.
+    /// </param>
+    public static LapInfo ToLapInfo(in R3ESharedRaw raw, Guid sessionId, int completedLapNumber, bool snapshotDescribesThisLap = true)
     {
+        if (!snapshotDescribesThisLap)
+        {
+            return new LapInfo
+            {
+                SessionId = sessionId,
+                LapNumber = completedLapNumber,
+                LapTime = null,
+                FuelUsed = null,
+                AverageSpeed = null,
+                MaxSpeed = null,
+                // Unknown, and LapInfo.IsValid has no third state — false is the safe reading,
+                // since treating an unverifiable lap as valid would let it into analysis.
+                IsValid = false,
+            };
+        }
+
         return new LapInfo
         {
             SessionId = sessionId,

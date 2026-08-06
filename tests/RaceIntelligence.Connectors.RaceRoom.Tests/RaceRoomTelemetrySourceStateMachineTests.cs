@@ -230,6 +230,64 @@ public class RaceRoomTelemetrySourceStateMachineTests
     }
 
     [Fact]
+    public async Task ACompletedLapsJumpAcrossASkippedPoll_EmitsOneLapCompletedPerLap()
+    {
+        // A missed poll (GC pause, stalled frame, descheduled process) advances completed_laps by
+        // more than one. Emitting a single LapCompleted and absorbing the whole delta silently
+        // deletes the laps in between -- and because raw data is permanent, they never come back.
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await using var source = new RaceRoomTelemetrySource(FastOptions, () => view);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(100)
+            .WithCompletedLaps(0)
+            .Build()
+            .ToBytes());
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+        await NextAsync<SessionStarted>(enumerator);
+        await NextAsync<TelemetrySampleReceived>(enumerator);
+
+        // Three laps completed between two observations, with only the newest one's timings
+        // available in the snapshot (lap_time_previous_self always describes the most recent lap).
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(200)
+            .WithCompletedLaps(3)
+            .Configure((ref R3ESharedRaw raw) =>
+            {
+                raw.LapTimePreviousSelf = 91.5f;
+                raw.PrevLapValid = 1;
+            })
+            .Build()
+            .ToBytes());
+
+        await NextAsync<TelemetrySampleReceived>(enumerator);
+
+        var first = await NextAsync<LapCompleted>(enumerator);
+        var second = await NextAsync<LapCompleted>(enumerator);
+        var third = await NextAsync<LapCompleted>(enumerator);
+
+        first.Lap.LapNumber.ShouldBe(1);
+        second.Lap.LapNumber.ShouldBe(2);
+        third.Lap.LapNumber.ShouldBe(3);
+
+        // Only the newest lap may claim the snapshot's timings; copying them onto the skipped laps
+        // would invent three identical 91.5 s laps that were never driven.
+        first.Lap.LapTime.ShouldBeNull();
+        second.Lap.LapTime.ShouldBeNull();
+        third.Lap.LapTime.ShouldBe(TimeSpan.FromSeconds(91.5));
+        third.Lap.IsValid.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task TornFrame_IsDiscardedRatherThanPublishedAsASample()
     {
         // RaceRoom overwrites the shared memory block in place with no sequence lock, so a read can
