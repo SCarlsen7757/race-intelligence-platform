@@ -3,59 +3,25 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Repositories;
 
-/// <summary>Idempotent resolve-or-create access to <c>manufacturers</c>, <c>car_classes</c>, and <c>cars</c>.</summary>
-/// <remarks>
-/// Follows the same insert + unique-violation-retry pattern as <see cref="GameRepository"/> — see
-/// <see cref="UniqueViolationDetection"/> for why.
-/// </remarks>
+/// <summary>Idempotent resolve-or-create access to <c>manufacturers</c>, <c>car_classes</c>, and <c>cars</c>. See <see cref="ResolveOrCreate"/>.</summary>
 /// <param name="db">The context to resolve/create through.</param>
 public sealed class CarRepository(RaceIntelligenceDbContext db)
 {
     /// <summary>Resolves or creates a manufacturer by name.</summary>
-    public async Task<Manufacturer> ResolveOrCreateManufacturerAsync(string name, CancellationToken ct = default)
-    {
-        var existing = await db.Manufacturers.FirstOrDefaultAsync(m => m.Name == name, ct).ConfigureAwait(false);
-        if (existing is not null)
-        {
-            return existing;
-        }
-
-        var manufacturer = new Manufacturer { Id = Guid.CreateVersion7(), Name = name };
-        db.Manufacturers.Add(manufacturer);
-        try
-        {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return manufacturer;
-        }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
-        {
-            db.Entry(manufacturer).State = EntityState.Detached;
-            return await db.Manufacturers.SingleAsync(m => m.Name == name, ct).ConfigureAwait(false);
-        }
-    }
+    public Task<Manufacturer> ResolveOrCreateManufacturerAsync(string name, CancellationToken ct = default) =>
+        db.RowAsync(
+            token => db.Manufacturers.FirstOrDefaultAsync(m => m.Name == name, token),
+            () => new Manufacturer { Id = Guid.CreateVersion7(), Name = name },
+            "manufacturers",
+            ct);
 
     /// <summary>Resolves or creates a car class by name.</summary>
-    public async Task<CarClass> ResolveOrCreateCarClassAsync(string name, CancellationToken ct = default)
-    {
-        var existing = await db.CarClasses.FirstOrDefaultAsync(c => c.Name == name, ct).ConfigureAwait(false);
-        if (existing is not null)
-        {
-            return existing;
-        }
-
-        var carClass = new CarClass { Id = Guid.CreateVersion7(), Name = name };
-        db.CarClasses.Add(carClass);
-        try
-        {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return carClass;
-        }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
-        {
-            db.Entry(carClass).State = EntityState.Detached;
-            return await db.CarClasses.SingleAsync(c => c.Name == name, ct).ConfigureAwait(false);
-        }
-    }
+    public Task<CarClass> ResolveOrCreateCarClassAsync(string name, CancellationToken ct = default) =>
+        db.RowAsync(
+            token => db.CarClasses.FirstOrDefaultAsync(c => c.Name == name, token),
+            () => new CarClass { Id = Guid.CreateVersion7(), Name = name },
+            "car_classes",
+            ct);
 
     /// <summary>
     /// Resolves the car identified by <paramref name="simCarId"/> within <paramref name="gameId"/> —
@@ -64,6 +30,11 @@ public sealed class CarRepository(RaceIntelligenceDbContext db)
     /// <see langword="null"/> when neither an id nor a name is available, in which case the caller
     /// has nothing to attribute the session to and should leave <c>sessions.car_id</c> null.
     /// </summary>
+    /// <remarks>
+    /// Does not use <see cref="ResolveOrCreate.RowAsync"/> wholesale, only its insert-and-retry half:
+    /// finding an existing row is not the end of the story here, because a car found under a new
+    /// name has been renamed and its label has to be rewritten.
+    /// </remarks>
     public async Task<Car?> ResolveOrCreateCarAsync(
         Guid gameId,
         string? simCarId,
@@ -118,19 +89,7 @@ public sealed class CarRepository(RaceIntelligenceDbContext db)
             SimCarId = identity,
         };
 
-        db.Cars.Add(car);
-        try
-        {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return car;
-        }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
-        {
-            db.Entry(car).State = EntityState.Detached;
-            return await FindCarAsync(gameId, identity, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    "Unique-constraint violation on cars was reported, but the conflicting row could not be re-selected.");
-        }
+        return await db.InsertRowAsync(car, token => FindCarAsync(gameId, identity, token), "cars", ct).ConfigureAwait(false);
     }
 
     private Task<Car?> FindCarAsync(Guid gameId, string simCarId, CancellationToken ct) =>

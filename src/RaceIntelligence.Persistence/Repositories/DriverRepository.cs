@@ -142,19 +142,7 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
-        db.Drivers.Add(driver);
-        try
-        {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return driver;
-        }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
-        {
-            db.Entry(driver).State = EntityState.Detached;
-            return await FindBySimIdAsync(gameId, simDriverId, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    "Unique-constraint violation on drivers was reported, but the conflicting row could not be re-selected.");
-        }
+        return await db.InsertRowAsync(driver, token => FindBySimIdAsync(gameId, simDriverId, token), "drivers", ct).ConfigureAwait(false);
     }
 
     private async Task<Driver> ResolveByNameAsync(Guid gameId, string displayName, CancellationToken ct)
@@ -191,19 +179,7 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
-        db.Drivers.Add(driver);
-        try
-        {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return driver;
-        }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
-        {
-            db.Entry(driver).State = EntityState.Detached;
-            return await FindByNameAsync(gameId, displayName, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    "Unique-constraint violation on drivers was reported, but the conflicting row could not be re-selected.");
-        }
+        return await db.InsertRowAsync(driver, token => FindByNameAsync(gameId, displayName, token), "drivers", ct).ConfigureAwait(false);
     }
 
     private Task<Driver?> FindBySimIdAsync(Guid gameId, string simDriverId, CancellationToken ct) =>
