@@ -5,13 +5,11 @@ namespace RaceIntelligence.Core.Capabilities;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the mechanism that keeps the platform simulator-agnostic. Analysis and strategy
-/// algorithms must never branch on "which simulator is this" (e.g. <c>if sim == RaceRoom</c>);
-/// instead they declare which capabilities they require and callers ask
-/// <c>if (session.Capabilities.Has(SimCapabilities.TyreWear))</c>. A new connector for a new
-/// simulator only needs to report an accurate <see cref="SimCapabilities"/> value — no backend
-/// code changes are required for the system to correctly include or exclude that simulator's
-/// data from a given algorithm.
+/// <b>This is the platform's one rule for staying simulator-agnostic, stated here and not
+/// repeated elsewhere:</b> code asks <c>caps.Has(SimCapabilities.TyreWear)</c>, never
+/// <c>if (sim == RaceRoom)</c>. Adding a simulator then means writing a connector that reports an
+/// accurate capability set — no backend change is needed for algorithms to include or exclude its
+/// data correctly.
 /// </para>
 /// <para>
 /// Backed by <see cref="ulong"/> so up to 64 independent capabilities can be represented without
@@ -21,19 +19,16 @@ namespace RaceIntelligence.Core.Capabilities;
 [Flags]
 public enum SimCapabilities : ulong
 {
-    /// <summary>No optional capabilities are available.</summary>
     None = 0,
 
     /// <summary>The connector reports per-tyre wear (0..1).</summary>
     TyreWear = 1UL << 0,
 
-    /// <summary>The connector reports per-tyre pressure.</summary>
     TyrePressure = 1UL << 1,
 
     /// <summary>The connector reports per-tyre temperature (inner/middle/outer or similar).</summary>
     TyreTemperature = 1UL << 2,
 
-    /// <summary>The connector reports brake temperature.</summary>
     BrakeTemperature = 1UL << 3,
 
     /// <summary>The connector reports instantaneous fuel flow rate.</summary>
@@ -42,7 +37,6 @@ public enum SimCapabilities : ulong
     /// <summary>The connector reports an Energy Recovery System / hybrid system state.</summary>
     Ers = 1UL << 5,
 
-    /// <summary>The connector reports car damage state.</summary>
     Damage = 1UL << 6,
 
     /// <summary>The connector reports track rubber / grip evolution.</summary>
@@ -67,19 +61,13 @@ public enum SimCapabilities : ulong
 public static class SimCapabilitiesExtensions
 {
     /// <summary>
-    /// Returns <see langword="true"/> when <paramref name="caps"/> contains every flag set in
-    /// <paramref name="flag"/>.
+    /// Returns <see langword="true"/> when <paramref name="caps"/> contains <b>every</b> flag set
+    /// in <paramref name="flag"/>, not merely one of them.
     /// </summary>
     /// <remarks>
-    /// This is the single check the rest of the platform is built around: consumers ask
-    /// <c>if (caps.Has(SimCapabilities.TyreWear))</c>, never <c>if (sim == RaceRoom)</c>.
-    /// Because a bitwise AND against <see cref="SimCapabilities.None"/> (0) always equals 0,
-    /// <c>Has(SimCapabilities.None)</c> is always <see langword="true"/> — which is the correct
-    /// answer for "requires nothing", the implicit requirement of every algorithm that only
-    /// touches canonical fields.
+    /// A bitwise AND against <see cref="SimCapabilities.None"/> (0) always equals 0, so
+    /// <c>Has(SimCapabilities.None)</c> is always <see langword="true"/> — the correct answer for
+    /// "requires nothing", which is what an algorithm touching only canonical fields declares.
     /// </remarks>
-    /// <param name="caps">The capability set to inspect.</param>
-    /// <param name="flag">The required capability or combination of capabilities.</param>
-    /// <returns><see langword="true"/> if all bits in <paramref name="flag"/> are present in <paramref name="caps"/>.</returns>
     public static bool Has(this SimCapabilities caps, SimCapabilities flag) => (caps & flag) == flag;
 }

@@ -8,16 +8,12 @@ namespace RaceIntelligence.Core.Telemetry;
 /// simulator by that simulator's connector.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Telemetry is exposed as a single ordered stream of <see cref="TelemetryEvent"/> rather than a
-/// sample stream plus separate "session started"/"session ended" callbacks. A callback-based
-/// design admits a race: samples could keep arriving on one channel after "session ended" fired
-/// on another, and a consumer would have no principled way to decide whether a given sample
-/// belongs to the session that just ended or a new one. Interleaving everything into one ordered
-/// <see cref="IAsyncEnumerable{T}"/> makes ordering a guarantee of the interface itself — a
-/// consumer that has observed <see cref="SessionEnded"/> for a session can be certain no further
-/// <see cref="TelemetrySampleReceived"/> for that session will follow it.
-/// </para>
+/// Everything is interleaved into one ordered <see cref="TelemetryEvent"/> stream rather than a
+/// sample stream plus separate session-started/ended callbacks, because separate channels race:
+/// samples can still arrive after "session ended" fires and the consumer cannot tell which session
+/// they belong to. One stream makes ordering a guarantee of the interface — after observing
+/// <see cref="SessionEnded"/>, no further <see cref="TelemetrySampleReceived"/> for that session
+/// can follow.
 /// </remarks>
 public interface ITelemetrySource : IAsyncDisposable
 {

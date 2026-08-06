@@ -9,12 +9,12 @@ namespace RaceIntelligence.Strategy;
 /// <param name="SessionId">The session being raced.</param>
 /// <param name="CurrentLap">The lap currently being run.</param>
 /// <param name="TotalLaps">Total race laps, when the race is lap-limited.</param>
-/// <param name="Degradation">Tyre degradation estimate, when a capable model was available.</param>
+/// <param name="LapTimeTrend">Lap-time trend over the current stint, when a model has produced one.</param>
 public sealed record StrategyInput(
     Guid SessionId,
     int CurrentLap,
     int? TotalLaps,
-    AnalysisResult<TyreDegradationEstimate>? Degradation);
+    AnalysisResult<LapTimeTrend>? LapTimeTrend);
 
 /// <summary>
 /// A pit recommendation, including the expected time gained or lost by acting on it.
@@ -36,7 +36,7 @@ public sealed record PitRecommendation(
 /// A versioned, capability-gated pit strategy engine.
 /// </summary>
 /// <remarks>
-/// <b>Phase 3 — not yet implemented.</b> Consumes analysis results rather than raw telemetry,
-/// keeping the strategy layer independent of both the simulator and the storage schema.
+/// <b>Not implemented.</b> Consumes analysis results rather than raw telemetry, keeping the
+/// strategy layer independent of both the simulator and the storage schema.
 /// </remarks>
 public interface IPitStrategyEngine : IAnalysisAlgorithm<StrategyInput, PitRecommendation>;
