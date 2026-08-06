@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using RaceIntelligence.Core.Telemetry;
 using RaceIntelligence.Persistence.Bulk;
 using RaceIntelligence.Persistence.Mapping;
@@ -106,7 +106,7 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
         var efSessionId = await SampleFactory.CreateSessionAsync(db);
 
         var timestamp = DateTimeOffset.UtcNow;
-        var sample = SampleFactory.TelemetrySample(copySessionId, sequenceNumber: 7, timestamp: timestamp, extras: SampleFactory.NonTrivialExtras())
+        var sample = SampleFactory.TelemetrySample(copySessionId, sequenceNumber: 7, timestamp: timestamp, extras: SampleFactory.NonTrivialExtrasText)
             with
             {
                 // One wheel unreported on each nullable array, and an all-null array, so the
@@ -154,7 +154,7 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
         viaCopy.TyreWear.ShouldBe(viaEf.TyreWear);
         viaCopy.TyreWear.ShouldBeNull("an all-unreported wheel array is a null column, not an array of nulls");
         viaCopy.TyreTemperature.GetRawText().ShouldBe(viaEf.TyreTemperature.GetRawText());
-        viaCopy.Extras.GetRawText().ShouldBe(viaEf.Extras.GetRawText());
+        viaCopy.Extras.ShouldBe(viaEf.Extras);
     }
 
     /// <summary>

@@ -124,6 +124,7 @@ public sealed class TelemetrySample
     /// <summary>Per-wheel tyre temperature detail, stored as jsonb (see <c>Mapping/TelemetrySampleMapper</c> for the shape).</summary>
     public JsonElement TyreTemperature { get; set; }
 
-    /// <summary>Simulator-specific fields that have no canonical equivalent, stored as jsonb.</summary>
-    public JsonElement Extras { get; set; }
+    /// <summary>Simulator-specific fields that have no canonical equivalent, as raw JSON text in a jsonb column.</summary>
+    /// <remarks>Text, not a <see cref="JsonElement"/>: nothing here reads inside it, and Npgsql sends a string to jsonb directly.</remarks>
+    public string Extras { get; set; } = null!;
 }

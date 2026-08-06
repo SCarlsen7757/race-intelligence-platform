@@ -45,7 +45,6 @@ public sealed class TelemetrySampleConfiguration : IEntityTypeConfiguration<Tele
 
         builder.Property(t => t.Extras)
             .HasColumnName("extras")
-            .HasConversion(JsonElementConverter.Converter, JsonElementConverter.Comparer)
             .HasColumnType("jsonb")
             .IsRequired();
 

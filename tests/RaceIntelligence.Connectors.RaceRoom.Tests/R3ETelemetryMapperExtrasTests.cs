@@ -22,7 +22,11 @@ public class R3ETelemetryMapperExtrasTests
         var builder = new R3ESharedRawBuilder().InRaceSession("Extras Track", "Extras Layout");
         configure?.Invoke(builder);
         var raw = builder.Build();
-        return R3ETelemetryMapper.ToSample(in raw, Guid.NewGuid(), sequenceNumber: 0, DateTimeOffset.UtcNow).Extras;
+
+        // Sample extras are raw JSON text now; parsing here keeps these tests asserting on the
+        // structure the connector produced, and proves that text is well-formed JSON.
+        string text = R3ETelemetryMapper.ToSample(in raw, Guid.NewGuid(), sequenceNumber: 0, DateTimeOffset.UtcNow).Extras;
+        return JsonDocument.Parse(text).RootElement.Clone();
     }
 
     private static JsonElement SessionExtras(Action<R3ESharedRawBuilder>? configure = null)

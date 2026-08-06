@@ -98,8 +98,16 @@ public sealed record TelemetrySample
 
     /// <summary>
     /// Simulator-specific fields that have no canonical equivalent (e.g. push-to-pass state, ERS
-    /// mode). Stored as raw JSON so new simulator fields never require a schema or model change
+    /// mode), as raw JSON text, so new simulator fields never require a schema or model change
     /// here; see the platform's "Canonical Fields + Flexible Metadata" design.
     /// </summary>
-    public required JsonElement Extras { get; init; }
+    /// <remarks>
+    /// Text rather than a <see cref="JsonElement"/> because nothing on the path from connector to
+    /// <c>jsonb</c> column reads inside it: the connector writes it, the wire carries it as a
+    /// string, and Postgres parses it. Holding it as a <see cref="JsonElement"/> forced a
+    /// parse-and-clone on the way in and a re-serialize on the way out, twice each, for every
+    /// sample at the poll rate. Producers are responsible for writing valid JSON; the ingest API
+    /// validates it on arrival, since there it is untrusted client input.
+    /// </remarks>
+    public required string Extras { get; init; }
 }

@@ -188,7 +188,7 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource)
         await WriteNullableArrayAsync(importer, Fill(buffers.TyreWear, sample.TyreWear), ct).ConfigureAwait(false);
         await importer.WriteAsync(
             TelemetrySampleMapper.SerializeTyreTemperatureText(sample.TyreTemperature), NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
-        await importer.WriteAsync(JsonElementConverter.Serialize(sample.Extras), NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
+        await importer.WriteAsync(sample.Extras, NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
     }
 
     private static float[] Fill(float[] buffer, CoreTelemetry.WheelData<float> wheelData)

@@ -21,8 +21,7 @@ public sealed class JsonRoundTripTests(PostgresFixture fixture)
         await using var db = fixture.CreateContext();
         var sessionId = await SampleFactory.CreateSessionAsync(db);
 
-        var extras = SampleFactory.NonTrivialExtras();
-        var sample = SampleFactory.TelemetrySample(sessionId, sequenceNumber: 1, extras: extras);
+        var sample = SampleFactory.TelemetrySample(sessionId, sequenceNumber: 1, extras: SampleFactory.NonTrivialExtrasText);
         var entity = TelemetrySampleMapper.ToEntity(sample);
 
         db.TelemetrySamples.Add(entity);
@@ -33,11 +32,16 @@ public sealed class JsonRoundTripTests(PostgresFixture fixture)
 
         var reloaded = await Ef.SingleAsync(db.TelemetrySamples, t => t.SessionId == sessionId && t.SequenceNumber == 1);
 
-        reloaded.Extras.GetProperty("pushToPass").GetProperty("available").GetBoolean().ShouldBeTrue();
-        reloaded.Extras.GetProperty("pushToPass").GetProperty("usesRemaining").GetInt32().ShouldBe(5);
-        reloaded.Extras.GetProperty("tags").EnumerateArray().Select(e => e.GetString()).ShouldBe(["yellow-flag", "traffic"]);
-        reloaded.Extras.GetProperty("correctionFactor").GetDouble().ShouldBe(1.0625);
-        reloaded.Extras.GetProperty("note").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Null);
+        // Extras is carried as text, so the point of this test is that the text Postgres hands back
+        // still parses to the same structure and JSON types it went in as.
+        using var document = System.Text.Json.JsonDocument.Parse(reloaded.Extras);
+        var root = document.RootElement;
+
+        root.GetProperty("pushToPass").GetProperty("available").GetBoolean().ShouldBeTrue();
+        root.GetProperty("pushToPass").GetProperty("usesRemaining").GetInt32().ShouldBe(5);
+        root.GetProperty("tags").EnumerateArray().Select(e => e.GetString()).ShouldBe(["yellow-flag", "traffic"]);
+        root.GetProperty("correctionFactor").GetDouble().ShouldBe(1.0625);
+        root.GetProperty("note").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Null);
     }
 
     [Fact]

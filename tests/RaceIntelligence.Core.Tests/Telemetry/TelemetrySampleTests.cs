@@ -26,7 +26,7 @@ public class TelemetrySampleTests
             new TyreTemperature(80, 82, 84, 90, 70, 110),
             new TyreTemperature(80, 82, 84, 90, 70, 110),
             new TyreTemperature(80, 82, 84, 90, 70, 110)),
-        Extras = default,
+        Extras = "{}",
     };
 
     [Fact]

@@ -243,11 +243,11 @@ internal static class R3ETelemetryMapper
     /// intentionally not a reflective dump of the whole struct: that would be far too slow at a
     /// 60 Hz poll rate and would leak reserved/padding fields that carry no meaning.
     /// </summary>
-    private static JsonElement BuildSampleExtras(in R3ESharedRaw raw)
+    private static string BuildSampleExtras(in R3ESharedRaw raw)
     {
         var (buffer, writer) = RentExtrasWriter();
         WriteSampleExtras(writer, in raw);
-        return Materialize(buffer, writer);
+        return MaterializeText(buffer, writer);
     }
 
     private static void WriteSampleExtras(Utf8JsonWriter writer, in R3ESharedRaw raw)
@@ -347,7 +347,7 @@ internal static class R3ETelemetryMapper
     {
         var (buffer, writer) = RentExtrasWriter();
         WriteSessionExtras(writer, in raw);
-        return Materialize(buffer, writer);
+        return MaterializeElement(buffer, writer);
     }
 
     private static void WriteSessionExtras(Utf8JsonWriter writer, in R3ESharedRaw raw)
@@ -412,17 +412,25 @@ internal static class R3ETelemetryMapper
         return (buffer, writer);
     }
 
-    /// <summary>
-    /// Turns what was just written into a detached <see cref="JsonElement"/>.
-    /// </summary>
+    /// <summary>Turns what was just written into detached JSON text.</summary>
     /// <remarks>
-    /// The parse-and-clone is not redundant bookkeeping that could be skipped: <c>Extras</c> is
-    /// typed as <see cref="JsonElement"/>, and a <see cref="JsonElement"/> is only valid while the
-    /// <see cref="JsonDocument"/> backing it is alive. Cloning is what detaches it from this
-    /// reused, about-to-be-overwritten buffer. What <i>was</i> avoidable — allocating a new buffer
-    /// and writer per sample — is handled by <see cref="RentExtrasWriter"/>.
+    /// One UTF-8 decode and nothing else. The sample path runs at the poll rate, and its result is
+    /// carried as text the whole way to the <c>jsonb</c> column, so there is nothing to parse here.
     /// </remarks>
-    private static JsonElement Materialize(ArrayBufferWriter<byte> buffer, Utf8JsonWriter writer)
+    private static string MaterializeText(ArrayBufferWriter<byte> buffer, Utf8JsonWriter writer)
+    {
+        writer.Flush();
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    /// <summary>Turns what was just written into a detached <see cref="JsonElement"/>.</summary>
+    /// <remarks>
+    /// Session extras are still a <see cref="JsonElement"/> on <c>SessionInfo</c>, and a
+    /// <see cref="JsonElement"/> is only valid while its backing <see cref="JsonDocument"/> lives —
+    /// the clone is what detaches it from this reused buffer. Affordable here because it runs once
+    /// per session rather than once per sample.
+    /// </remarks>
+    private static JsonElement MaterializeElement(ArrayBufferWriter<byte> buffer, Utf8JsonWriter writer)
     {
         writer.Flush();
         using var document = JsonDocument.Parse(buffer.WrittenMemory);

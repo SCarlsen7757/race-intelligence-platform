@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using RaceIntelligence.Core.Telemetry;
 
 namespace RaceIntelligence.Collector.Tests.Support;
@@ -6,7 +6,7 @@ namespace RaceIntelligence.Collector.Tests.Support;
 /// <summary>Builds minimal-but-valid <see cref="TelemetrySample"/> instances for tests.</summary>
 internal static class TelemetrySampleFactory
 {
-    private static readonly JsonElement EmptyExtras = JsonDocument.Parse("{}").RootElement;
+    private const string EmptyExtras = "{}";
 
     public static TelemetrySample Create(Guid sessionId, long sequenceNumber = 0, DateTimeOffset? timestamp = null) => new()
     {

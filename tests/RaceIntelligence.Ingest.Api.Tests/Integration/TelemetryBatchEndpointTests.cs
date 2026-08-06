@@ -167,6 +167,57 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
             .ShouldContain(nameof(TelemetrySampleDto.Extras));
     }
 
+    [Theory]
+    [InlineData("{not json")]
+    [InlineData("")]
+    [InlineData("{\"a\":}")]
+    public async Task Batch_with_malformed_extras_is_a_400_naming_the_sample(string malformed)
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // Extras is client text that travels uninspected to a jsonb column, so this endpoint is the
+        // only thing between it and a database error that names no sample.
+        var session = DtoFactory.SessionCreateRequest();
+        (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var samples = new[]
+        {
+            DtoFactory.TelemetrySample(session.SessionId, 0),
+            DtoFactory.TelemetrySample(session.SessionId, 1) with { Extras = malformed },
+        };
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 1, samples);
+
+        using var response = await PostBatchAsync(session.SessionId, batch);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        body.ShouldContain(nameof(TelemetrySampleDto.Extras));
+        body.ShouldContain("index 1", Case.Insensitive);
+    }
+
+    [Fact]
+    public async Task Batch_with_valid_extras_is_stored_verbatim()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var session = DtoFactory.SessionCreateRequest();
+        (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        const string extras = """{"pushToPass":{"usesRemaining":5},"tags":["traffic"]}""";
+        var samples = new[] { DtoFactory.TelemetrySample(session.SessionId, 0) with { Extras = extras } };
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 0, samples);
+
+        using var response = await PostBatchAsync(session.SessionId, batch);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
     [Fact]
     public async Task Batch_body_past_the_size_cap_is_rejected_without_being_decoded()
     {

@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Text;
+using System.Text.Json;
 using MessagePack;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
@@ -116,6 +119,18 @@ public static class TelemetryEndpoints
                 return MissingMember(missing, i);
             }
 
+            // Extras is client-supplied text that now travels all the way to the jsonb column
+            // without being parsed on the way. Nothing downstream would reject it before Postgres
+            // did, and a bad value there fails the whole COPY batch with a database error rather
+            // than naming the sample at fault — so it is checked here, where the index is known.
+            if (!IsWellFormedJson(dto.Extras))
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Malformed JSON",
+                    detail: $"Sample at index {i} has an '{nameof(TelemetrySampleDto.Extras)}' value that is not valid JSON.");
+            }
+
             samples.Add(TelemetrySampleContractMapper.ToCore(dto));
         }
 
@@ -132,6 +147,50 @@ public static class TelemetryEndpoints
         }
 
         return Results.Ok(new TelemetryBatchResponse(result.Inserted, result.Duplicates, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+    }
+
+    /// <summary>Reports whether <paramref name="text"/> is a single well-formed JSON value.</summary>
+    /// <remarks>
+    /// Reads the text through without building a <see cref="JsonDocument"/>: this runs once per
+    /// sample, and the only question is whether Postgres will accept the value, not what is in it.
+    /// </remarks>
+    private static bool IsWellFormedJson(string text)
+    {
+        int maxBytes = Encoding.UTF8.GetMaxByteCount(text.Length);
+        byte[]? rented = null;
+        scoped Span<byte> buffer;
+        if (maxBytes <= 512)
+        {
+            buffer = stackalloc byte[512];
+        }
+        else
+        {
+            rented = ArrayPool<byte>.Shared.Rent(maxBytes);
+            buffer = rented;
+        }
+
+        try
+        {
+            int written = Encoding.UTF8.GetBytes(text, buffer);
+            var reader = new Utf8JsonReader(buffer[..written]);
+            while (reader.Read())
+            {
+                // Reading to the end is the validation; Read throws on anything malformed.
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
+        }
     }
 
     /// <summary>Names the first member of <paramref name="dto"/> that arrived as <c>nil</c>, or <see langword="null"/> if the sample is complete.</summary>
