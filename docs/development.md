@@ -11,7 +11,7 @@ reads a Windows named shared-memory block that only exists while the game is run
 | .NET SDK 10.0.302 (see `global.json`) | everything |
 | Windows | the RaceRoom connector — it is marked `[SupportedOSPlatform("windows")]` |
 | RaceRoom, running | actual telemetry. The collector starts fine without it and waits |
-| Docker Desktop | **only** for Option A below, and for the full test suite |
+| Docker Desktop | Options A and C below, and the full test suite. Not needed for Option B |
 
 ---
 
