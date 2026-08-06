@@ -21,15 +21,14 @@ public sealed record SessionInfo
     public required GameVersionIdentity GameVersion { get; init; }
 
     /// <summary>
-    /// The capabilities available from this session's source. Analysis and strategy algorithms
-    /// must check this rather than <see cref="GameVersion"/> before using a field.
+    /// The capabilities available from this session's source. Check this — never
+    /// <see cref="GameVersion"/> — before reading an optional field.
     /// </summary>
     public required SimCapabilities Capabilities { get; init; }
 
-    /// <summary>Name of the track.</summary>
     public required string TrackName { get; init; }
 
-    /// <summary>Name of the specific layout/configuration of the track used.</summary>
+    /// <summary>The specific layout/configuration of the track used.</summary>
     public required string LayoutName { get; init; }
 
     /// <summary>Length of the layout, in meters, if known.</summary>
@@ -45,22 +44,17 @@ public sealed record SessionInfo
     /// </summary>
     public required SessionType SessionType { get; init; }
 
-    /// <summary>UTC time the session started.</summary>
     public required DateTimeOffset StartedAtUtc { get; init; }
 
-    /// <summary>UTC time the session ended, if it has ended.</summary>
+    /// <summary><see langword="null"/> while the session is still running.</summary>
     public DateTimeOffset? EndedAtUtc { get; init; }
 
-    /// <summary>Name of the player/driver, if known.</summary>
     public string? PlayerName { get; init; }
 
-    /// <summary>Name of the car driven, if known.</summary>
     public string? CarName { get; init; }
 
-    /// <summary>Name of the car's class, if known.</summary>
     public string? CarClassName { get; init; }
 
-    /// <summary>Name of the car's manufacturer, if known.</summary>
     public string? ManufacturerName { get; init; }
 
     /// <summary>

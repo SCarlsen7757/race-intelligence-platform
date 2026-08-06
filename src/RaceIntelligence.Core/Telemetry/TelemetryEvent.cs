@@ -33,35 +33,30 @@ public abstract record TelemetryEvent
 /// <summary>Raised when a new session begins.</summary>
 public sealed record SessionStarted : TelemetryEvent
 {
-    /// <summary>The session that started.</summary>
     public required SessionInfo Session { get; init; }
 }
 
 /// <summary>Raised for every telemetry sample captured during a session.</summary>
 public sealed record TelemetrySampleReceived : TelemetryEvent
 {
-    /// <summary>The sample that was captured.</summary>
     public required TelemetrySample Sample { get; init; }
 }
 
 /// <summary>Raised when a lap completes.</summary>
 public sealed record LapCompleted : TelemetryEvent
 {
-    /// <summary>The lap that completed.</summary>
     public required LapInfo Lap { get; init; }
 }
 
 /// <summary>Raised when a session ends.</summary>
 public sealed record SessionEnded : TelemetryEvent
 {
-    /// <summary>The identifier of the session that ended.</summary>
     public required Guid SessionId { get; init; }
 }
 
 /// <summary>Raised whenever the source's <see cref="ConnectionState"/> changes.</summary>
 public sealed record ConnectionStateChanged : TelemetryEvent
 {
-    /// <summary>The new connection state.</summary>
     public required ConnectionState State { get; init; }
 
     /// <summary>An optional human-readable explanation (e.g. an error message when transitioning to <see cref="Telemetry.ConnectionState.Faulted"/>).</summary>

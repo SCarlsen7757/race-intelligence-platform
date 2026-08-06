@@ -18,12 +18,10 @@ namespace RaceIntelligence.Analysis;
 /// as fuel burns off, and hiding that would misreport the trend.
 /// </para>
 /// <para>
-/// <see cref="LapInfo.QualityScore"/> is ignored: it is computed later in the pipeline and is
-/// normally <see langword="null"/> by the time a stint is analysed.
-/// </para>
-/// <para>
-/// Requires <see cref="SimCapabilities.None"/>: it reads only <see cref="LapInfo.LapNumber"/> and
-/// <see cref="LapInfo.LapTime"/>, canonical fields present regardless of simulator capability.
+/// <see cref="LapInfo.QualityScore"/> is ignored because it is computed later in the pipeline and
+/// is normally <see langword="null"/> by the time a stint is analysed. Requiring
+/// <see cref="SimCapabilities.None"/> is correct: only <see cref="LapInfo.LapNumber"/> and
+/// <see cref="LapInfo.LapTime"/> are read, and both are canonical fields.
 /// </para>
 /// </remarks>
 public sealed class LinearLapTimeTrendModel : IAnalysisAlgorithm<LapTimeTrendInput, LapTimeTrend>

@@ -36,7 +36,7 @@ public sealed record PitRecommendation(
 /// A versioned, capability-gated pit strategy engine.
 /// </summary>
 /// <remarks>
-/// <b>Phase 3 — not yet implemented.</b> Consumes analysis results rather than raw telemetry,
-/// keeping the strategy layer independent of both the simulator and the storage schema.
+/// <b>Not implemented.</b> Consumes analysis results rather than raw telemetry, keeping the
+/// strategy layer independent of both the simulator and the storage schema.
 /// </remarks>
 public interface IPitStrategyEngine : IAnalysisAlgorithm<StrategyInput, PitRecommendation>;

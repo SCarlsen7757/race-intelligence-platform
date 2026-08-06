@@ -8,9 +8,9 @@ namespace RaceIntelligence.Core.Telemetry;
 /// <para>
 /// Every field is nullable because a simulator may not report it. Connectors MUST translate their
 /// "not available" sentinel (RaceRoom uses <c>-1.0</c>) to <see langword="null"/> and must never
-/// pass the sentinel through as a real reading — a literal -1 °C tread temperature would be
-/// silently treated as a plausible cold tyre and corrupt tyre degradation analysis. This mirrors
-/// the same rule applied to throttle, brake, tyre pressure and tyre wear.
+/// pass the sentinel through as a real reading — a literal -1 °C tread temperature is a plausible
+/// cold tyre and would be consumed as one. The same rule applies to throttle, brake, tyre pressure
+/// and tyre wear.
 /// </para>
 /// </remarks>
 /// <param name="Inner">Inner tread temperature, °C. Null when not reported.</param>
