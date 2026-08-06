@@ -18,12 +18,18 @@ public sealed class CollectorOptions
     public const string SectionName = "Collector";
 
     /// <summary>
-    /// Base URL of the ingest API, e.g. <c>https://home-server:5443/</c>. Must end with a trailing
-    /// slash so relative request paths (<c>api/v1/sessions</c>, ...) combine correctly with
-    /// <see cref="HttpClient.BaseAddress"/>.
+    /// Base URL of the ingest API. Must end with a trailing slash so relative request paths
+    /// (<c>api/v1/sessions</c>, ...) combine correctly with <see cref="HttpClient.BaseAddress"/>.
     /// </summary>
+    /// <remarks>
+    /// Accepts either a concrete address (<c>https://home-server:5443/</c>) for a standalone
+    /// deployment, or a service-discovery name (<c>https+http://ingest-api/</c>) when something —
+    /// Aspire's AppHost in the local dev loop — resolves logical service names for us. The latter is
+    /// why plain <c>[Url]</c> validation is not used here: it rejects any scheme that isn't
+    /// http/https/ftp, including the <c>https+http</c> scheme-preference form.
+    /// </remarks>
     [Required]
-    [Url]
+    [ServiceUrl]
     public string IngestBaseUrl { get; init; } = "https://localhost:5443/";
 
     /// <summary>
@@ -65,4 +71,30 @@ public sealed class CollectorOptions
     /// </summary>
     [Range(typeof(TimeSpan), "00:00:00.100", "00:01:00")]
     public TimeSpan MaxBatchAge { get; init; } = TimeSpan.FromSeconds(2);
+}
+
+/// <summary>
+/// Validates a base address that may be either a concrete URL or a service-discovery name: an
+/// absolute URI with an authority, ending in a trailing slash. Deliberately does not constrain the
+/// scheme — <c>https+http</c> (service discovery's "prefer https, accept http" form) is as valid
+/// here as plain <c>https</c>, and <see cref="UrlAttribute"/> rejects it.
+/// </summary>
+[AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+internal sealed class ServiceUrlAttribute : ValidationAttribute
+{
+    public override bool IsValid(object? value)
+    {
+        if (value is not string text)
+        {
+            // Absent/non-string values are [Required]'s business, not this attribute's.
+            return true;
+        }
+
+        return Uri.TryCreate(text, UriKind.Absolute, out var uri)
+            && !string.IsNullOrEmpty(uri.Authority)
+            && text.EndsWith('/');
+    }
+
+    public override string FormatErrorMessage(string name) =>
+        $"'{name}' must be an absolute base address with a trailing slash, e.g. 'https://home-server:5443/' or 'https+http://ingest-api/'.";
 }

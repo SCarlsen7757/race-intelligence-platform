@@ -42,10 +42,19 @@ var ingestApi = builder.AddProject<Projects.RaceIntelligence_Ingest_Api>("ingest
     .WithEnvironment("Ingest__ApiKey", ingestApiKey);
 
 // The collector holds no database credentials by design — it reaches the database only through
-// the ingest API. WithReference injects the API's URL via service discovery.
+// the ingest API.
+//
+// WithReference publishes the API's endpoints as services__ingest-api__<scheme>__<index>; the
+// collector's HttpClient resolves them because ServiceDefaults attaches the service-discovery
+// handler to every client. That only happens if the collector is actually pointed at the logical
+// name, hence Collector__IngestBaseUrl below: "https+http" means prefer the https endpoint and fall
+// back to http, so neither a port number nor a launch-profile choice is baked in anywhere. Without
+// it the collector would fall back to the literal address in its own appsettings and only reach the
+// API by coincidence.
 builder.AddProject<Projects.RaceIntelligence_Collector>("collector")
     .WithReference(ingestApi)
     .WaitFor(ingestApi)
-    .WithEnvironment("Collector__ApiKey", ingestApiKey);
+    .WithEnvironment("Collector__ApiKey", ingestApiKey)
+    .WithEnvironment("Collector__IngestBaseUrl", "https+http://ingest-api/");
 
 builder.Build().Run();
