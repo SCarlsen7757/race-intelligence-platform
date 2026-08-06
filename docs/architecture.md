@@ -489,11 +489,8 @@ Benefits:
 
 ## Machine Learning Roadmap
 
-Machine Learning is **not** required initially.
-
-Phase 1 uses deterministic algorithms.
-
-Examples:
+Machine Learning is **not** required initially. The first implementations should be deterministic
+algorithms, for example:
 
 - Linear regression
 - Tire degradation curves
@@ -537,59 +534,53 @@ This keeps AI focused on reasoning and communication rather than numerical calcu
 
 ## Development Roadmap
 
-### Phase 1 - Telemetry Collection
+Deliberately unnumbered. Earlier drafts of this document and the README used phase numbers that
+disagreed with each other, and the ordering below is a preference rather than a schedule — analysis
+work can start before multi-simulator support is finished, and probably will.
+
+### Built
 
 - RaceRoom connector
 - Canonical telemetry model
-- PostgreSQL database
-- Background upload
-- Session storage
+- PostgreSQL storage
+- Background upload and session storage
 
----
+### In progress — analysis
 
-### Phase 2 - Analysis
-
+- Lap-time trend over a stint
 - Fuel model
-- Tire degradation model
 - Lap quality detection
 - Driver consistency
 - Traffic detection
 
----
+### Planned — strategy
 
-### Phase 3 - Strategy
+Once analysis produces enough per-stint numbers to reason over:
 
 - Pit simulator
-- Tire strategy
-- Undercut prediction
-- Overcut prediction
+- Tyre strategy
+- Undercut and overcut prediction
 - Race simulations
 
----
+### Planned — machine learning
 
-### Phase 4 - Machine Learning
+Once enough history exists to train on:
 
 - Historical training
 - Model comparison
 - Prediction accuracy
 - Continuous retraining
 
----
+### Planned — AI race engineer
 
-### Phase 5 - Multi-Simulator Support
+Explaining the strategy engine's output in plain language, as described above. It depends on the
+strategy engine existing, so it comes after it — not because of a fixed slot in a sequence.
 
-Add connectors for:
+### Ongoing — more simulators
 
-- Assetto Corsa Competizione
-- iRacing
-- Automobilista 2
-- Le Mans Ultimate
-- rFactor 2
-- Future simulators
-
-No backend changes should be required.
-
-Only new connectors.
+Connectors for Assetto Corsa Competizione, iRacing, Automobilista 2, Le Mans Ultimate, rFactor 2 and
+whatever comes next. No backend changes should be required — only new connectors — so this can
+happen at any point rather than waiting its turn.
 
 ---
 

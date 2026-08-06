@@ -11,7 +11,9 @@ modified, so any future algorithm can be re-run against the complete history.
 
 ## Status
 
-**Phase 1 — telemetry collection — works end to end.** RaceRoom is the only connector so far.
+**Telemetry collection works end to end** — simulator to database. RaceRoom is the only connector
+so far, and analysis has just started. The roadmap beyond that is in
+[docs/architecture.md](docs/architecture.md).
 
 | Area | State |
 |---|---|
@@ -84,10 +86,10 @@ src/
   RaceIntelligence.Ingest.Api            Telemetry ingest endpoints
   RaceIntelligence.Ingest.Contracts      Wire contracts shared by collector and API
   RaceIntelligence.Persistence           EF Core entities, migrations, bulk writer
-  RaceIntelligence.Analysis              Analysis engine          (Phase 2)
-  RaceIntelligence.Strategy              Strategy engine          (Phase 3)
-  RaceIntelligence.ML                    Model training           (Phase 4)
-  RaceIntelligence.AI.RaceEngineer       AI race engineer         (Phase 5)
+  RaceIntelligence.Analysis              Analysis engine          (started)
+  RaceIntelligence.Strategy              Strategy engine          (interfaces only)
+  RaceIntelligence.ML                    Model training           (interfaces only)
+  RaceIntelligence.AI.RaceEngineer       AI race engineer         (interfaces only)
   RaceIntelligence.AppHost               Aspire orchestration for local development only
   RaceIntelligence.ServiceDefaults       Shared telemetry, health checks, resilience
 tests/                                   One test project per component
