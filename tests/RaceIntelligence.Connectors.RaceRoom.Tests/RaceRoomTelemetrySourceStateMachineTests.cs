@@ -20,6 +20,10 @@ public class RaceRoomTelemetrySourceStateMachineTests
     {
         PollInterval = TimeSpan.FromMilliseconds(2),
         ReconnectDelay = TimeSpan.FromMilliseconds(5),
+
+        // Deliberately long: every test except the frozen-frame one drives the tick counter
+        // forward itself, and must never trip the stale-frame (game exited) check by accident.
+        StaleFrameTimeout = TimeSpan.FromMinutes(5),
     };
 
     /// <summary>Advances the enumerator once and asserts the event produced is of the expected type.</summary>
@@ -29,6 +33,29 @@ public class RaceRoomTelemetrySourceStateMachineTests
         bool moved = await enumerator.MoveNextAsync();
         moved.ShouldBeTrue("expected another TelemetryEvent but the stream ended -- the state machine likely hung, diverged, or the test's CancellationToken expired.");
         return enumerator.Current.ShouldBeOfType<TEvent>();
+    }
+
+    /// <summary>
+    /// Advances until the next event of <typeparamref name="TEvent"/>, skipping over the steady
+    /// stream of <see cref="TelemetrySampleReceived"/> a live poll loop produces in between. Any
+    /// other event type is a divergence and fails the test.
+    /// </summary>
+    private static async Task<TEvent> NextSkippingSamplesAsync<TEvent>(IAsyncEnumerator<TelemetryEvent> enumerator)
+        where TEvent : TelemetryEvent
+    {
+        while (await enumerator.MoveNextAsync())
+        {
+            if (enumerator.Current is TEvent match)
+            {
+                return match;
+            }
+
+            enumerator.Current.ShouldBeOfType<TelemetrySampleReceived>(
+                $"only telemetry samples may appear before the expected {typeof(TEvent).Name}.");
+        }
+
+        throw new ShouldAssertException(
+            $"the event stream ended before a {typeof(TEvent).Name} was produced -- the state machine likely hung or the test's CancellationToken expired.");
     }
 
     [Fact]
@@ -200,5 +227,57 @@ public class RaceRoomTelemetrySourceStateMachineTests
         var disconnected = await NextAsync<ConnectionStateChanged>(enumerator);
         disconnected.State.ShouldBe(ConnectionState.Disconnected);
         disconnected.Reason.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task FrozenTickCounterMidSession_EndsTheSessionAndReconnects()
+    {
+        // Regression test for the "game exited but the mapping outlives it" bug: RaceRoom's shared
+        // memory section stays readable while this process holds a handle to it, so an exited game
+        // looks like a live one whose last frame never changes. Nothing else in the state machine
+        // catches that -- the frame is on-track, the session key is identical, and the tick counter
+        // is equal rather than lower, so the tick-*regression* check never fires either. Without a
+        // stale-frame timeout the source stays InSession forever, re-uploading a dead frame at
+        // 60 Hz and never attempting a reconnect.
+        var options = FastOptions with { StaleFrameTimeout = TimeSpan.FromMilliseconds(150) };
+
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        int viewsOpened = 0;
+        await using var source = new RaceRoomTelemetrySource(options, () =>
+        {
+            viewsOpened++;
+            return view;
+        });
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+        viewsOpened.ShouldBe(1);
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(1234)
+            .Build()
+            .ToBytes());
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+        var session = await NextAsync<SessionStarted>(enumerator);
+        await NextAsync<TelemetrySampleReceived>(enumerator); // first sample
+
+        // The "game" now exits: the frame is never updated again, so game_simulation_ticks stays
+        // pinned at 1234 while the view happily keeps serving it.
+        var sessionEnded = await NextSkippingSamplesAsync<SessionEnded>(enumerator);
+        sessionEnded.SessionId.ShouldBe(session.Session.SessionId);
+
+        var disconnected = await NextAsync<ConnectionStateChanged>(enumerator);
+        disconnected.State.ShouldBe(ConnectionState.Disconnected);
+        disconnected.Reason.ShouldNotBeNull().ShouldContain("tick counter");
+
+        // ...and the source must go back around the reconnect loop rather than sitting dead.
+        var reconnected = await NextAsync<ConnectionStateChanged>(enumerator);
+        reconnected.State.ShouldBe(ConnectionState.Connected);
+        viewsOpened.ShouldBe(2, "a stale-frame disconnect must be followed by a genuine reconnect attempt.");
     }
 }

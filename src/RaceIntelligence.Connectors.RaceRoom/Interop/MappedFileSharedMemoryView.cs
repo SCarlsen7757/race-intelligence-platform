@@ -59,7 +59,14 @@ internal sealed class MappedFileSharedMemoryView : ISharedMemoryView
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// <see langword="true"/> until this instance is disposed — and <b>only</b> that. Windows keeps
+    /// a section object alive for as long as any handle to it is open, and this class holds one, so
+    /// the mapping (and the last frame RaceRoom wrote into it) remains readable after the game
+    /// exits. There is no cheap, reliable signal here that says otherwise; game liveness is decided
+    /// by <see cref="RaceIntelligence.Connectors.RaceRoom.RaceRoomTelemetrySource"/> watching the
+    /// simulation tick counter instead.
+    /// </summary>
     public bool IsValid => !_disposed;
 
     /// <inheritdoc />

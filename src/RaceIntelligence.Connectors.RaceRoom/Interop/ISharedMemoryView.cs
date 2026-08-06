@@ -16,10 +16,21 @@ namespace RaceIntelligence.Connectors.RaceRoom.Interop;
 internal interface ISharedMemoryView : IDisposable
 {
     /// <summary>
-    /// <see langword="false"/> once the underlying source is known to be gone (e.g. the game
-    /// process exited). A telemetry source should treat this the same way it treats a read
-    /// throwing: tear the connection down and go back to <c>Disconnected</c>.
+    /// <see langword="false"/> once this view can no longer be read at all — it has been disposed,
+    /// or the implementation has some positive signal that the mapping is gone. A telemetry source
+    /// should treat that the same way it treats a read throwing: tear the connection down and go
+    /// back to <c>Disconnected</c>.
     /// </summary>
+    /// <remarks>
+    /// <b>This is not a liveness check for the game.</b> A Windows section object stays mapped and
+    /// fully readable for as long as any handle to it is open, so
+    /// <see cref="MappedFileSharedMemoryView"/> keeps returning <see langword="true"/> — and keeps
+    /// serving the last frame the game wrote — long after RaceRoom exits. Detecting that the game
+    /// is gone is the *reader's* job, and
+    /// <see cref="RaceIntelligence.Connectors.RaceRoom.RaceRoomTelemetrySource"/> does it by
+    /// watching the simulation tick counter stop advancing (see its
+    /// <c>RaceRoomConnectorOptions.StaleFrameTimeout</c>).
+    /// </remarks>
     bool IsValid { get; }
 
     /// <summary>The size of the view in bytes. Used to reject a block too small to hold the struct being read.</summary>

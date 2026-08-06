@@ -32,6 +32,17 @@ namespace RaceIntelligence.Connectors.RaceRoom;
 /// counter regressing (an in-game session restart, which otherwise looks identical) — ends the
 /// current session.
 /// </para>
+/// <para>
+/// <b>Game exit is detected by a frozen tick counter, not by the mapping disappearing.</b> The
+/// <c>$R3E</c> section stays mapped and readable for as long as this process holds a handle to it,
+/// so a RaceRoom that has exited (or crashed, or hung) is indistinguishable from one that simply
+/// stopped writing: every poll keeps returning the last frame it wrote, forever. While in a
+/// session, this source therefore treats <c>game_simulation_ticks</c> not advancing for
+/// <see cref="RaceRoomConnectorOptions.StaleFrameTimeout"/> as the game being gone — it ends the
+/// session and drops back to Disconnected so the reconnect loop can pick the game back up when it
+/// returns. Note that a *frozen* counter cannot be caught by the tick-regression check, which only
+/// fires on a counter that moves backwards.
+/// </para>
 /// </remarks>
 public sealed class RaceRoomTelemetrySource : ITelemetrySource
 {
@@ -229,6 +240,28 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             return;
         }
 
+        // InSession: a tick counter that has stopped advancing for longer than the configured
+        // timeout means RaceRoom is no longer writing to the block. Checked before every other
+        // boundary rule because a dead game keeps serving the same frame indefinitely, and that
+        // frame is (by definition) still on-track, still the same session key, and has ticks that
+        // are equal rather than lower — so nothing else here would ever fire.
+        if (raw.Player.GameSimulationTicks != _run.LastTicks)
+        {
+            _run.LastTicksChangedAtUtc = now;
+        }
+        else if (now - _run.LastTicksChangedAtUtc >= _options.StaleFrameTimeout)
+        {
+            EndCurrentSessionIfAny(events, now);
+            _run.View?.Dispose();
+            _run.View = null;
+            SetState(
+                ConnectionState.Disconnected,
+                events,
+                now,
+                $"RaceRoom's simulation tick counter has not advanced for {_options.StaleFrameTimeout}; presuming the game exited.");
+            return;
+        }
+
         // InSession: detect the session boundary described on the type's <remarks/>.
         var newKey = new SessionKey(
             R3ETelemetryMapper.DecodeUtf8Name(raw.TrackName),
@@ -269,6 +302,7 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             raw.SessionType);
         _run.LastCompletedLaps = raw.CompletedLaps;
         _run.LastTicks = raw.Player.GameSimulationTicks;
+        _run.LastTicksChangedAtUtc = now;
         _run.SequenceNumber = 0;
 
         SetState(ConnectionState.InSession, events, now, reason: null);
@@ -405,6 +439,10 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         public SessionKey? CurrentKey;
         public int LastCompletedLaps;
         public int LastTicks;
+
+        /// <summary>When <see cref="LastTicks"/> last changed — the clock behind the stale-frame (game exited) check.</summary>
+        public DateTimeOffset LastTicksChangedAtUtc;
+
         public long SequenceNumber;
 
         public void ClearSession()
@@ -413,6 +451,7 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             CurrentKey = null;
             LastCompletedLaps = 0;
             LastTicks = 0;
+            LastTicksChangedAtUtc = default;
             SequenceNumber = 0;
         }
     }
