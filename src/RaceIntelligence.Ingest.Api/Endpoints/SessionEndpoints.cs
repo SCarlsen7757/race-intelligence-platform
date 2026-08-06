@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using RaceIntelligence.Ingest.Api.Auth;
 using RaceIntelligence.Ingest.Contracts;
 using RaceIntelligence.Ingest.Contracts.Mapping;
@@ -14,8 +13,6 @@ namespace RaceIntelligence.Ingest.Api.Endpoints;
 /// <summary>Maps the low-frequency, JSON session and lap endpoints under <c>/api/v1/sessions</c>.</summary>
 public static class SessionEndpoints
 {
-    private const string UniqueViolationSqlState = "23505";
-
     /// <summary>Registers the session/lap endpoints on <paramref name="app"/>.</summary>
     public static IEndpointRouteBuilder MapSessionEndpoints(this IEndpointRouteBuilder app)
     {
@@ -104,7 +101,7 @@ public static class SessionEndpoints
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
             await transaction.CommitAsync(ct).ConfigureAwait(false);
         }
-        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             // Lost a race with a concurrent identical create for the same SessionId; the row
             // already exists, which is exactly the idempotent outcome this endpoint promises. The
@@ -214,9 +211,6 @@ public static class SessionEndpoints
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
         return Results.Ok(new { SessionId = id, request.LapNumber });
     }
-
-    private static bool IsUniqueViolation(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: UniqueViolationSqlState };
 
     /// <summary>
     /// Parses client-supplied raw JSON text, reporting failure rather than throwing. The document is
