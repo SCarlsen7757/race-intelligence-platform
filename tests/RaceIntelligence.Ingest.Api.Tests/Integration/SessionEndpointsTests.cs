@@ -424,6 +424,67 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
     }
 
     [Theory]
+    [InlineData("FuelUsageRate")]
+    [InlineData("TyreWearRate")]
+    [InlineData("SessionType")]
+    public async Task A_raw_sim_code_too_large_for_smallint_is_a_400_not_a_silently_wrapped_value(string field)
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // int.MaxValue narrows to -1 unchecked, which is indistinguishable from RaceRoom's
+        // "not available" sentinel — the request has to be refused, not quietly recorded as -1.
+        var gameVersion = DtoFactory.UniqueGameVersion();
+        var request = DtoFactory.SessionCreateRequest() with { GameVersion = gameVersion };
+        request = field switch
+        {
+            "FuelUsageRate" => request with { FuelUsageRate = int.MaxValue },
+            "TyreWearRate" => request with { TyreWearRate = int.MaxValue },
+            _ => request with { SessionType = int.MaxValue },
+        };
+
+        using var response = await PostAsync("/api/v1/sessions", request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .ShouldContain(field, Case.Insensitive);
+
+        await using var db = await OpenDatabaseAsync();
+        (await CountAsync(db, "SELECT count(*) FROM games WHERE key = @key", ("key", gameVersion.GameKey))).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_raw_sim_code_at_the_smallint_boundary_is_stored_verbatim()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // The boundary itself is legal: the range check must reject only what genuinely cannot be
+        // represented, not clamp the sim's raw codes to something narrower than the column allows.
+        var request = DtoFactory.SessionCreateRequest() with
+        {
+            FuelUsageRate = short.MaxValue,
+            TyreWearRate = short.MinValue,
+        };
+
+        using var response = await PostAsync("/api/v1/sessions", request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = await OpenDatabaseAsync();
+        (await CountAsync(
+            db,
+            "SELECT count(*) FROM sessions WHERE id = @id AND fuel_usage_rate = @fuel AND tyre_wear_rate = @wear",
+            ("id", request.SessionId),
+            ("fuel", (short)short.MaxValue),
+            ("wear", (short)short.MinValue))).ShouldBe(1);
+    }
+
+    [Theory]
     [InlineData("weather")]
     [InlineData("setup")]
     [InlineData("extras")]

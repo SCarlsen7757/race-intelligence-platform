@@ -26,23 +26,22 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
         // Stored as smallint, not a native Postgres enum: see TelemetrySample entity remarks.
         builder.Property(s => s.SessionType)
             .HasColumnName("session_type")
-            .HasConversion<short>()
+            .HasConversion(CheckedSmallIntConverter.SessionTypeConverter)
             .HasColumnType("smallint")
             .IsRequired();
 
         // The sim's own raw rate codes, not normalized multipliers — see the entity's remarks.
-        // The int -> short narrowing is spelled out rather than left to EF's implicit provider-type
-        // resolution (which does infer it from the column type): SessionType above and Capabilities
-        // below both name their conversion, and a silent narrowing cast is exactly the thing worth
-        // stating out loud.
+        // These three all narrow int -> short, and they do it checked: an unqualified
+        // HasConversion<short>() wraps silently, turning an out-of-range code into whatever bit
+        // pattern survives — for int.MaxValue that is -1, RaceRoom's "not available" sentinel.
         builder.Property(s => s.FuelUsageRate)
             .HasColumnName("fuel_usage_rate")
-            .HasConversion<short?>()
+            .HasConversion(CheckedSmallIntConverter.Converter)
             .HasColumnType("smallint");
 
         builder.Property(s => s.TyreWearRate)
             .HasColumnName("tyre_wear_rate")
-            .HasConversion<short?>()
+            .HasConversion(CheckedSmallIntConverter.Converter)
             .HasColumnType("smallint");
 
         builder.Property(s => s.Capabilities)

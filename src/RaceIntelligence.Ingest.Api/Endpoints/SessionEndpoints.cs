@@ -4,6 +4,7 @@ using RaceIntelligence.Ingest.Api.Auth;
 using RaceIntelligence.Ingest.Contracts;
 using RaceIntelligence.Ingest.Contracts.Mapping;
 using RaceIntelligence.Persistence;
+using RaceIntelligence.Persistence.Converters;
 using RaceIntelligence.Persistence.Mapping;
 using RaceIntelligence.Persistence.Repositories;
 using CoreSessions = RaceIntelligence.Core.Sessions;
@@ -55,6 +56,24 @@ public static class SessionEndpoints
         if (!SchemaVersion.IsSupported(request.SchemaVersion))
         {
             return ProblemResults.SchemaVersionUnsupported(request.SchemaVersion);
+        }
+
+        // The sim's raw codes are carried through untranslated, but they still have to fit the
+        // smallint columns that store them. Narrowing an out-of-range value wraps it into a
+        // different, plausible-looking code, so it is rejected here instead.
+        if (!CheckedSmallIntConverter.IsRepresentable(request.FuelUsageRate))
+        {
+            return ProblemResults.ValueOutOfRange(nameof(request.FuelUsageRate), request.FuelUsageRate!.Value);
+        }
+
+        if (!CheckedSmallIntConverter.IsRepresentable(request.TyreWearRate))
+        {
+            return ProblemResults.ValueOutOfRange(nameof(request.TyreWearRate), request.TyreWearRate!.Value);
+        }
+
+        if (!CheckedSmallIntConverter.IsRepresentable(request.SessionType))
+        {
+            return ProblemResults.ValueOutOfRange(nameof(request.SessionType), request.SessionType);
         }
 
         var existing = await db.Sessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == request.SessionId, ct).ConfigureAwait(false);
