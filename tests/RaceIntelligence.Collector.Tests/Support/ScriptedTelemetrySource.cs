@@ -22,6 +22,11 @@ internal sealed class ScriptedTelemetrySource(IReadOnlyList<TelemetryEvent> even
     {
         foreach (var telemetryEvent in events)
         {
+            // Yield before every event so this behaves like a real polling source: its
+            // MoveNextAsync completes asynchronously, which is what lets a consuming
+            // BackgroundService's ExecuteAsync return to StartAsync instead of running the whole
+            // script inline on the caller's thread.
+            await Task.Yield();
             yield return telemetryEvent;
         }
 

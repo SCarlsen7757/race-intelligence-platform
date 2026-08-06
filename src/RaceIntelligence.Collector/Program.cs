@@ -63,8 +63,12 @@ builder.Services.AddSingleton<ITelemetrySource>(sp =>
 });
 #pragma warning restore CA1416
 
-builder.Services.AddHostedService<TelemetryCollectorService>();
+// Order matters: the host stops hosted services in reverse registration order, so the consumer
+// (upload) is registered first and the producer (collect) last. That way shutdown stops the
+// producer first and leaves the consumer running to drain what is still buffered — the reverse
+// would stop the drain first and strand the producer against a full buffer.
 builder.Services.AddHostedService<TelemetryUploadService>();
+builder.Services.AddHostedService<TelemetryCollectorService>();
 
 var host = builder.Build();
 host.Run();

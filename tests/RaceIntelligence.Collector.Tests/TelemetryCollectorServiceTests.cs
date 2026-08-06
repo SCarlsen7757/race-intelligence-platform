@@ -118,4 +118,43 @@ public class TelemetryCollectorServiceTests
         ingestClient.UpdatedSessions.ShouldBeEmpty();
         ingestClient.RecordedLaps.ShouldBeEmpty();
     }
+
+    [Fact]
+    public async Task Shutdown_completes_promptly_even_with_a_full_buffer_and_no_reader()
+    {
+        // Regression test for the shutdown deadlock: BufferFullMode.Wait exists precisely to
+        // produce a full buffer, and a full buffer parks this service inside a blocking TryWrite
+        // that owns its thread -- so it can never observe its own stoppingToken. If nothing unparks
+        // it, StopAsync waits forever (in production: until the host's ShutdownTimeout elapses).
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        var sessionId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var events = Enumerable.Range(0, 20)
+            .Select(i => (TelemetryEvent)new TelemetrySampleReceived
+            {
+                OccurredAtUtc = now,
+                Sample = TelemetrySampleFactory.Create(sessionId, i),
+            })
+            .ToArray();
+
+        await using var buffer = new ChannelTelemetryBuffer(capacity: 2, BoundedChannelFullMode.Wait, NullLogger<ChannelTelemetryBuffer>.Instance);
+        var service = new TelemetryCollectorService(
+            new ScriptedTelemetrySource(events), buffer, new RecordingIngestClient(), NullLogger<TelemetryCollectorService>.Instance);
+
+        await service.StartAsync(cts.Token);
+
+        // Nothing reads the buffer, so the producer is parked on the third write.
+        while (buffer.Metrics.CurrentDepth < 2)
+        {
+            await Task.Delay(10, cts.Token);
+        }
+
+        var stopping = service.StopAsync(cts.Token);
+        var completed = await Task.WhenAny(stopping, Task.Delay(TimeSpan.FromSeconds(10), cts.Token));
+
+        completed.ShouldBe(stopping, "shutdown must not block on a producer parked against a full buffer.");
+        await stopping;
+    }
 }

@@ -75,6 +75,21 @@ public sealed class TelemetryCollectorService(
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// Completes the buffer <i>before</i> waiting for <see cref="ExecuteAsync"/> to finish. With
+    /// <see cref="System.Threading.Channels.BoundedChannelFullMode.Wait"/> — the default, and the
+    /// mode whose entire purpose is to produce a full buffer — this loop can be parked inside a
+    /// blocking <see cref="ITelemetryBuffer.TryWrite"/> when shutdown begins, holding its own
+    /// thread and so unable to ever observe <c>stoppingToken</c>. Completing first unparks it, so
+    /// shutdown finishes immediately instead of waiting out the host's ShutdownTimeout.
+    /// </remarks>
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        buffer.Complete();
+        await base.StopAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private Task HandleEventAsync(TelemetryEvent telemetryEvent, CancellationToken cancellationToken) => telemetryEvent switch
     {
         SessionStarted started => HandleSessionStartedAsync(started, cancellationToken),
