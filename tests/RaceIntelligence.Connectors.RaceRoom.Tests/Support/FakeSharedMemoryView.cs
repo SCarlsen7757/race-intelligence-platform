@@ -1,7 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace RaceIntelligence.Connectors.RaceRoom.Interop;
+using RaceIntelligence.Connectors.RaceRoom.Interop;
+
+namespace RaceIntelligence.Connectors.RaceRoom.Tests.Support;
 
 /// <summary>
 /// An in-memory <see cref="ISharedMemoryView"/> used by tests to drive

@@ -4,14 +4,15 @@ namespace RaceIntelligence.Connectors.RaceRoom.Interop;
 /// A source of raw bytes shaped like RaceRoom's <c>$R3E</c> shared memory block. This seam is
 /// what lets <see cref="RaceIntelligence.Connectors.RaceRoom.RaceRoomTelemetrySource"/> be
 /// exercised in tests without RaceRoom installed: production code uses
-/// <see cref="MappedFileSharedMemoryView"/>, tests use <see cref="FakeSharedMemoryView"/>.
+/// <see cref="MappedFileSharedMemoryView"/>, the test project supplies an in-memory double.
 /// </summary>
 /// <remarks>
 /// The view deliberately exposes a typed <see cref="Read{T}"/> rather than a
 /// <see cref="ReadOnlySpan{T}"/> over its bytes. Producing a span over a memory-mapped region
-/// requires acquiring an unmanaged pointer, which would force this assembly to enable unsafe
-/// code. Going through a typed read keeps every implementation fully verifiable while still
-/// avoiding an intermediate copy of the ~44 KB block on each poll.
+/// requires acquiring an unmanaged pointer, which would force this assembly to enable unsafe code.
+/// A typed read does copy the struct out of the mapping — it is not zero-copy — but it keeps every
+/// implementation fully verifiable, and the copy is small now that the trailing driver array is no
+/// longer mapped.
 /// </remarks>
 internal interface ISharedMemoryView : IDisposable
 {
