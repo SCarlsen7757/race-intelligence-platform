@@ -18,7 +18,6 @@ public sealed class TrackLayoutConfiguration : IEntityTypeConfiguration<TrackLay
         builder.Property(l => l.TrackId).HasColumnName("track_id").IsRequired();
         builder.Property(l => l.Name).HasColumnName("name").IsRequired();
         builder.Property(l => l.LengthMeters).HasColumnName("length_meters").HasColumnType("double precision").IsRequired();
-        builder.Property(l => l.SimLayoutId).HasColumnName("sim_layout_id");
 
         builder.HasIndex(l => new { l.TrackId, l.Name }).IsUnique();
 

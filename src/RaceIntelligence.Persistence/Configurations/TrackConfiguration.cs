@@ -17,7 +17,6 @@ public sealed class TrackConfiguration : IEntityTypeConfiguration<Track>
 
         builder.Property(t => t.GameId).HasColumnName("game_id").IsRequired();
         builder.Property(t => t.Name).HasColumnName("name").IsRequired();
-        builder.Property(t => t.SimTrackId).HasColumnName("sim_track_id");
 
         builder.HasIndex(t => new { t.GameId, t.Name }).IsUnique();
 
