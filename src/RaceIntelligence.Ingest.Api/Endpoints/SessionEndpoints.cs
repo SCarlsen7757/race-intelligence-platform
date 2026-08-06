@@ -34,6 +34,17 @@ public static class SessionEndpoints
     /// earlier successful response was lost) and the rare concurrent-request race (caught via the
     /// primary-key unique-violation below).
     /// </summary>
+    /// <remarks>
+    /// Each resolve-or-create below runs its own <c>SaveChanges</c>, so without the explicit
+    /// transaction this method commits four to six times on the way to one logical insert. A failure
+    /// after any of them left the already-committed reference rows behind — most visibly a driver
+    /// row belonging to no session at all, which the <c>AddDriverIdentityAndSessionWearRates</c>
+    /// migration had to scrub before it could add a NOT NULL <c>game_id</c>. Wrapping the sequence
+    /// makes the whole thing land or none of it. The repositories' unique-violation retries still
+    /// work inside it: EF Core takes a savepoint before each <c>SaveChanges</c> when a transaction
+    /// is already open and rolls back to it on failure, so a caught conflict does not leave the
+    /// transaction aborted.
+    /// </remarks>
     private static async Task<IResult> CreateSessionAsync(
         SessionCreateRequest request,
         RaceIntelligenceDbContext db,
@@ -53,6 +64,8 @@ public static class SessionEndpoints
         {
             return Results.Ok(new { existing.Id });
         }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
 
         var (game, gameVersion) = await gameRepo.ResolveOrCreateAsync(
             GameVersionContractMapper.ToCore(request.GameVersion), ct).ConfigureAwait(false);
@@ -77,11 +90,15 @@ public static class SessionEndpoints
         try
         {
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
         }
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
             // Lost a race with a concurrent identical create for the same SessionId; the row
-            // already exists, which is exactly the idempotent outcome this endpoint promises.
+            // already exists, which is exactly the idempotent outcome this endpoint promises. The
+            // winner resolved the same reference data on its way there, so discarding ours costs
+            // nothing and keeps the "all or nothing" guarantee intact.
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
         }
 
         return Results.Ok(new { entity.Id });

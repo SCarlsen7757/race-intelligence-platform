@@ -360,6 +360,47 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
             .ShouldBe(1, "both sessions were driven in the same car");
     }
 
+    [Fact]
+    public async Task A_session_create_that_fails_at_the_last_step_leaves_no_reference_rows_behind()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // PostgreSQL text cannot hold U+0000, so a car name containing one fails at the car insert —
+        // by which point the game, its version, the driver, the track and the layout have each
+        // already been committed by their own SaveChanges. This is the shape of the failure that
+        // used to leave orphan rows behind.
+        var gameVersion = DtoFactory.UniqueGameVersion();
+        var playerName = $"Orphan Check Driver {Guid.NewGuid():N}";
+        var trackName = $"Orphan Check Track {Guid.NewGuid():N}";
+
+        var doomed = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = gameVersion,
+            PlayerName = playerName,
+            SimDriverId = null,
+            TrackName = trackName,
+            CarName = "Rejected\0Car Name",
+            SimCarId = null,
+        };
+
+        var response = await PostAsync("/api/v1/sessions", doomed);
+        response.StatusCode.ShouldNotBe(HttpStatusCode.OK, "the session row cannot be written, so the request must not report success");
+
+        await using var db = await OpenDatabaseAsync();
+
+        (await CountAsync(db, "SELECT count(*) FROM sessions WHERE id = @id", ("id", doomed.SessionId)))
+            .ShouldBe(0);
+        (await CountAsync(db, "SELECT count(*) FROM games WHERE key = @key", ("key", gameVersion.GameKey)))
+            .ShouldBe(0, "the game resolved on the way to the failed insert must be rolled back with it");
+        (await CountAsync(db, "SELECT count(*) FROM drivers WHERE display_name = @name", ("name", playerName)))
+            .ShouldBe(0, "an orphan driver row is exactly the residue this transaction exists to prevent");
+        (await CountAsync(db, "SELECT count(*) FROM tracks WHERE name = @name", ("name", trackName)))
+            .ShouldBe(0);
+    }
+
     private async Task<HttpResponseMessage> PostAsync<T>(string path, T body)
     {
         using var message = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
