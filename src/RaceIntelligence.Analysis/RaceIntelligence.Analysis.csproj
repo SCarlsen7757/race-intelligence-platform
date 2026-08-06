@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
-    <ProjectReference Include="..\RaceIntelligence.Persistence\RaceIntelligence.Persistence.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
