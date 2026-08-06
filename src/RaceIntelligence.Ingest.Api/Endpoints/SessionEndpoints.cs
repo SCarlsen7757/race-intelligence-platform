@@ -37,8 +37,8 @@ public static class SessionEndpoints
     /// Each resolve-or-create below runs its own <c>SaveChanges</c>, so without the explicit
     /// transaction this method commits four to six times on the way to one logical insert. A failure
     /// after any of them left the already-committed reference rows behind — most visibly a driver
-    /// row belonging to no session at all, which the <c>AddDriverIdentityAndSessionWearRates</c>
-    /// migration had to scrub before it could add a NOT NULL <c>game_id</c>. Wrapping the sequence
+    /// row belonging to no session at all, which once had to be scrubbed by a migration before a
+    /// NOT NULL <c>game_id</c> could be added. Wrapping the sequence
     /// makes the whole thing land or none of it. The repositories' unique-violation retries still
     /// work inside it: EF Core takes a savepoint before each <c>SaveChanges</c> when a transaction
     /// is already open and rolls back to it on failure, so a caught conflict does not leave the

@@ -12,8 +12,8 @@ using RaceIntelligence.Persistence;
 namespace RaceIntelligence.Persistence.Migrations
 {
     [DbContext(typeof(RaceIntelligenceDbContext))]
-    [Migration("20260806230125_MakeGearNullable")]
-    partial class MakeGearNullable
+    [Migration("20260806232140_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
