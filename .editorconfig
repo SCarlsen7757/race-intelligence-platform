@@ -4,6 +4,11 @@
 # EnforceCodeStyleInBuild=false, so nothing here fails the build today. Note that if you ever
 # flip that to true, TreatWarningsAsErrors=true means every `warning` severity below becomes a
 # build error — raise severities deliberately, not by accident.
+#
+# Because of that, a rule here is worth nothing unless it describes the code as written. Rules that
+# the whole repo ignores just train people to ignore the file. Every setting below was checked
+# against the existing source; where the codebase is genuinely split, the rule is `silent` rather
+# than picking a side that half the files violate.
 
 root = true
 
@@ -40,12 +45,17 @@ csharp_using_directive_placement = outside_namespace:warning
 # File-scoped namespaces — matches every existing file in the repo.
 csharp_style_namespace_declarations = file_scoped:warning
 
-csharp_style_var_for_built_in_types = false:suggestion
+# Genuinely split: the mapping and analysis code spells out int/double/string, while test setup
+# and `for` loops use var. Both read fine, so this one has no opinion instead of flagging half
+# the repo.
+csharp_style_var_for_built_in_types = true:silent
+# var everywhere else does match the code — roughly 450 uses across src and tests.
 csharp_style_var_when_type_is_apparent = true:suggestion
-csharp_style_var_elsewhere = false:suggestion
+csharp_style_var_elsewhere = true:suggestion
 
 csharp_prefer_braces = true:suggestion
-csharp_style_prefer_primary_constructors = false:suggestion
+# Every DI-constructed service, repository and fixture-backed test class in the repo uses one.
+csharp_style_prefer_primary_constructors = true:suggestion
 csharp_style_expression_bodied_methods = when_on_single_line:suggestion
 csharp_style_expression_bodied_properties = true:suggestion
 csharp_style_expression_bodied_accessors = true:suggestion

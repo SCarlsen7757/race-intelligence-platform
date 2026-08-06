@@ -106,8 +106,6 @@ LMU
 
 Every simulator only needs a connector.
 
-The backend should never know which simulator produced the data.
-
 ---
 
 ## Canonical Telemetry Model
@@ -176,7 +174,7 @@ Example
 }
 ```
 
-This makes the system future-proof.
+A new simulator with fields nobody anticipated should cost a connector, not a migration.
 
 ---
 
@@ -215,20 +213,12 @@ This keeps the system simulator-independent.
 
 ## Database Design
 
-Recommended database:
+**PostgreSQL**, for three reasons specific to this workload:
 
-**PostgreSQL**
-
-Reason:
-
-- Mature
-- Reliable
-- Fast
-- Excellent indexing
-- JSON support
-- Widely supported
-- Easy cloud deployment
-- Can migrate to TimescaleDB later if needed
+- Native JSON columns, which the simulator-specific metadata above depends on.
+- Indexing good enough to slice a large telemetry table by session, lap and time.
+- TimescaleDB is an extension rather than a different database, so the time-series upgrade path
+  stays open without a rewrite.
 
 At the current estimated data rate (~20 MB for a 30-minute race), plain PostgreSQL should comfortably handle the workload for a long time.
 
@@ -286,13 +276,20 @@ This applies the same principle as algorithm versioning:
 
 ---
 
-### Drivers
+### Drivers, Tracks and Cars
+
+Plain reference tables that sessions point at, so a name is stored once and can be corrected in one
+place:
 
 ```
 Driver
 Game
 Sim Driver Id
 Display Name
+
+Track / Layout / Length
+
+Car / Class / Manufacturer
 ```
 
 One database holds sessions from several people, and their driving signatures are
@@ -313,26 +310,6 @@ So identity is the **sim's own stable driver id**, not the display name:
 
 Sims that expose no driver id fall back to name matching within a game — worse, but
 the only option available for that source.
-
----
-
-### Tracks
-
-```
-Track
-Layout
-Length
-```
-
----
-
-### Cars
-
-```
-Car
-Class
-Manufacturer
-```
 
 ---
 
@@ -416,10 +393,6 @@ Reasons:
 - Machine learning benefits from large datasets.
 - Historical comparisons become possible.
 - Bugs in algorithms can be fixed by replaying history.
-
-Raw telemetry should never be modified.
-
-It is the source of truth.
 
 ---
 
@@ -532,11 +505,8 @@ Benefits:
 
 ## Machine Learning Roadmap
 
-Machine Learning is **not** required initially.
-
-Phase 1 uses deterministic algorithms.
-
-Examples:
+Machine Learning is **not** required initially. The first implementations should be deterministic
+algorithms, for example:
 
 - Linear regression
 - Tire degradation curves
@@ -580,59 +550,53 @@ This keeps AI focused on reasoning and communication rather than numerical calcu
 
 ## Development Roadmap
 
-### Phase 1 - Telemetry Collection
+Deliberately unnumbered. Earlier drafts of this document and the README used phase numbers that
+disagreed with each other, and the ordering below is a preference rather than a schedule — analysis
+work can start before multi-simulator support is finished, and probably will.
+
+### Built
 
 - RaceRoom connector
 - Canonical telemetry model
-- PostgreSQL database
-- Background upload
-- Session storage
+- PostgreSQL storage
+- Background upload and session storage
 
----
+### In progress — analysis
 
-### Phase 2 - Analysis
-
+- Lap-time trend over a stint
 - Fuel model
-- Tire degradation model
 - Lap quality detection
 - Driver consistency
 - Traffic detection
 
----
+### Planned — strategy
 
-### Phase 3 - Strategy
+Once analysis produces enough per-stint numbers to reason over:
 
 - Pit simulator
-- Tire strategy
-- Undercut prediction
-- Overcut prediction
+- Tyre strategy
+- Undercut and overcut prediction
 - Race simulations
 
----
+### Planned — machine learning
 
-### Phase 4 - Machine Learning
+Once enough history exists to train on:
 
 - Historical training
 - Model comparison
 - Prediction accuracy
 - Continuous retraining
 
----
+### Planned — AI race engineer
 
-### Phase 5 - Multi-Simulator Support
+Explaining the strategy engine's output in plain language, as described above. It depends on the
+strategy engine existing, so it comes after it — not because of a fixed slot in a sequence.
 
-Add connectors for:
+### Ongoing — more simulators
 
-- Assetto Corsa Competizione
-- iRacing
-- Automobilista 2
-- Le Mans Ultimate
-- rFactor 2
-- Future simulators
-
-No backend changes should be required.
-
-Only new connectors.
+Connectors for Assetto Corsa Competizione, iRacing, Automobilista 2, Le Mans Ultimate, rFactor 2 and
+whatever comes next. No backend changes should be required — only new connectors — so this can
+happen at any point rather than waiting its turn.
 
 ---
 

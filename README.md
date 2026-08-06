@@ -11,7 +11,9 @@ modified, so any future algorithm can be re-run against the complete history.
 
 ## Status
 
-**Phase 1 — telemetry collection — works end to end.** RaceRoom is the only connector so far.
+**Telemetry collection works end to end** — simulator to database. RaceRoom is the only connector
+so far, and analysis has just started. The roadmap beyond that is in
+[docs/architecture.md](docs/architecture.md).
 
 | Area | State |
 |---|---|
@@ -20,9 +22,12 @@ modified, so any future algorithm can be re-run against the complete history.
 | Collector (buffer + upload) | Working — bounded buffer, batched MessagePack upload |
 | Ingest API | Working — API-key auth, versioned contracts |
 | PostgreSQL persistence | Working — EF Core + bulk binary-copy writer |
-| Analysis / Strategy / ML / AI | Interface scaffolds only — Phases 2-5 |
+| Analysis | Started — one deterministic model implemented and covered by tests |
+| Strategy / ML / AI race engineer | Interfaces only — no implementation behind them yet |
 
-161 tests. Roughly 30 of them need a container runtime and skip without one.
+With Docker running, `dotnet test RaceIntelligence.slnx` should come back fully green. The Aspire
+and PostgreSQL integration suites need a container runtime and skip themselves when one isn't
+available — that's the only reason a test here skips.
 
 ---
 
@@ -81,10 +86,10 @@ src/
   RaceIntelligence.Ingest.Api            Telemetry ingest endpoints
   RaceIntelligence.Ingest.Contracts      Wire contracts shared by collector and API
   RaceIntelligence.Persistence           EF Core entities, migrations, bulk writer
-  RaceIntelligence.Analysis              Analysis engine          (Phase 2)
-  RaceIntelligence.Strategy              Strategy engine          (Phase 3)
-  RaceIntelligence.ML                    Model training           (Phase 4)
-  RaceIntelligence.AI.RaceEngineer       AI race engineer         (Phase 5)
+  RaceIntelligence.Analysis              Analysis engine          (started)
+  RaceIntelligence.Strategy              Strategy engine          (interfaces only)
+  RaceIntelligence.ML                    Model training           (interfaces only)
+  RaceIntelligence.AI.RaceEngineer       AI race engineer         (interfaces only)
   RaceIntelligence.AppHost               Aspire orchestration for local development only
   RaceIntelligence.ServiceDefaults       Shared telemetry, health checks, resilience
 tests/                                   One test project per component
