@@ -98,12 +98,9 @@ internal struct R3EPlayerData
     public double ThirdSpringSuspensionDeflectionRear;
     public double ThirdSpringSuspensionVelocityRear;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public double Unused1;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public double Unused2;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public double Unused3;
 }

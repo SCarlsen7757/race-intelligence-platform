@@ -29,9 +29,7 @@ namespace RaceIntelligence.Collector;
 /// <see cref="IIngestClient.CreateSessionAsync"/> call (after the platform's own HTTP resilience
 /// policy has exhausted its retries) means the ingest API will not recognize that session for
 /// subsequent lap/telemetry calls either — those will also fail, get logged, and be skipped. That
-/// is the same accepted Phase 1 gap documented on <c>Buffering.ChannelTelemetryBuffer</c>: an
-/// outage that outlasts what retries and buffering can absorb loses data, but always via a logged
-/// error, never silently.
+/// is the accepted Phase 1 gap documented on <see cref="ITelemetryBuffer"/>.
 /// </para>
 /// </remarks>
 public sealed class TelemetryCollectorService(

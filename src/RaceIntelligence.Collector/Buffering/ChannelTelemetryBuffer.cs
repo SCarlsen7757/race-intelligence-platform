@@ -11,16 +11,10 @@ namespace RaceIntelligence.Collector.Buffering;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This buffer is in-memory only.</b> A process crash, a machine reboot, or a network outage
-/// that outlasts <see cref="CollectorOptions.BufferCapacity"/> loses every sample still sitting in
-/// it, permanently. This is a known, deliberate Phase 1 gap: the README requires the collector to
-/// "handle temporary network outages" and "resume uploads automatically," and this implementation
-/// only satisfies that for outages shorter than the buffer can absorb. <see cref="ITelemetryBuffer"/>
-/// was shaped specifically so a durable implementation (e.g. SQLite with write-ahead logging) can
-/// be substituted via dependency injection later with no change to
-/// <see cref="TelemetryCollectorService"/> or <see cref="Upload.TelemetryUploadService"/> — see the
-/// interface's own remarks. Do not treat this type as anything more than the first, non-durable
-/// step.
+/// <b>In-memory only.</b> A crash, a reboot, or an outage that outlasts
+/// <see cref="CollectorOptions.BufferCapacity"/> loses every sample still queued here. That is the
+/// accepted Phase 1 gap documented on <see cref="ITelemetryBuffer"/>; this type is the first,
+/// non-durable implementation of it.
 /// </para>
 /// <para>
 /// <b>Full-mode trade-off:</b> <see cref="BoundedChannelFullMode.Wait"/> (the default, see
