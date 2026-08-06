@@ -49,6 +49,7 @@ public sealed class TelemetryUploadService(
     ITelemetryBuffer buffer,
     IIngestClient ingestClient,
     IOptions<CollectorOptions> options,
+    OpenBatchTracker openBatch,
     TimeProvider timeProvider,
     ILogger<TelemetryUploadService> logger) : BackgroundService
 {
@@ -148,6 +149,7 @@ public sealed class TelemetryUploadService(
             }
 
             batch.Samples.Add(sample);
+            openBatch.Set(batch.Samples.Count);
 
             if (batch.Samples.Count >= maxBatchSize)
             {
@@ -223,6 +225,7 @@ public sealed class TelemetryUploadService(
         finally
         {
             batch.Samples.Clear();
+            openBatch.Set(0);
         }
     }
 }

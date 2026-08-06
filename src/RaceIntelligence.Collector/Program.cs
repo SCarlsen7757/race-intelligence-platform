@@ -29,6 +29,10 @@ builder.Services
 // fake clock instead of real wall-clock sleeps.
 builder.Services.AddSingleton(TimeProvider.System);
 
+// Lets the collector see how many samples are sitting in the uploader's not-yet-flushed batch —
+// samples that have already left the buffer but are not uploaded yet.
+builder.Services.AddSingleton<OpenBatchTracker>();
+
 builder.Services.AddSingleton<ITelemetryBuffer>(sp =>
 {
     var collectorOptions = sp.GetRequiredService<IOptions<CollectorOptions>>().Value;

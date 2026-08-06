@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="RaceIntelligence.Collector.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="MessagePack" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" />

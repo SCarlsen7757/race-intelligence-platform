@@ -18,6 +18,14 @@ internal sealed class ScriptedTelemetrySource(IReadOnlyList<TelemetryEvent> even
 
     public ConnectionState State => ConnectionState.InSession;
 
+    /// <summary>
+    /// How many scripted events have been handed to the consumer so far. Lets a test wait on the
+    /// script actually being exhausted instead of sleeping and hoping.
+    /// </summary>
+    public int YieldedEventCount => Volatile.Read(ref _yieldedEventCount);
+
+    private int _yieldedEventCount;
+
     public async IAsyncEnumerable<TelemetryEvent> ReadAllAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         foreach (var telemetryEvent in events)
@@ -28,6 +36,10 @@ internal sealed class ScriptedTelemetrySource(IReadOnlyList<TelemetryEvent> even
             // script inline on the caller's thread.
             await Task.Yield();
             yield return telemetryEvent;
+
+            // Incremented after the consumer's body has run for this event, so observing the final
+            // count means every event has actually been handled, not merely handed over.
+            Interlocked.Increment(ref _yieldedEventCount);
         }
 
         // Nothing more to report; idle until the test cancels/stops the hosted service.

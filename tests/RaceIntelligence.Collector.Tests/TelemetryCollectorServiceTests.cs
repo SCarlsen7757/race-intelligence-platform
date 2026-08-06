@@ -1,7 +1,9 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using RaceIntelligence.Collector.Buffering;
 using RaceIntelligence.Collector.Tests.Support;
+using RaceIntelligence.Collector.Upload;
 using RaceIntelligence.Core.Sessions;
 using RaceIntelligence.Core.Telemetry;
 using Shouldly;
@@ -10,6 +12,9 @@ namespace RaceIntelligence.Collector.Tests;
 
 public class TelemetryCollectorServiceTests
 {
+    /// <summary>Matches the service's own end-of-session drain poll interval.</summary>
+    private static readonly TimeSpan FlushPollInterval = TimeSpan.FromMilliseconds(50);
+
     [Fact]
     public async Task Session_is_created_before_samples_are_buffered_a_lap_is_recorded_and_the_session_is_patched_on_end()
     {
@@ -38,8 +43,8 @@ public class TelemetryCollectorServiceTests
         var ingestClient = new RecordingIngestClient(log);
         var source = new ScriptedTelemetrySource(events);
 
-        // TelemetryCollectorService waits (bounded) for the buffer to drain before PATCHing a
-        // session's end, exactly as TelemetryUploadService would in the real pipeline. Nothing in
+        // TelemetryCollectorService waits (bounded) for the upload pipeline to drain before PATCHing
+        // a session's end, exactly as TelemetryUploadService would in the real pipeline. Nothing in
         // this test starts that service, so drain the buffer directly to keep the test fast instead
         // of waiting out the collector's own flush timeout.
         using var drainCts = new CancellationTokenSource();
@@ -55,15 +60,13 @@ public class TelemetryCollectorServiceTests
             }
         }, CancellationToken.None);
 
-        var service = new TelemetryCollectorService(source, buffer, ingestClient, NullLogger<TelemetryCollectorService>.Instance);
+        var service = new TelemetryCollectorService(
+            source, buffer, ingestClient, new OpenBatchTracker(), TimeProvider.System, NullLogger<TelemetryCollectorService>.Instance);
 
         await service.StartAsync(cts.Token);
         try
         {
-            while (ingestClient.UpdatedSessions.Count == 0 && !cts.IsCancellationRequested)
-            {
-                await Task.Delay(20, cts.Token);
-            }
+            await WaitUntilAsync(() => ingestClient.UpdatedSessions.Count > 0, cts.Token);
         }
         finally
         {
@@ -97,7 +100,7 @@ public class TelemetryCollectorServiceTests
     public async Task Connection_state_changes_do_not_throw_and_do_not_call_the_ingest_client()
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        cts.CancelAfter(TimeSpan.FromSeconds(10));
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
 
         var events = new TelemetryEvent[]
         {
@@ -108,15 +111,124 @@ public class TelemetryCollectorServiceTests
         await using var buffer = new ChannelTelemetryBuffer(10, BoundedChannelFullMode.Wait, NullLogger<ChannelTelemetryBuffer>.Instance);
         var ingestClient = new RecordingIngestClient();
         var source = new ScriptedTelemetrySource(events);
-        var service = new TelemetryCollectorService(source, buffer, ingestClient, NullLogger<TelemetryCollectorService>.Instance);
+        var service = new TelemetryCollectorService(
+            source, buffer, ingestClient, new OpenBatchTracker(), TimeProvider.System, NullLogger<TelemetryCollectorService>.Instance);
 
         await service.StartAsync(cts.Token);
-        await Task.Delay(200, cts.Token);
-        await service.StopAsync(cts.Token);
+        try
+        {
+            // Wait on the source being fully consumed rather than on a fixed sleep: the scripted
+            // source idles once it has yielded everything, so an empty ingest client at that point
+            // is a real result and not just a race the test happened to win.
+            await WaitUntilAsync(() => source.YieldedEventCount == events.Length, cts.Token);
+        }
+        finally
+        {
+            await service.StopAsync(cts.Token);
+        }
 
         ingestClient.CreatedSessions.ShouldBeEmpty();
         ingestClient.UpdatedSessions.ShouldBeEmpty();
         ingestClient.RecordedLaps.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task The_end_of_session_PATCH_waits_for_the_uploaders_open_batch_not_just_the_buffer()
+    {
+        // Samples leave the buffer the instant the uploader reads them, but are not uploaded until
+        // the batch flushes. Watching buffer depth alone therefore declares the pipeline drained
+        // while up to MaxBatchSize samples are still in flight, and the session gets marked ended
+        // before its own tail telemetry has been accepted.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
+
+        var session = SessionInfoFactory.Create();
+        var now = DateTimeOffset.UtcNow;
+        var events = new TelemetryEvent[]
+        {
+            new SessionStarted { OccurredAtUtc = now, Session = session },
+            new SessionEnded { OccurredAtUtc = now.AddMinutes(5), SessionId = session.SessionId },
+        };
+
+        var timeProvider = new FakeTimeProvider(now);
+        var openBatch = new OpenBatchTracker();
+        openBatch.Set(5); // buffer is empty, but five samples sit unuploaded in the open batch.
+
+        await using var buffer = new ChannelTelemetryBuffer(10, BoundedChannelFullMode.Wait, NullLogger<ChannelTelemetryBuffer>.Instance);
+        var ingestClient = new RecordingIngestClient();
+        var service = new TelemetryCollectorService(
+            new ScriptedTelemetrySource(events), buffer, ingestClient, openBatch, timeProvider, NullLogger<TelemetryCollectorService>.Instance);
+
+        await service.StartAsync(cts.Token);
+        try
+        {
+            await WaitUntilAsync(() => ingestClient.CreatedSessions.Count > 0, cts.Token);
+
+            // Well short of the 10s flush timeout, so nothing here can time the wait out: the PATCH
+            // must still be held back purely because the open batch is non-empty.
+            for (int i = 0; i < 20; i++)
+            {
+                timeProvider.Advance(FlushPollInterval);
+                await Task.Delay(5, cts.Token);
+            }
+
+            ingestClient.UpdatedSessions.ShouldBeEmpty(
+                "the session must not be marked ended while the uploader still holds unuploaded samples.");
+
+            openBatch.Set(0);
+            await AdvanceUntilAsync(timeProvider, () => ingestClient.UpdatedSessions.Count > 0, cts.Token);
+        }
+        finally
+        {
+            await service.StopAsync(cts.Token);
+        }
+
+        ingestClient.UpdatedSessions.ShouldHaveSingleItem().SessionId.ShouldBe(session.SessionId);
+    }
+
+    [Fact]
+    public async Task The_end_of_session_drain_wait_does_not_stall_the_poll_loop()
+    {
+        // The drain wait is bounded by a 10 second timeout. Awaiting it inline would freeze event
+        // handling for that long, so a session started right after the previous one ended (restart
+        // a race, jump straight into the next session) would be picked up seconds late.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
+
+        var firstSession = SessionInfoFactory.Create();
+        var secondSession = SessionInfoFactory.Create();
+        var now = DateTimeOffset.UtcNow;
+        var events = new TelemetryEvent[]
+        {
+            new SessionStarted { OccurredAtUtc = now, Session = firstSession },
+            new SessionEnded { OccurredAtUtc = now.AddMinutes(5), SessionId = firstSession.SessionId },
+            new SessionStarted { OccurredAtUtc = now.AddMinutes(5), Session = secondSession },
+        };
+
+        var timeProvider = new FakeTimeProvider(now);
+        var openBatch = new OpenBatchTracker();
+        openBatch.Set(1); // keeps the first session's drain wait pending for the whole test.
+
+        await using var buffer = new ChannelTelemetryBuffer(10, BoundedChannelFullMode.Wait, NullLogger<ChannelTelemetryBuffer>.Instance);
+        var ingestClient = new RecordingIngestClient();
+        var service = new TelemetryCollectorService(
+            new ScriptedTelemetrySource(events), buffer, ingestClient, openBatch, timeProvider, NullLogger<TelemetryCollectorService>.Instance);
+
+        await service.StartAsync(cts.Token);
+        try
+        {
+            // The clock never moves, so the first session's drain wait cannot time out or clear --
+            // yet the second session must still be created.
+            await WaitUntilAsync(() => ingestClient.CreatedSessions.Count == 2, cts.Token);
+
+            ingestClient.UpdatedSessions.ShouldBeEmpty();
+            ingestClient.CreatedSessions[1].SessionId.ShouldBe(secondSession.SessionId);
+        }
+        finally
+        {
+            openBatch.Set(0);
+            await service.StopAsync(cts.Token);
+        }
     }
 
     [Fact]
@@ -141,20 +253,42 @@ public class TelemetryCollectorServiceTests
 
         await using var buffer = new ChannelTelemetryBuffer(capacity: 2, BoundedChannelFullMode.Wait, NullLogger<ChannelTelemetryBuffer>.Instance);
         var service = new TelemetryCollectorService(
-            new ScriptedTelemetrySource(events), buffer, new RecordingIngestClient(), NullLogger<TelemetryCollectorService>.Instance);
+            new ScriptedTelemetrySource(events), buffer, new RecordingIngestClient(), new OpenBatchTracker(), TimeProvider.System,
+            NullLogger<TelemetryCollectorService>.Instance);
 
         await service.StartAsync(cts.Token);
 
         // Nothing reads the buffer, so the producer is parked on the third write.
-        while (buffer.Metrics.CurrentDepth < 2)
-        {
-            await Task.Delay(10, cts.Token);
-        }
+        await WaitUntilAsync(() => buffer.Metrics.CurrentDepth >= 2, cts.Token);
 
         var stopping = service.StopAsync(cts.Token);
         var completed = await Task.WhenAny(stopping, Task.Delay(TimeSpan.FromSeconds(10), cts.Token));
 
         completed.ShouldBe(stopping, "shutdown must not block on a producer parked against a full buffer.");
         await stopping;
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken cancellationToken)
+    {
+        while (!condition())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(10, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Drives a <see cref="FakeTimeProvider"/> forward one drain-poll interval at a time until
+    /// <paramref name="condition"/> holds — the fake clock only fires timers when advanced, so a
+    /// loop waiting on it has to advance it rather than sleep against the wall clock.
+    /// </summary>
+    private static async Task AdvanceUntilAsync(FakeTimeProvider timeProvider, Func<bool> condition, CancellationToken cancellationToken)
+    {
+        while (!condition())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            timeProvider.Advance(FlushPollInterval);
+            await Task.Delay(5, cancellationToken);
+        }
     }
 }

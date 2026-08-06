@@ -31,7 +31,7 @@ public class TelemetryUploadServiceTests
 
         await using var buffer = CreateBuffer();
         var ingestClient = new RecordingIngestClient();
-        var service = new TelemetryUploadService(buffer, ingestClient, collectorOptions, timeProvider, NullLogger<TelemetryUploadService>.Instance);
+        var service = new TelemetryUploadService(buffer, ingestClient, collectorOptions, new OpenBatchTracker(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
 
         var sessionId = Guid.NewGuid();
         await service.StartAsync(cts.Token);
@@ -78,7 +78,7 @@ public class TelemetryUploadServiceTests
 
         await using var buffer = CreateBuffer();
         var ingestClient = new RecordingIngestClient();
-        var service = new TelemetryUploadService(buffer, ingestClient, collectorOptions, timeProvider, NullLogger<TelemetryUploadService>.Instance);
+        var service = new TelemetryUploadService(buffer, ingestClient, collectorOptions, new OpenBatchTracker(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
 
         var sessionId = Guid.NewGuid();
         await service.StartAsync(cts.Token);
@@ -119,7 +119,7 @@ public class TelemetryUploadServiceTests
 
         await using var buffer = CreateBuffer();
         var ingestClient = new RecordingIngestClient();
-        var service = new TelemetryUploadService(buffer, ingestClient, collectorOptions, timeProvider, NullLogger<TelemetryUploadService>.Instance);
+        var service = new TelemetryUploadService(buffer, ingestClient, collectorOptions, new OpenBatchTracker(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
 
         var firstSessionId = Guid.NewGuid();
         var secondSessionId = Guid.NewGuid();
