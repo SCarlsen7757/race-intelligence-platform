@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch makes the in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    # ubuntu-latest ships a running Docker daemon. The Testcontainers (Persistence) and Aspire
+    # (Ingest.Api) integration suites skip themselves when no container runtime is present, so a
+    # runner without Docker would report green while silently testing nothing.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Reads the SDK version out of global.json (10.0.302, rollForward latestFeature) so CI
+          # and developer machines can never drift onto different SDKs.
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore RaceIntelligence.slnx
+
+      - name: Build
+        # Directory.Build.props already sets TreatWarningsAsErrors=true; -warnaserror also promotes
+        # warnings raised outside that property's reach. The repo builds with zero warnings today,
+        # so anything new here is a genuine regression and must fail the run rather than scroll by.
+        # --no-incremental forces a full compile so a warning cannot be skipped as up-to-date.
+        run: dotnet build RaceIntelligence.slnx --configuration Release --no-restore --no-incremental -warnaserror
+
+      - name: Test
+        # Not --no-build: the test projects run on Microsoft.Testing.Platform (see global.json) and
+        # rebuilding takes seconds on a repo this size, which is cheaper than debugging argument
+        # forwarding between `dotnet test` and the platform host.
+        run: dotnet test RaceIntelligence.slnx --configuration Release
