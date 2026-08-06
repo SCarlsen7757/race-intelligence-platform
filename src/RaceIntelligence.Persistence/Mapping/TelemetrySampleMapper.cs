@@ -26,7 +26,7 @@ public static class TelemetrySampleMapper
         Throttle = sample.Throttle,
         Brake = sample.Brake,
         Steering = sample.Steering,
-        Gear = ToSmallInt(sample.Gear),
+        Gear = sample.Gear.HasValue ? ToSmallInt(sample.Gear.Value) : null,
         EngineRpm = sample.EngineRpm,
         FuelLeft = sample.FuelLeft,
         Position = sample.Position.HasValue ? ToSmallInt(sample.Position.Value) : null,

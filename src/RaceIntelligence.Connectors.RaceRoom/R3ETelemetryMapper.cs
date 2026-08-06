@@ -39,6 +39,9 @@ internal static class R3ETelemetryMapper
 
     private static int? NullIfNegative(int value) => value < 0 ? null : value;
 
+    /// <summary>RaceRoom's <c>gear</c> value for "not available", distinct from -1 (reverse).</summary>
+    private const int GearNotAvailable = -2;
+
     /// <summary>
     /// Converts a non-positive id to <see langword="null"/>. Distinct from
     /// <see cref="NullIfNegative(int)"/>, which lets <c>0</c> through: for identity fields <c>0</c>
@@ -123,7 +126,8 @@ internal static class R3ETelemetryMapper
             Throttle = NullIfNegative(raw.Throttle),
             Brake = NullIfNegative(raw.Brake),
             Steering = raw.SteerInputRaw, // -1..1 is a legitimate range, not an N/A sentinel.
-            Gear = raw.Gear, // -2 = N/A, -1 = reverse, 0 = neutral, already the canonical convention.
+            // Not NullIfNegative: -1 is reverse, a real gear. Only -2 means "not available".
+            Gear = raw.Gear == GearNotAvailable ? null : raw.Gear,
             EngineRpm = RadiansPerSecondToRpm(raw.EngineRps),
             FuelLeft = raw.FuelLeft,
             // completed_laps is 0-indexed ("6 means the car is on its 7th lap"); the canonical

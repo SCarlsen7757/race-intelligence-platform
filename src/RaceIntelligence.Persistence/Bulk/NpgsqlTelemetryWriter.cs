@@ -169,7 +169,11 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource)
         await WriteNullableAsync(importer, sample.Throttle, NpgsqlDbType.Real, ct).ConfigureAwait(false);
         await WriteNullableAsync(importer, sample.Brake, NpgsqlDbType.Real, ct).ConfigureAwait(false);
         await importer.WriteAsync(sample.Steering, NpgsqlDbType.Real, ct).ConfigureAwait(false);
-        await importer.WriteAsync(TelemetrySampleMapper.ToSmallInt(sample.Gear), NpgsqlDbType.Smallint, ct).ConfigureAwait(false);
+        await WriteNullableAsync<short>(
+            importer,
+            sample.Gear.HasValue ? TelemetrySampleMapper.ToSmallInt(sample.Gear.Value) : null,
+            NpgsqlDbType.Smallint,
+            ct).ConfigureAwait(false);
         await importer.WriteAsync(sample.EngineRpm, NpgsqlDbType.Real, ct).ConfigureAwait(false);
         await importer.WriteAsync(sample.FuelLeft, NpgsqlDbType.Real, ct).ConfigureAwait(false);
         await WriteNullableAsync<short>(

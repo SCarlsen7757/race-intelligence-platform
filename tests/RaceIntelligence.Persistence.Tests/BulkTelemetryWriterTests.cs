@@ -121,6 +121,7 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
                 Position = null,
                 Throttle = null,
                 TrackPositionFraction = null,
+                Gear = null,
             };
 
         await new NpgsqlTelemetryWriter(fixture.DataSource).WriteAsync(copySessionId, [sample]);
@@ -142,6 +143,7 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
         viaCopy.Brake.ShouldBe(viaEf.Brake);
         viaCopy.Steering.ShouldBe(viaEf.Steering);
         viaCopy.Gear.ShouldBe(viaEf.Gear);
+        viaCopy.Gear.ShouldBeNull("an unreported gear is a null column, never the -2 sentinel or 0");
         viaCopy.EngineRpm.ShouldBe(viaEf.EngineRpm);
         viaCopy.FuelLeft.ShouldBe(viaEf.FuelLeft);
         viaCopy.Position.ShouldBe(viaEf.Position);

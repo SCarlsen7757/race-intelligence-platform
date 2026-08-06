@@ -134,31 +134,22 @@ public class R3ETelemetryMapperSentinelTests
         sample.Steering.ShouldBe(-1f);
     }
 
-    [Fact]
-    public void Gear_Reverse_PassesThroughUnchanged()
+    [Theory]
+    [InlineData(-1)] // reverse
+    [InlineData(0)]  // neutral
+    [InlineData(4)]  // fourth forward gear
+    public void Gear_RealGear_PassesThroughUnchanged(int gear)
     {
-        var sample = MapSample(b => b.WithGear(-1));
-        sample.Gear.ShouldBe(-1);
+        var sample = MapSample(b => b.WithGear(gear));
+        sample.Gear.ShouldBe(gear);
     }
 
     [Fact]
-    public void Gear_NotAvailable_PassesThroughUnchanged()
+    public void Gear_NotAvailable_BecomesNull()
     {
+        // -2 is RaceRoom's "not available", and the one gear value that is a sentinel rather than a
+        // real gear. Reverse is -1, so this cannot be a NullIfNegative case.
         var sample = MapSample(b => b.WithGear(-2));
-        sample.Gear.ShouldBe(-2);
-    }
-
-    [Fact]
-    public void Gear_Neutral_PassesThroughUnchanged()
-    {
-        var sample = MapSample(b => b.WithGear(0));
-        sample.Gear.ShouldBe(0);
-    }
-
-    [Fact]
-    public void Gear_ForwardGear_PassesThroughUnchanged()
-    {
-        var sample = MapSample(b => b.WithGear(4));
-        sample.Gear.ShouldBe(4);
+        sample.Gear.ShouldBeNull();
     }
 }

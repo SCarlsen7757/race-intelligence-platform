@@ -52,9 +52,10 @@ public sealed record TelemetrySample
     public required float Steering { get; init; }
 
     /// <summary>
-    /// Current gear. -2 = not available/unknown, -1 = reverse, 0 = neutral, greater than 0 = forward gear number.
+    /// Current gear: -1 = reverse, 0 = neutral, greater than 0 = forward gear number.
+    /// <see langword="null"/> if the source does not report it.
     /// </summary>
-    public required int Gear { get; init; }
+    public int? Gear { get; init; }
 
     /// <summary>Engine speed, in revolutions per minute. Explicitly RPM, not radians/second.</summary>
     public required float EngineRpm { get; init; }

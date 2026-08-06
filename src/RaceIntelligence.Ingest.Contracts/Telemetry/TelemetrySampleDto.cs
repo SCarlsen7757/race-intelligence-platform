@@ -59,9 +59,9 @@ public sealed record TelemetrySampleDto
     [Key(7)]
     public required float Steering { get; init; }
 
-    /// <summary>Current gear. -2 = not available/unknown, -1 = reverse, 0 = neutral, greater than 0 = forward gear number.</summary>
+    /// <summary>Current gear: -1 = reverse, 0 = neutral, greater than 0 = forward gear number. <see langword="null"/> if the source does not report it.</summary>
     [Key(8)]
-    public required int Gear { get; init; }
+    public int? Gear { get; init; }
 
     /// <summary>Engine speed, in revolutions per minute.</summary>
     [Key(9)]

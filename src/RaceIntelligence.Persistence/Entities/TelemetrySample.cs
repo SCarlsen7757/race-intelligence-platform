@@ -86,8 +86,8 @@ public sealed class TelemetrySample
     /// <summary>Steering input, -1 (full left) to 1 (full right).</summary>
     public float Steering { get; set; }
 
-    /// <summary>Current gear, stored as <c>smallint</c>. -2 = not available/unknown, -1 = reverse, 0 = neutral, greater than 0 = forward gear number.</summary>
-    public short Gear { get; set; }
+    /// <summary>Current gear, stored as <c>smallint</c>: -1 = reverse, 0 = neutral, greater than 0 = forward gear number. <see langword="null"/> if the source does not report it.</summary>
+    public short? Gear { get; set; }
 
     /// <summary>Engine speed, in revolutions per minute.</summary>
     public float EngineRpm { get; set; }
