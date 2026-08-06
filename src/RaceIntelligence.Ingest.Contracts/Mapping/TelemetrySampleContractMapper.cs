@@ -111,8 +111,17 @@ public static class TelemetrySampleContractMapper
 
     /// <summary>
     /// Parses the wire <see cref="TelemetrySampleDto.Extras"/> JSON text back into a
-    /// <see cref="JsonElement"/>. The backing <see cref="JsonDocument"/> is deliberately not
-    /// disposed: <see cref="JsonElement"/> keeps an internal reference to its parent document.
+    /// <see cref="JsonElement"/>.
     /// </summary>
-    private static JsonElement DeserializeExtras(string json) => JsonDocument.Parse(json).RootElement;
+    /// <remarks>
+    /// The element is cloned so its parent document can be disposed here. Returning
+    /// <c>JsonDocument.Parse(json).RootElement</c> directly would keep every parsed document alive
+    /// — 60 undisposed documents a second per session, each holding array-pool buffers the pool
+    /// never gets back.
+    /// </remarks>
+    private static JsonElement DeserializeExtras(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
 }

@@ -62,16 +62,29 @@ public static class TelemetrySampleMapper
     /// <c>telemetry_samples.tyre_temperature</c>: an object keyed by wheel position, each holding
     /// inner/middle/outer/optimal/cold/hot readings.
     /// </summary>
+    /// <remarks>
+    /// Only the EF entity path needs a <see cref="JsonElement"/>; the bulk <c>COPY</c> path calls
+    /// <see cref="SerializeTyreTemperatureText"/> and skips the document entirely. The element is
+    /// cloned off a disposed document so the parse buffers go back to the pool.
+    /// </remarks>
     public static JsonElement SerializeTyreTemperature(CoreTelemetry.WheelData<CoreTelemetry.TyreTemperature> tyreTemperature)
     {
-        var dto = new TyreTemperatureSetDto(
+        using var document = JsonDocument.Parse(SerializeTyreTemperatureText(tyreTemperature));
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Serializes per-wheel tyre temperature detail straight to the jsonb text Postgres stores,
+    /// which is all the binary <c>COPY</c> path ever wanted — going via a
+    /// <see cref="JsonElement"/> only to read its raw text back out again cost a parse, a document
+    /// and a second string per sample, 60 times a second.
+    /// </summary>
+    public static string SerializeTyreTemperatureText(CoreTelemetry.WheelData<CoreTelemetry.TyreTemperature> tyreTemperature) =>
+        JsonSerializer.Serialize(new TyreTemperatureSetDto(
             ToDto(tyreTemperature.FrontLeft),
             ToDto(tyreTemperature.FrontRight),
             ToDto(tyreTemperature.RearLeft),
-            ToDto(tyreTemperature.RearRight));
-
-        return JsonSerializer.SerializeToElement(dto);
-    }
+            ToDto(tyreTemperature.RearRight)));
 
     private static TyreTemperatureDto ToDto(CoreTelemetry.TyreTemperature t) =>
         new(t.Inner, t.Middle, t.Outer, t.Optimal, t.Cold, t.Hot);
@@ -82,7 +95,7 @@ public static class TelemetrySampleMapper
     /// but an out-of-range value indicates upstream connector corruption that should fail loudly
     /// rather than silently wrap.
     /// </summary>
-    private static short ToSmallInt(int value) => checked((short)value);
+    internal static short ToSmallInt(int value) => checked((short)value);
 
     /// <remarks>
     /// Nullable throughout: a simulator that does not report a given temperature must round-trip as

@@ -80,19 +80,22 @@ public static class JsonElementConverter
     internal static string Serialize(JsonElement value) => value.ValueKind == JsonValueKind.Undefined ? "null" : value.GetRawText();
 
     /// <summary>
-    /// Parses a jsonb column back into a <see cref="JsonElement"/>. The backing
-    /// <see cref="JsonDocument"/> is deliberately not disposed: <see cref="JsonElement"/> keeps an
-    /// internal reference to its parent document, so disposing here would invalidate the very
-    /// value being returned. The parsed buffer is reclaimed by the GC instead of pooled — an
-    /// accepted trade-off for values that are read once and then live for the lifetime of the
-    /// tracked entity.
+    /// Parses a jsonb column back into a <see cref="JsonElement"/>. The element is cloned off the
+    /// parsed document so that document can be disposed here and its pooled buffers returned —
+    /// returning <c>RootElement</c> directly would keep every materialized document alive until the
+    /// GC got to it, because a <see cref="JsonElement"/> holds a reference to its parent.
     /// </summary>
-    private static JsonElement Deserialize(string text) => JsonDocument.Parse(text).RootElement;
+    private static JsonElement Deserialize(string text)
+    {
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.Clone();
+    }
 
     /// <summary>
-    /// Produces an independent copy for the change tracker's original-values snapshot, so later
-    /// mutation of the document backing a tracked value can never retroactively change the
-    /// snapshot EF compares against.
+    /// Produces the change tracker's original-values snapshot. <see cref="JsonElement.Clone"/>
+    /// detaches the value from a document that may later be disposed; where the parent is already
+    /// non-disposable it returns the element unchanged, which is safe because a
+    /// <see cref="JsonDocument"/>'s contents cannot be mutated after parsing.
     /// </summary>
-    private static JsonElement Snapshot(JsonElement value) => JsonDocument.Parse(value.GetRawText()).RootElement;
+    private static JsonElement Snapshot(JsonElement value) => value.Clone();
 }
