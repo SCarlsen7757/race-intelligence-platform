@@ -40,15 +40,15 @@ namespace RaceIntelligence.Collector.Upload;
 /// after that policy is exhausted, the batch is logged at <see cref="LogLevel.Error"/> and discarded
 /// — it is not re-queued into the buffer, both because the buffer may already be full again by the
 /// time the failure is observed and because re-queuing would reorder it behind samples already read
-/// after it. This is the same accepted Phase 1 gap documented on <see cref="Buffering.ChannelTelemetryBuffer"/>:
-/// an outage that outlasts what retries and buffering can absorb loses data — always via a logged
-/// error, never silently.
+/// after it. This is the accepted Phase 1 gap documented on <see cref="ITelemetryBuffer"/>: the loss
+/// is always reported, never silent.
 /// </para>
 /// </remarks>
 public sealed class TelemetryUploadService(
     ITelemetryBuffer buffer,
     IIngestClient ingestClient,
     IOptions<CollectorOptions> options,
+    OpenBatchTracker openBatch,
     TimeProvider timeProvider,
     ILogger<TelemetryUploadService> logger) : BackgroundService
 {
@@ -148,6 +148,7 @@ public sealed class TelemetryUploadService(
             }
 
             batch.Samples.Add(sample);
+            openBatch.Set(batch.Samples.Count);
 
             if (batch.Samples.Count >= maxBatchSize)
             {
@@ -223,6 +224,7 @@ public sealed class TelemetryUploadService(
         finally
         {
             batch.Samples.Clear();
+            openBatch.Set(0);
         }
     }
 }

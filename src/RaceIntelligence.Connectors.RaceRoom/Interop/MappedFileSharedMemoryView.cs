@@ -7,13 +7,13 @@ namespace RaceIntelligence.Connectors.RaceRoom.Interop;
 /// <see cref="MemoryMappedFile.OpenExisting(string, MemoryMappedFileRights)"/>.
 /// </summary>
 /// <remarks>
-/// Reads go through <see cref="MemoryMappedViewAccessor.Read{T}(long, out T)"/>, which reinterprets
-/// the mapped bytes directly as the target struct. That matters at a 60 Hz poll over a ~44 KB
-/// block: the reflection-based
-/// <see cref="System.Runtime.InteropServices.Marshal.PtrToStructure(nint, Type)"/> path would add
-/// meaningful and entirely avoidable overhead. It also keeps this class free of pointers, so the
-/// assembly needs no <c>AllowUnsafeBlocks</c> — the only unsafe code involved is inside the BCL,
-/// where it is already vetted.
+/// Reads go through <see cref="MemoryMappedViewAccessor.Read{T}(long, out T)"/>, which copies the
+/// mapped bytes into a struct of the target type without interpreting them field by field. It is a
+/// copy, not a reinterpretation in place — but a cheap one, and far cheaper at a 60 Hz poll than
+/// the reflection-based
+/// <see cref="System.Runtime.InteropServices.Marshal.PtrToStructure(nint, Type)"/> alternative. It
+/// also keeps this class free of pointers, so the assembly needs no <c>AllowUnsafeBlocks</c> — the
+/// only unsafe code involved is inside the BCL, where it is already vetted.
 /// </remarks>
 internal sealed class MappedFileSharedMemoryView : ISharedMemoryView
 {
@@ -59,7 +59,14 @@ internal sealed class MappedFileSharedMemoryView : ISharedMemoryView
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// <see langword="true"/> until this instance is disposed — and <b>only</b> that. Windows keeps
+    /// a section object alive for as long as any handle to it is open, and this class holds one, so
+    /// the mapping (and the last frame RaceRoom wrote into it) remains readable after the game
+    /// exits. There is no cheap, reliable signal here that says otherwise; game liveness is decided
+    /// by <see cref="RaceIntelligence.Connectors.RaceRoom.RaceRoomTelemetrySource"/> watching the
+    /// simulation tick counter instead.
+    /// </summary>
     public bool IsValid => !_disposed;
 
     /// <inheritdoc />

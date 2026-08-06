@@ -29,23 +29,29 @@ namespace RaceIntelligence.Collector;
 /// <see cref="IIngestClient.CreateSessionAsync"/> call (after the platform's own HTTP resilience
 /// policy has exhausted its retries) means the ingest API will not recognize that session for
 /// subsequent lap/telemetry calls either — those will also fail, get logged, and be skipped. That
-/// is the same accepted Phase 1 gap documented on <c>Buffering.ChannelTelemetryBuffer</c>: an
-/// outage that outlasts what retries and buffering can absorb loses data, but always via a logged
-/// error, never silently.
+/// is the accepted Phase 1 gap documented on <see cref="ITelemetryBuffer"/>.
 /// </para>
 /// </remarks>
 public sealed class TelemetryCollectorService(
     ITelemetrySource telemetrySource,
     ITelemetryBuffer buffer,
     IIngestClient ingestClient,
+    OpenBatchTracker openBatch,
+    TimeProvider timeProvider,
     ILogger<TelemetryCollectorService> logger) : BackgroundService
 {
-    /// <summary>How long to wait for the buffer to drain before PATCHing a session's end time regardless.</summary>
+    /// <summary>How long to wait for the upload pipeline to drain before PATCHing a session's end time regardless.</summary>
     private static readonly TimeSpan FlushTimeout = TimeSpan.FromSeconds(10);
 
     private static readonly TimeSpan FlushPollInterval = TimeSpan.FromMilliseconds(50);
 
     private Guid? _currentSessionId;
+
+    /// <summary>
+    /// The in-flight end-of-session completion (drain wait plus PATCH), kept off the poll loop.
+    /// Successive session ends chain onto it so they stay ordered relative to each other.
+    /// </summary>
+    private Task _sessionEndCompletion = Task.CompletedTask;
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -72,7 +78,34 @@ public sealed class TelemetryCollectorService(
         {
             // Signals TelemetryUploadService to flush and stop once it has drained what remains.
             buffer.Complete();
+
+            // The last session's PATCH runs off the poll loop; give it a chance to land before this
+            // service reports itself stopped. It is already bounded by FlushTimeout and honours
+            // stoppingToken, so this cannot extend shutdown indefinitely.
+            try
+            {
+                await _sessionEndCompletion.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "The final end-of-session update did not complete.");
+            }
         }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Completes the buffer <i>before</i> waiting for <see cref="ExecuteAsync"/> to finish. With
+    /// <see cref="System.Threading.Channels.BoundedChannelFullMode.Wait"/> — the default, and the
+    /// mode whose entire purpose is to produce a full buffer — this loop can be parked inside a
+    /// blocking <see cref="ITelemetryBuffer.TryWrite"/> when shutdown begins, holding its own
+    /// thread and so unable to ever observe <c>stoppingToken</c>. Completing first unparks it, so
+    /// shutdown finishes immediately instead of waiting out the host's ShutdownTimeout.
+    /// </remarks>
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        buffer.Complete();
+        await base.StopAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private Task HandleEventAsync(TelemetryEvent telemetryEvent, CancellationToken cancellationToken) => telemetryEvent switch
@@ -122,19 +155,58 @@ public sealed class TelemetryCollectorService(
         await ingestClient.RecordLapAsync(lapCompleted.Lap.SessionId, request, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task HandleSessionEndedAsync(SessionEnded sessionEnded, CancellationToken cancellationToken)
+    /// <summary>
+    /// Starts the end-of-session completion (wait for the upload pipeline to drain, then PATCH the
+    /// end time) and returns immediately.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately does <b>not</b> await it: the drain wait is bounded by <see cref="FlushTimeout"/>,
+    /// and awaiting it here would stall the poll loop for that long — during which the connector
+    /// reports nothing, so a session started right after the previous one ended (restart a race,
+    /// jump into the next session) would be noticed up to ten seconds late. Completions are chained
+    /// onto each other so two sessions ending in quick succession are still PATCHed in order, and
+    /// the last one is awaited in <see cref="ExecuteAsync"/>'s finally.
+    /// </remarks>
+    private Task HandleSessionEndedAsync(SessionEnded sessionEnded, CancellationToken cancellationToken)
     {
-        await FlushBufferBestEffortAsync(sessionEnded.SessionId, cancellationToken).ConfigureAwait(false);
-
-        var request = CollectorRequestMapper.ToSessionEndedRequest(sessionEnded.OccurredAtUtc);
-        await ingestClient.UpdateSessionAsync(sessionEnded.SessionId, request, cancellationToken).ConfigureAwait(false);
-
         if (_currentSessionId == sessionEnded.SessionId)
         {
             _currentSessionId = null;
         }
 
-        logger.LogInformation("Session {SessionId} ended.", sessionEnded.SessionId);
+        var previous = _sessionEndCompletion;
+        _sessionEndCompletion = CompleteSessionAsync(previous, sessionEnded, cancellationToken);
+        return Task.CompletedTask;
+    }
+
+    private async Task CompleteSessionAsync(Task previousCompletion, SessionEnded sessionEnded, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await previousCompletion.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "A previous end-of-session update failed; continuing with session {SessionId}.", sessionEnded.SessionId);
+        }
+
+        try
+        {
+            await FlushPipelineBestEffortAsync(sessionEnded.SessionId, cancellationToken).ConfigureAwait(false);
+
+            var request = CollectorRequestMapper.ToSessionEndedRequest(sessionEnded.OccurredAtUtc);
+            await ingestClient.UpdateSessionAsync(sessionEnded.SessionId, request, cancellationToken).ConfigureAwait(false);
+
+            logger.LogInformation("Session {SessionId} ended.", sessionEnded.SessionId);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("Shutdown interrupted the end-of-session update for session {SessionId}.", sessionEnded.SessionId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to record the end of session {SessionId}.", sessionEnded.SessionId);
+        }
     }
 
     private Task HandleConnectionStateChanged(ConnectionStateChanged stateChanged)
@@ -146,28 +218,38 @@ public sealed class TelemetryCollectorService(
     }
 
     /// <summary>
-    /// Best-effort wait for <see cref="ITelemetryBuffer.Metrics"/>'s <c>CurrentDepth</c> to reach
-    /// zero before a session ends, so <see cref="Upload.TelemetryUploadService"/> has a chance to
-    /// upload the session's tail samples before the session is marked ended server-side. Bounded by
-    /// <see cref="FlushTimeout"/> — a session end must not be blocked forever by, e.g., an ingest
-    /// API outage; if the buffer is still non-empty when the timeout elapses this logs a warning
-    /// and proceeds with the PATCH anyway rather than hanging the collector.
+    /// Best-effort wait for the whole upload pipeline to drain before a session is marked ended
+    /// server-side, so <see cref="Upload.TelemetryUploadService"/> has a chance to upload the
+    /// session's tail samples first.
     /// </summary>
-    private async Task FlushBufferBestEffortAsync(Guid sessionId, CancellationToken cancellationToken)
+    /// <remarks>
+    /// "Drained" means the buffer is empty <i>and</i> the uploader's open batch is empty. Watching
+    /// buffer depth alone is not enough: a sample leaves the buffer the instant the uploader reads
+    /// it, so up to <see cref="CollectorOptions.MaxBatchSize"/> samples can be sitting in an
+    /// un-uploaded batch while the buffer reports zero. Bounded by <see cref="FlushTimeout"/> — a
+    /// session end must not be blocked forever by, e.g., an ingest API outage; if anything is still
+    /// pending when the timeout elapses this logs a warning and proceeds with the PATCH anyway.
+    /// Timing goes through <see cref="TimeProvider"/> rather than the wall clock so this is
+    /// testable without real sleeps, and so a clock adjustment cannot skew the deadline.
+    /// </remarks>
+    private async Task FlushPipelineBestEffortAsync(Guid sessionId, CancellationToken cancellationToken)
     {
-        var deadline = DateTimeOffset.UtcNow + FlushTimeout;
-        while (buffer.Metrics.CurrentDepth > 0 && DateTimeOffset.UtcNow < deadline)
+        var deadline = timeProvider.GetUtcNow() + FlushTimeout;
+        while (PendingSampleCount() > 0 && timeProvider.GetUtcNow() < deadline)
         {
-            await Task.Delay(FlushPollInterval, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(FlushPollInterval, timeProvider, cancellationToken).ConfigureAwait(false);
         }
 
-        int remaining = buffer.Metrics.CurrentDepth;
+        int remaining = PendingSampleCount();
         if (remaining > 0)
         {
             logger.LogWarning(
-                "Buffer still holds {Depth} unflushed samples after waiting {Timeout} for session {SessionId} to end; " +
+                "{Pending} samples were still unuploaded after waiting {Timeout} for session {SessionId} to end; " +
                 "PATCHing the session end time anyway.",
                 remaining, FlushTimeout, sessionId);
         }
     }
+
+    /// <summary>Samples read from the source but not yet uploaded: queued in the buffer, plus the uploader's open batch.</summary>
+    private int PendingSampleCount() => buffer.Metrics.CurrentDepth + openBatch.Count;
 }

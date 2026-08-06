@@ -29,6 +29,10 @@ builder.Services
 // fake clock instead of real wall-clock sleeps.
 builder.Services.AddSingleton(TimeProvider.System);
 
+// Lets the collector see how many samples are sitting in the uploader's not-yet-flushed batch —
+// samples that have already left the buffer but are not uploaded yet.
+builder.Services.AddSingleton<OpenBatchTracker>();
+
 builder.Services.AddSingleton<ITelemetryBuffer>(sp =>
 {
     var collectorOptions = sp.GetRequiredService<IOptions<CollectorOptions>>().Value;
@@ -36,14 +40,17 @@ builder.Services.AddSingleton<ITelemetryBuffer>(sp =>
     return new ChannelTelemetryBuffer(collectorOptions.BufferCapacity, collectorOptions.BufferFullMode, logger);
 });
 
-builder.Services
-    .AddHttpClient<IIngestClient, IngestClient>((sp, client) =>
-    {
-        var collectorOptions = sp.GetRequiredService<IOptions<CollectorOptions>>().Value;
-        client.BaseAddress = new Uri(collectorOptions.IngestBaseUrl);
-        client.DefaultRequestHeaders.Add("X-Api-Key", collectorOptions.ApiKey);
-    })
-    .AddStandardResilienceHandler();
+// CollectorOptions.IngestBaseUrl may be a concrete address (standalone deployment) or a
+// service-discovery name such as "https+http://ingest-api/" (Aspire's AppHost injects the latter).
+// AddServiceDefaults above already attached both the service-discovery handler and the standard
+// resilience handler to every HttpClient via ConfigureHttpClientDefaults, so neither is repeated
+// here — adding AddStandardResilienceHandler again would stack a second set of retries on top.
+builder.Services.AddHttpClient<IIngestClient, IngestClient>((sp, client) =>
+{
+    var collectorOptions = sp.GetRequiredService<IOptions<CollectorOptions>>().Value;
+    client.BaseAddress = new Uri(collectorOptions.IngestBaseUrl);
+    client.DefaultRequestHeaders.Add("X-Api-Key", collectorOptions.ApiKey);
+});
 
 // The only simulator-specific lines in this file: everything else here (and every other type in
 // this project) depends solely on ITelemetrySource, ITelemetryBuffer, and IIngestClient. Adding a
@@ -63,8 +70,12 @@ builder.Services.AddSingleton<ITelemetrySource>(sp =>
 });
 #pragma warning restore CA1416
 
-builder.Services.AddHostedService<TelemetryCollectorService>();
+// Order matters: the host stops hosted services in reverse registration order, so the consumer
+// (upload) is registered first and the producer (collect) last. That way shutdown stops the
+// producer first and leaves the consumer running to drain what is still buffered — the reverse
+// would stop the drain first and strand the producer against a full buffer.
 builder.Services.AddHostedService<TelemetryUploadService>();
+builder.Services.AddHostedService<TelemetryCollectorService>();
 
 var host = builder.Build();
 host.Run();

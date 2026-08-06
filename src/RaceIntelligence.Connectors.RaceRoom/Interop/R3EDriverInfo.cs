@@ -32,9 +32,7 @@ internal struct R3EDriverInfo
     public float Rating;
     public float Reputation;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float Unused1;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float Unused2;
 }

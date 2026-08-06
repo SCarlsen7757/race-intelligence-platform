@@ -11,16 +11,10 @@ namespace RaceIntelligence.Collector.Buffering;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This buffer is in-memory only.</b> A process crash, a machine reboot, or a network outage
-/// that outlasts <see cref="CollectorOptions.BufferCapacity"/> loses every sample still sitting in
-/// it, permanently. This is a known, deliberate Phase 1 gap: the README requires the collector to
-/// "handle temporary network outages" and "resume uploads automatically," and this implementation
-/// only satisfies that for outages shorter than the buffer can absorb. <see cref="ITelemetryBuffer"/>
-/// was shaped specifically so a durable implementation (e.g. SQLite with write-ahead logging) can
-/// be substituted via dependency injection later with no change to
-/// <see cref="TelemetryCollectorService"/> or <see cref="Upload.TelemetryUploadService"/> — see the
-/// interface's own remarks. Do not treat this type as anything more than the first, non-durable
-/// step.
+/// <b>In-memory only.</b> A crash, a reboot, or an outage that outlasts
+/// <see cref="CollectorOptions.BufferCapacity"/> loses every sample still queued here. That is the
+/// accepted Phase 1 gap documented on <see cref="ITelemetryBuffer"/>; this type is the first,
+/// non-durable implementation of it.
 /// </para>
 /// <para>
 /// <b>Full-mode trade-off:</b> <see cref="BoundedChannelFullMode.Wait"/> (the default, see
@@ -44,6 +38,12 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
     private readonly ILogger<ChannelTelemetryBuffer> _logger;
     private readonly BoundedChannelFullMode _fullMode;
     private readonly int _capacity;
+
+    // Cancels a producer parked inside a backpressure-blocking TryWrite. Without it, shutdown with
+    // a full buffer deadlocks: the blocking write owns the producer's thread, so the producer can
+    // never observe its own stopping token, and the host waits out its whole ShutdownTimeout.
+    private readonly CancellationTokenSource _shutdown = new();
+
     private long _totalWritten;
     private long _totalRead;
     private long _totalDropped;
@@ -84,18 +84,21 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
 
         if (_fullMode == BoundedChannelFullMode.Wait)
         {
-            // Block the calling thread (deliberately — see class remarks) until space frees up or
-            // the buffer completes. This is the one place this type's behaviour diverges from
-            // ITelemetryBuffer.TryWrite's "without blocking" doc comment: a synchronous TryWrite
-            // has no other way to apply real backpressure, and CollectorOptions.BufferFullMode
-            // defaults to Wait specifically so this path is the common case.
+            // Block the calling thread (deliberately — see class remarks) until space frees up, the
+            // buffer completes, or shutdown is signalled. This is the one place this type's
+            // behaviour diverges from ITelemetryBuffer.TryWrite's "without blocking" doc comment: a
+            // synchronous TryWrite has no other way to apply real backpressure, and
+            // CollectorOptions.BufferFullMode defaults to Wait specifically so this path is the
+            // common case. Passing _shutdown.Token is what keeps that divergence bounded — Complete
+            // or DisposeAsync unparks the producer instead of leaving it stuck until the host's
+            // ShutdownTimeout expires.
             try
             {
-                _channel.Writer.WriteAsync(sample).AsTask().GetAwaiter().GetResult();
+                _channel.Writer.WriteAsync(sample, _shutdown.Token).AsTask().GetAwaiter().GetResult();
                 Interlocked.Increment(ref _totalWritten);
                 return true;
             }
-            catch (ChannelClosedException)
+            catch (Exception ex) when (ex is ChannelClosedException or OperationCanceledException or ObjectDisposedException)
             {
                 Interlocked.Increment(ref _totalDropped);
                 return false;
@@ -140,7 +143,12 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
     }
 
     /// <inheritdoc />
-    public void Complete() => _channel.Writer.TryComplete();
+    /// <remarks>Also unparks a producer currently blocked in <see cref="TryWrite"/>; that write is counted as dropped.</remarks>
+    public void Complete()
+    {
+        _channel.Writer.TryComplete();
+        _shutdown.Cancel();
+    }
 
     /// <inheritdoc />
     public BufferMetrics Metrics => new(
@@ -152,7 +160,8 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
     /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
-        _channel.Writer.TryComplete();
+        Complete();
+        _shutdown.Dispose();
         return ValueTask.CompletedTask;
     }
 }

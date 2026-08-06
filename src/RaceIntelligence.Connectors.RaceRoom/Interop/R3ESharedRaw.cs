@@ -18,8 +18,11 @@ namespace RaceIntelligence.Connectors.RaceRoom.Interop;
 /// automated defense against that.
 /// </para>
 /// <para>
-/// Reserved <c>unused*</c> fields are kept even though nothing reads them — deleting one would
-/// silently corrupt the offset of every field after it.
+/// <b>The reserved-field rule, stated once for every struct under <c>Interop/</c>:</b> fields named
+/// <c>*Unused*</c> exist only to occupy the bytes the header occupies. Nothing reads them and
+/// nothing should, but deleting one silently shifts the offset of every field after it — which is
+/// why they are never removed, and why the trailing driver array (below) is the one omission that
+/// is safe.
 /// </para>
 /// <para>
 /// The official r3e-api samples do not version-check the shared memory before reading it — this
@@ -31,9 +34,7 @@ namespace RaceIntelligence.Connectors.RaceRoom.Interop;
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 internal struct R3ESharedRaw
 {
-    //////////////////////////////////////////////////////////////////////
     // Version
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>Offset 0. Must equal <see cref="R3EVersionGate.RequiredMajor"/> (3) — layout is not guaranteed across majors.</summary>
     public int VersionMajor;
@@ -47,9 +48,7 @@ internal struct R3ESharedRaw
     /// <summary>Size, in bytes, of the <see cref="R3EDriverData"/> struct as reported by the game.</summary>
     public int DriverDataSize;
 
-    //////////////////////////////////////////////////////////////////////
     // Game state
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>See <c>r3e_gamemode</c> (track test, single race, championship, multiplayer, ...).</summary>
     public int GameMode;
@@ -63,16 +62,12 @@ internal struct R3ESharedRaw
     public int GameUsingVr;
     public int GamePlayerInGarage;
 
-    //////////////////////////////////////////////////////////////////////
     // High detail
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>High-precision data for the player's vehicle only. Not valid for AI/remote/replay.</summary>
     public R3EPlayerData Player;
 
-    //////////////////////////////////////////////////////////////////////
     // Event and session
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>UTF-8, NUL-terminated.</summary>
     public Utf8Name64 TrackName;
@@ -133,15 +128,11 @@ internal struct R3ESharedRaw
     /// <summary>Server max incident points. -1 = N/A.</summary>
     public int MaxIncidentPoints;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float EventUnused1;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float EventUnused2;
 
-    //////////////////////////////////////////////////////////////////////
     // Pit
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>-1 = N/A, 0 = disabled, 1 = closed, 2 = open, 3 = stopped, 4 = completed (<c>r3e_pit_window</c>).</summary>
     public int PitWindowStatus;
@@ -179,9 +170,7 @@ internal struct R3ESharedRaw
     /// <summary>-1.0 = N/A, else seconds.</summary>
     public float PitMinDurationLeft;
 
-    //////////////////////////////////////////////////////////////////////
     // Scoring & timings
-    //////////////////////////////////////////////////////////////////////
 
     public R3EFlags Flags;
 
@@ -273,12 +262,9 @@ internal struct R3ESharedRaw
     /// <summary>-1.0 = N/A, 0.0-1.0.</summary>
     public float BrakeRegen;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float Unused1;
 
-    //////////////////////////////////////////////////////////////////////
     // Vehicle information
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>Ids only — no human-readable car/class/manufacturer names are exposed over shared memory.</summary>
     public R3EDriverInfo VehicleInfo;
@@ -286,9 +272,7 @@ internal struct R3ESharedRaw
     /// <summary>UTF-8, NUL-terminated.</summary>
     public Utf8Name64 PlayerName;
 
-    //////////////////////////////////////////////////////////////////////
     // Vehicle state
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>-1 = unavailable, 0 = player, 1 = AI, 2 = remote, 3 = replay (<c>r3e_control</c>).</summary>
     public int ControlType;
@@ -403,9 +387,7 @@ internal struct R3ESharedRaw
     /// <summary>-1 = N/A, 0 = auto, 180-1800 = manual. Not valid for AI/remote players.</summary>
     public int SteerWheelMaxRotation;
 
-    //////////////////////////////////////////////////////////////////////
     // Tires
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>Deprecated — use <see cref="TireTypeFront"/>/<see cref="TireTypeRear"/> instead (<c>r3e_tire_type</c>).</summary>
     public int TireType;
@@ -450,9 +432,7 @@ internal struct R3ESharedRaw
     /// <summary>Unit: kN. -1.0 = N/A. Not valid for AI/remote players.</summary>
     public Float4 BrakePressure;
 
-    //////////////////////////////////////////////////////////////////////
     // Electronics
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>-1 = N/A.</summary>
     public int TractionControlSetting;
@@ -469,24 +449,22 @@ internal struct R3ESharedRaw
     /// <summary>Unit: N. -1.0 = N/A.</summary>
     public Float4 TireLoad;
 
-    //////////////////////////////////////////////////////////////////////
     // Damage
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>Not valid for AI/remote players.</summary>
     public R3ECarDamage CarDamage;
 
-    //////////////////////////////////////////////////////////////////////
     // Driver info
-    //////////////////////////////////////////////////////////////////////
 
     /// <summary>Number of cars (including the player) in the race. <see cref="AllDriversOffset"/> points here.</summary>
     public int NumCars;
 
-    /// <summary>
-    /// Name and basic vehicle info for all drivers, in place order (<c>all_drivers_data_1</c> in
-    /// the header — kept the "_1" suffix from the C name; the official C# port drops it, which is
-    /// a naming difference only, not a layout one).
-    /// </summary>
-    public DriverDataArray128 DriverData;
+    // The header's final field, all_drivers_data_1, is an R3E_NUM_DRIVERS_MAX (128) entry
+    // R3EDriverData array — 41,984 of the block's 43,996 bytes. It is deliberately NOT mirrored
+    // here: nothing in this connector reads a single field of it, and every poll would otherwise
+    // copy it out of the mapping, ~2.5 MB/s of pure waste at 60 Hz. Being the *last* field, leaving
+    // it out shifts no other field's offset, and the version gate only requires the mapping to be
+    // at least this struct's size, so a shorter read of a longer block is exactly what we want.
+    // See R3ESharedRawLayoutTests, which pins both this struct's size and the full published block
+    // size so the omission stays deliberate rather than becoming a forgotten transcription gap.
 }
