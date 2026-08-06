@@ -14,7 +14,6 @@ public sealed class Lap
     /// <summary>The session this lap belongs to. Part of the composite primary key.</summary>
     public Guid SessionId { get; set; }
 
-    /// <summary>Navigation to the owning <see cref="Session"/>.</summary>
     public Session? Session { get; set; }
 
     /// <summary>The lap number within the session. Part of the composite primary key.</summary>

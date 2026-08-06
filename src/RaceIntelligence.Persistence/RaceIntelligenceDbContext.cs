@@ -23,40 +23,29 @@ namespace RaceIntelligence.Persistence;
 public sealed class RaceIntelligenceDbContext(DbContextOptions<RaceIntelligenceDbContext> options)
     : DbContext(options)
 {
-    /// <summary>Simulator reference data.</summary>
     public DbSet<Game> Games => Set<Game>();
 
-    /// <summary>Distinct game build / telemetry API / connector version combinations.</summary>
     public DbSet<GameVersion> GameVersions => Set<GameVersion>();
 
-    /// <summary>Drivers sessions can be attributed to.</summary>
     public DbSet<Driver> Drivers => Set<Driver>();
 
-    /// <summary>Tracks, scoped per game.</summary>
     public DbSet<Track> Tracks => Set<Track>();
 
-    /// <summary>Track layouts.</summary>
     public DbSet<TrackLayout> TrackLayouts => Set<TrackLayout>();
 
-    /// <summary>Car manufacturers.</summary>
     public DbSet<Manufacturer> Manufacturers => Set<Manufacturer>();
 
-    /// <summary>Car classes.</summary>
     public DbSet<CarClass> CarClasses => Set<CarClass>();
 
-    /// <summary>Cars, scoped per game.</summary>
     public DbSet<Car> Cars => Set<Car>();
 
-    /// <summary>Telemetry-collection sessions.</summary>
     public DbSet<Session> Sessions => Set<Session>();
 
-    /// <summary>Per-lap summary statistics.</summary>
     public DbSet<Lap> Laps => Set<Lap>();
 
     /// <summary>Raw, immutable telemetry samples. See remarks on this type for the insert-only write path.</summary>
     public DbSet<TelemetrySample> TelemetrySamples => Set<TelemetrySample>();
 
-    /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(RaceIntelligenceDbContext).Assembly);

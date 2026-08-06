@@ -16,13 +16,44 @@ namespace RaceIntelligence.Connectors.RaceRoom.Tests.Interop;
 /// </summary>
 public class R3ESharedRawLayoutTests
 {
+    /// <summary>Bytes RaceRoom actually publishes in the <c>$R3E</c> block (<c>sizeof(r3e_shared)</c>).</summary>
+    private const int PublishedBlockSize = 43_996;
+
+    /// <summary>
+    /// Bytes of that block this connector maps. The header's trailing 128-entry driver array is
+    /// deliberately omitted (see <see cref="R3ESharedRaw"/>), so this is smaller on purpose.
+    /// </summary>
+    private const int MappedPrefixSize = 2_012;
+
     [Fact]
-    public void TotalSize_MatchesHandComputedByteCount()
+    public void MappedPrefix_Size_MatchesHandComputedByteCount()
     {
-        // Sum of every field's size, computed by hand from r3e.h: R3EPlayerData (560) +
-        // R3EFlags (56) + R3ECutTrackPenalties (20, x2) + R3EDriverInfo (128, x2) +
-        // R3EDriverData (328 x128 = 41984) + every scalar/array field in between.
-        Unsafe.SizeOf<R3ESharedRaw>().ShouldBe(43_996);
+        // Sum of every field this connector mirrors, computed by hand from r3e.h: R3EPlayerData
+        // (560) + R3EFlags (56) + R3ECutTrackPenalties (20, x2) + R3EDriverInfo (128, x2) + every
+        // scalar/array field in between, up to and including num_cars.
+        Unsafe.SizeOf<R3ESharedRaw>().ShouldBe(MappedPrefixSize);
+    }
+
+    [Fact]
+    public void MappedPrefix_PlusTheOmittedDriverArray_AccountsForTheWholePublishedBlock()
+    {
+        // The one assertion that keeps the omission honest: what we map plus what we deliberately
+        // skip must still add up to the block RaceRoom publishes. If a field were accidentally
+        // dropped from the middle of the struct, this fails even though the "prefix size" pin above
+        // could be talked into agreeing with it.
+        const int MaxDrivers = 128; // R3E_NUM_DRIVERS_MAX
+
+        (MappedPrefixSize + (Unsafe.SizeOf<R3EDriverData>() * MaxDrivers)).ShouldBe(PublishedBlockSize);
+    }
+
+    [Fact]
+    public void MappedPrefix_EndsExactlyWhereTheDriverArrayBegins()
+    {
+        // all_drivers_data_1 starts immediately after num_cars, so the struct must stop there --
+        // proving the omitted array really is trailing and shifts nothing before it.
+        int numCarsOffset = Marshal.OffsetOf<R3ESharedRaw>(nameof(R3ESharedRaw.NumCars)).ToInt32();
+
+        (numCarsOffset + sizeof(int)).ShouldBe(Unsafe.SizeOf<R3ESharedRaw>());
     }
 
     [Fact]
@@ -94,14 +125,6 @@ public class R3ESharedRawLayoutTests
     public void NumCars_ImmediatelyPrecedesTheDriverArray()
     {
         Marshal.OffsetOf<R3ESharedRaw>(nameof(R3ESharedRaw.NumCars)).ToInt32().ShouldBe(2008);
-    }
-
-    [Fact]
-    public void AllDriversData1_Is128TimesTheDriverDataSizeFromTheEnd()
-    {
-        int offset = Marshal.OffsetOf<R3ESharedRaw>(nameof(R3ESharedRaw.DriverData)).ToInt32();
-        offset.ShouldBe(2012);
-        (Unsafe.SizeOf<R3ESharedRaw>() - offset).ShouldBe(328 * 128);
     }
 
     [Fact]

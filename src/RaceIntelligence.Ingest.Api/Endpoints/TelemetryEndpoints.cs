@@ -1,4 +1,8 @@
+using System.Buffers;
+using System.Text;
+using System.Text.Json;
 using MessagePack;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using RaceIntelligence.Ingest.Api.Auth;
 using RaceIntelligence.Ingest.Contracts;
@@ -6,6 +10,7 @@ using RaceIntelligence.Ingest.Contracts.Mapping;
 using RaceIntelligence.Ingest.Contracts.Telemetry;
 using RaceIntelligence.Persistence;
 using RaceIntelligence.Persistence.Bulk;
+using CoreTelemetry = RaceIntelligence.Core.Telemetry;
 
 namespace RaceIntelligence.Ingest.Api.Endpoints;
 
@@ -25,6 +30,14 @@ namespace RaceIntelligence.Ingest.Api.Endpoints;
 /// </remarks>
 public static class TelemetryEndpoints
 {
+    /// <summary>
+    /// Largest telemetry batch body accepted, in bytes. A 60 Hz session uploading every few seconds
+    /// produces batches three orders of magnitude smaller than this; the cap exists so a single
+    /// unauthenticated-at-the-network-edge POST cannot make the server buffer and decode an
+    /// arbitrarily large payload.
+    /// </summary>
+    private const long MaxBatchBodyBytes = 8 * 1024 * 1024;
+
     /// <summary>Registers the telemetry batch endpoint on <paramref name="app"/>.</summary>
     public static IEndpointRouteBuilder MapTelemetryEndpoints(this IEndpointRouteBuilder app)
     {
@@ -38,9 +51,22 @@ public static class TelemetryEndpoints
         Guid id,
         HttpContext context,
         RaceIntelligenceDbContext db,
-        ITelemetryWriter writer,
+        NpgsqlTelemetryWriter writer,
         CancellationToken ct)
     {
+        if (context.Request.ContentLength > MaxBatchBodyBytes)
+        {
+            return PayloadTooLarge();
+        }
+
+        // A body sent without a Content-Length (chunked) gets no free pass: lowering the server's
+        // own limit makes the read itself stop at the cap rather than trusting the declared length.
+        var sizeLimit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (sizeLimit is { IsReadOnly: false })
+        {
+            sizeLimit.MaxRequestBodySize = MaxBatchBodyBytes;
+        }
+
         TelemetryBatchRequest batch;
         try
         {
@@ -50,6 +76,10 @@ public static class TelemetryEndpoints
         catch (MessagePackSerializationException ex)
         {
             return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Malformed telemetry batch", detail: ex.Message);
+        }
+        catch (BadHttpRequestException)
+        {
+            return PayloadTooLarge();
         }
 
         if (!SchemaVersion.IsSupported(batch.SchemaVersion))
@@ -71,9 +101,40 @@ public static class TelemetryEndpoints
             return ProblemResults.SessionNotFound(id);
         }
 
-        var samples = batch.Samples.Select(TelemetrySampleContractMapper.ToCore).ToList();
+        // C#'s `required` and non-nullable annotations on TelemetrySampleDto are compile-time only:
+        // MessagePack happily decodes a `nil` into any of them, so a hand-written payload omitting
+        // Samples, Extras or a tyre-temperature member reaches this line as a null and used to
+        // surface as a NullReferenceException and a 500.
+        if (batch.Samples is null)
+        {
+            return MissingMember("Samples", sampleIndex: null);
+        }
 
-        RaceIntelligence.Persistence.Bulk.TelemetryWriteResult result;
+        var samples = new List<CoreTelemetry.TelemetrySample>(batch.Samples.Count);
+        for (var i = 0; i < batch.Samples.Count; i++)
+        {
+            var dto = batch.Samples[i];
+            if (FindMissingMember(dto) is { } missing)
+            {
+                return MissingMember(missing, i);
+            }
+
+            // Extras is client-supplied text that now travels all the way to the jsonb column
+            // without being parsed on the way. Nothing downstream would reject it before Postgres
+            // did, and a bad value there fails the whole COPY batch with a database error rather
+            // than naming the sample at fault — so it is checked here, where the index is known.
+            if (!IsWellFormedJson(dto.Extras))
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Malformed JSON",
+                    detail: $"Sample at index {i} has an '{nameof(TelemetrySampleDto.Extras)}' value that is not valid JSON.");
+            }
+
+            samples.Add(TelemetrySampleContractMapper.ToCore(dto));
+        }
+
+        TelemetryWriteResult result;
         try
         {
             result = await writer.WriteAsync(id, samples, ct).ConfigureAwait(false);
@@ -87,4 +148,72 @@ public static class TelemetryEndpoints
 
         return Results.Ok(new TelemetryBatchResponse(result.Inserted, result.Duplicates, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
     }
+
+    /// <summary>Reports whether <paramref name="text"/> is a single well-formed JSON value.</summary>
+    /// <remarks>
+    /// Reads the text through without building a <see cref="JsonDocument"/>: this runs once per
+    /// sample, and the only question is whether Postgres will accept the value, not what is in it.
+    /// </remarks>
+    private static bool IsWellFormedJson(string text)
+    {
+        int maxBytes = Encoding.UTF8.GetMaxByteCount(text.Length);
+        byte[]? rented = null;
+        scoped Span<byte> buffer;
+        if (maxBytes <= 512)
+        {
+            buffer = stackalloc byte[512];
+        }
+        else
+        {
+            rented = ArrayPool<byte>.Shared.Rent(maxBytes);
+            buffer = rented;
+        }
+
+        try
+        {
+            int written = Encoding.UTF8.GetBytes(text, buffer);
+            var reader = new Utf8JsonReader(buffer[..written]);
+            while (reader.Read())
+            {
+                // Reading to the end is the validation; Read throws on anything malformed.
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
+        }
+    }
+
+    /// <summary>Names the first member of <paramref name="dto"/> that arrived as <c>nil</c>, or <see langword="null"/> if the sample is complete.</summary>
+    private static string? FindMissingMember(TelemetrySampleDto? dto) => dto switch
+    {
+        null => "the sample itself",
+        { Extras: null } => nameof(TelemetrySampleDto.Extras),
+        { TyreTemperatureFrontLeft: null } => nameof(TelemetrySampleDto.TyreTemperatureFrontLeft),
+        { TyreTemperatureFrontRight: null } => nameof(TelemetrySampleDto.TyreTemperatureFrontRight),
+        { TyreTemperatureRearLeft: null } => nameof(TelemetrySampleDto.TyreTemperatureRearLeft),
+        { TyreTemperatureRearRight: null } => nameof(TelemetrySampleDto.TyreTemperatureRearRight),
+        _ => null,
+    };
+
+    private static IResult MissingMember(string member, int? sampleIndex) => Results.Problem(
+        statusCode: StatusCodes.Status400BadRequest,
+        title: "Incomplete telemetry batch",
+        detail: sampleIndex is { } index
+            ? $"Sample at index {index} is missing required member '{member}'."
+            : $"The batch is missing required member '{member}'.");
+
+    private static IResult PayloadTooLarge() => Results.Problem(
+        statusCode: StatusCodes.Status413PayloadTooLarge,
+        title: "Telemetry batch too large",
+        detail: $"A telemetry batch body may be at most {MaxBatchBodyBytes} bytes.");
 }

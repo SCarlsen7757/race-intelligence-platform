@@ -104,7 +104,9 @@ public sealed class TelemetrySampleContractMapperTests
         var dto = DtoFactory.TelemetrySample(Guid.CreateVersion7(), 1) with { Extras = """{"pushToPass":{"usesRemaining":5}}""" };
 
         var core = TelemetrySampleContractMapper.ToCore(dto);
-        core.Extras.GetProperty("pushToPass").GetProperty("usesRemaining").GetInt32().ShouldBe(5);
+
+        // Carried verbatim in both directions now — the mapper neither parses nor reformats it.
+        core.Extras.ShouldBe(dto.Extras);
 
         var roundTripped = TelemetrySampleContractMapper.ToDto(core);
         roundTripped.Extras.ShouldBe(dto.Extras);
@@ -140,16 +142,14 @@ public sealed class TelemetrySampleContractMapperTests
             TyrePressure = default,
             TyreWear = default,
             TrackPositionFraction = null,
-            Extras = System.Text.Json.JsonDocument.Parse("{}").RootElement,
+            Extras = """{"pushToPass":{"usesRemaining":5}}""",
         };
 
         var dto = TelemetrySampleContractMapper.ToDto(core);
         var roundTripped = TelemetrySampleContractMapper.ToCore(dto);
 
-        // JsonElement has no value-based Equals (see Persistence's JsonElementConverter remarks
-        // for why), so it is compared separately by raw text; every other field is compared via
-        // the record's own structural equality with Extras neutralized to a shared default value.
-        roundTripped.Extras.GetRawText().ShouldBe(core.Extras.GetRawText());
-        (roundTripped with { Extras = default }).ShouldBe(core with { Extras = default });
+        // Extras is text, so it has value equality like every other member and the record's own
+        // structural comparison covers the whole sample in one assertion.
+        roundTripped.ShouldBe(core);
     }
 }

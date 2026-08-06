@@ -8,29 +8,34 @@ namespace RaceIntelligence.Core.Buffering;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Phase 1 gap:</b> the initial implementation of this interface is in-memory only. It loses
-/// all buffered data on a process crash, and it loses samples once <see cref="Metrics"/>'
-/// <c>CurrentDepth</c> reaches capacity during a network outage longer than the buffer can
-/// absorb. The README's collector requirement to "handle temporary network outages" and "resume
-/// uploads automatically" is therefore only partially met by Phase 1: short outages are fully
-/// covered, but an outage that outlasts the buffer, or a crash while samples are still queued, is
-/// a known, accepted gap for the first release.
+/// <b>Known gap:</b> the shipping implementation is in-memory only. Buffered samples are lost on
+/// a process crash, and samples are dropped once capacity is reached during an outage longer than
+/// the buffer can absorb. Short outages are covered; longer ones are not.
 /// </para>
 /// <para>
-/// The shape of this interface deliberately mirrors <see cref="System.Threading.Channels.Channel{T}"/>
-/// (<c>TryWrite</c>/<c>WaitToReadAsync</c>/<c>TryRead</c>/<c>Complete</c>) so that a future durable
-/// implementation — e.g. backed by SQLite with write-ahead logging — can be substituted via
-/// dependency injection with no change to producers or consumers of this interface.
+/// The shape deliberately mirrors <see cref="System.Threading.Channels.Channel{T}"/> so a durable
+/// implementation — e.g. SQLite with write-ahead logging — can be substituted with no change to
+/// producers or consumers.
 /// </para>
 /// </remarks>
 public interface ITelemetryBuffer : IAsyncDisposable
 {
     /// <summary>
-    /// Attempts to enqueue a sample without blocking. Returns <see langword="false"/> if the
-    /// buffer is full or has been completed, in which case the sample is dropped and
-    /// <see cref="BufferMetrics.TotalDropped"/> is incremented.
+    /// Attempts to enqueue a sample. Returns <see langword="false"/> if the sample was dropped, in
+    /// which case <see cref="BufferMetrics.TotalDropped"/> is incremented.
     /// </summary>
-    bool TryWrite(TelemetrySample sample);
+    /// <param name="sample">The sample to enqueue.</param>
+    /// <param name="cancellationToken">Unparks an implementation that is applying backpressure.</param>
+    /// <remarks>
+    /// Whether this blocks is the implementation's choice, and both answers are legitimate: an
+    /// implementation that drops on a full buffer returns immediately, while one that applies real
+    /// backpressure has no other way to do so from a synchronous method and will block the calling
+    /// thread until space frees, the buffer completes, or <paramref name="cancellationToken"/> is
+    /// cancelled. Callers on a loop that must stay responsive to shutdown are therefore expected to
+    /// pass their stopping token — without it, a blocking implementation cannot be unparked by
+    /// anything other than <see cref="Complete"/>.
+    /// </remarks>
+    bool TryWrite(TelemetrySample sample, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Waits until a sample is available to read, the buffer completes, or
@@ -40,8 +45,6 @@ public interface ITelemetryBuffer : IAsyncDisposable
     ValueTask<bool> WaitToReadAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Attempts to dequeue a sample without blocking.</summary>
-    /// <param name="sample">The dequeued sample, if one was available.</param>
-    /// <returns><see langword="true"/> if a sample was dequeued.</returns>
     bool TryRead(out TelemetrySample sample);
 
     /// <summary>Signals that no further samples will be written. Readers drain remaining samples and then stop.</summary>

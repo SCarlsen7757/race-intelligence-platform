@@ -18,9 +18,7 @@ internal struct R3ECarDamage
     /// <summary>Range 0.0-1.0. -1.0 = N/A.</summary>
     public float Suspension;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float Unused1;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float Unused2;
 }

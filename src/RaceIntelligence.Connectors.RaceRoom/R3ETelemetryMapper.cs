@@ -11,10 +11,15 @@ namespace RaceIntelligence.Connectors.RaceRoom;
 
 /// <summary>
 /// Translates raw <see cref="R3ESharedRaw"/> shared-memory snapshots into the platform's
-/// canonical telemetry model. This is a pure, allocation-light translation layer — it performs no
-/// analysis, matching the collector design principle that raw telemetry collection and analysis
-/// are separate concerns.
+/// canonical telemetry model. Pure translation — it performs no analysis, matching the collector
+/// design principle that raw telemetry collection and analysis are separate concerns.
 /// </summary>
+/// <remarks>
+/// Not allocation-free: every sample necessarily allocates a <see cref="TelemetrySample"/> and a
+/// detached <see cref="JsonElement"/> for its <c>Extras</c>. What it does avoid is allocating the
+/// machinery to produce them — the JSON scratch buffer and writer are reused across samples (see
+/// <see cref="RentExtrasWriter"/>).
+/// </remarks>
 internal static class R3ETelemetryMapper
 {
     /// <summary>
@@ -33,6 +38,16 @@ internal static class R3ETelemetryMapper
     private static float? NullIfNegative(float value) => value < 0f ? null : value;
 
     private static int? NullIfNegative(int value) => value < 0 ? null : value;
+
+    /// <summary>RaceRoom's <c>gear</c> value for "not available", distinct from -1 (reverse).</summary>
+    private const int GearNotAvailable = -2;
+
+    /// <summary>
+    /// Converts a non-positive id to <see langword="null"/>. Distinct from
+    /// <see cref="NullIfNegative(int)"/>, which lets <c>0</c> through: for identity fields <c>0</c>
+    /// is not a usable value, it is RaceRoom's "no account" marker.
+    /// </summary>
+    private static int? NullIfNotPositive(int value) => value > 0 ? value : null;
 
     private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;
 
@@ -111,7 +126,8 @@ internal static class R3ETelemetryMapper
             Throttle = NullIfNegative(raw.Throttle),
             Brake = NullIfNegative(raw.Brake),
             Steering = raw.SteerInputRaw, // -1..1 is a legitimate range, not an N/A sentinel.
-            Gear = raw.Gear, // -2 = N/A, -1 = reverse, 0 = neutral, already the canonical convention.
+            // Not NullIfNegative: -1 is reverse, a real gear. Only -2 means "not available".
+            Gear = raw.Gear == GearNotAvailable ? null : raw.Gear,
             EngineRpm = RadiansPerSecondToRpm(raw.EngineRps),
             FuelLeft = raw.FuelLeft,
             // completed_laps is 0-indexed ("6 means the car is on its 7th lap"); the canonical
@@ -150,6 +166,14 @@ internal static class R3ETelemetryMapper
             SessionType = (SessionType)raw.SessionType,
             StartedAtUtc = startedAtUtc,
             PlayerName = NullIfEmpty(DecodeUtf8Name(raw.PlayerName)),
+            // The stable account id behind that display name. VehicleInfo.UserId is the driver
+            // entry for the player's own slot and is preferred; Player.UserId is the fallback for
+            // snapshots where only the player block carries it. Both are tested with > 0, NOT
+            // >= 0: RaceRoom reports 0 or -1 when the session is offline/unauthenticated, and 0 is
+            // not a real account id — passing it through as "0" would silently merge every offline
+            // session of every driver into a single identity. That is why NullIfNegative, which
+            // deliberately lets 0 through for genuine numeric fields, is not used here.
+            SimDriverId = (NullIfNotPositive(raw.VehicleInfo.UserId) ?? NullIfNotPositive(raw.Player.UserId))?.ToString(),
             // Likewise, RaceRoom's shared memory exposes only numeric car/class/manufacturer ids
             // (VehicleInfo.ClassId/ModelId/ManufacturerId) — never human-readable names, and there
             // is no in-memory lookup table. These stay null; the raw ids are carried below instead.
@@ -159,14 +183,46 @@ internal static class R3ETelemetryMapper
             SimCarId = NullIfNegative(raw.VehicleInfo.ModelId)?.ToString(),
             SimCarClassId = NullIfNegative(raw.VehicleInfo.ClassId)?.ToString(),
             SimManufacturerId = NullIfNegative(raw.VehicleInfo.ManufacturerId)?.ToString(),
+            // Carried through raw, exactly like SessionType above, and with no sentinel filtering:
+            // RaceRoom encodes these as -1 = N/A, 0 = off, 1-4 = 1x-4x, so -1 stays -1 rather than
+            // becoming null. Turning a sim-specific rate code into a canonical multiplier is the
+            // analysis layer's job, not the collector's. The two settings are independent — a
+            // session can run accelerated tyre wear with fuel consumption switched off entirely.
+            FuelUsageRate = raw.FuelUseActive,
+            TyreWearRate = raw.TireWearActive,
             Extras = BuildSessionExtras(in raw),
         };
     }
 
     /// <summary>Builds the canonical lap record for a lap that just completed.</summary>
+    /// <param name="raw">The snapshot in which the lap counter was observed to have advanced.</param>
+    /// <param name="sessionId">The session the lap belongs to.</param>
     /// <param name="completedLapNumber">The 1-indexed number of the lap that just completed.</param>
-    public static LapInfo ToLapInfo(in R3ESharedRaw raw, Guid sessionId, int completedLapNumber)
+    /// <param name="snapshotDescribesThisLap">
+    /// Whether <paramref name="raw"/>'s lap-scoped fields (<c>lap_time_previous_self</c>,
+    /// <c>prev_lap_valid</c>, ...) actually describe lap <paramref name="completedLapNumber"/>.
+    /// They only ever describe the <i>most recently</i> completed lap, so when a poll is missed and
+    /// the counter jumps by more than one, the earlier laps in that jump must be reported with
+    /// their timings unknown rather than with the last lap's numbers copied onto them.
+    /// </param>
+    public static LapInfo ToLapInfo(in R3ESharedRaw raw, Guid sessionId, int completedLapNumber, bool snapshotDescribesThisLap = true)
     {
+        if (!snapshotDescribesThisLap)
+        {
+            return new LapInfo
+            {
+                SessionId = sessionId,
+                LapNumber = completedLapNumber,
+                LapTime = null,
+                FuelUsed = null,
+                AverageSpeed = null,
+                MaxSpeed = null,
+                // Unknown, and LapInfo.IsValid has no third state — false is the safe reading,
+                // since treating an unverifiable lap as valid would let it into analysis.
+                IsValid = false,
+            };
+        }
+
         return new LapInfo
         {
             SessionId = sessionId,
@@ -187,100 +243,100 @@ internal static class R3ETelemetryMapper
     /// intentionally not a reflective dump of the whole struct: that would be far too slow at a
     /// 60 Hz poll rate and would leak reserved/padding fields that carry no meaning.
     /// </summary>
-    private static JsonElement BuildSampleExtras(in R3ESharedRaw raw)
+    private static string BuildSampleExtras(in R3ESharedRaw raw)
     {
-        var buffer = new ArrayBufferWriter<byte>(1024);
-        using (var writer = new Utf8JsonWriter(buffer))
+        var (buffer, writer) = RentExtrasWriter();
+        WriteSampleExtras(writer, in raw);
+        return MaterializeText(buffer, writer);
+    }
+
+    private static void WriteSampleExtras(Utf8JsonWriter writer, in R3ESharedRaw raw)
+    {
+        writer.WriteStartObject();
+
+        writer.WriteStartObject("pushToPass");
+        writer.WriteNumber("available", raw.PushToPass.Available);
+        writer.WriteNumber("engaged", raw.PushToPass.Engaged);
+        writer.WriteNumber("amountLeft", raw.PushToPass.AmountLeft);
+        writer.WriteNumber("engagedTimeLeftSeconds", raw.PushToPass.EngagedTimeLeft);
+        writer.WriteNumber("waitTimeLeftSeconds", raw.PushToPass.WaitTimeLeft);
+        writer.WriteEndObject();
+
+        writer.WriteStartObject("drs");
+        writer.WriteNumber("equipped", raw.Drs.Equipped);
+        writer.WriteNumber("available", raw.Drs.Available);
+        writer.WriteNumber("numActivationsLeft", raw.Drs.NumActivationsLeft);
+        writer.WriteNumber("engaged", raw.Drs.Engaged);
+        writer.WriteNumber("numActivationsTotal", raw.DrsNumActivationsTotal);
+        writer.WriteEndObject();
+
+        writer.WriteStartObject("damage");
+        writer.WriteNumber("engine", raw.CarDamage.Engine);
+        writer.WriteNumber("transmission", raw.CarDamage.Transmission);
+        writer.WriteNumber("aerodynamics", raw.CarDamage.Aerodynamics);
+        writer.WriteNumber("suspension", raw.CarDamage.Suspension);
+        writer.WriteEndObject();
+
+        writer.WriteStartArray("brakeTemperatureCelsius");
+        for (int i = 0; i < 4; i++)
         {
-            writer.WriteStartObject();
-
-            writer.WriteStartObject("pushToPass");
-            writer.WriteNumber("available", raw.PushToPass.Available);
-            writer.WriteNumber("engaged", raw.PushToPass.Engaged);
-            writer.WriteNumber("amountLeft", raw.PushToPass.AmountLeft);
-            writer.WriteNumber("engagedTimeLeftSeconds", raw.PushToPass.EngagedTimeLeft);
-            writer.WriteNumber("waitTimeLeftSeconds", raw.PushToPass.WaitTimeLeft);
-            writer.WriteEndObject();
-
-            writer.WriteStartObject("drs");
-            writer.WriteNumber("equipped", raw.Drs.Equipped);
-            writer.WriteNumber("available", raw.Drs.Available);
-            writer.WriteNumber("numActivationsLeft", raw.Drs.NumActivationsLeft);
-            writer.WriteNumber("engaged", raw.Drs.Engaged);
-            writer.WriteNumber("numActivationsTotal", raw.DrsNumActivationsTotal);
-            writer.WriteEndObject();
-
-            writer.WriteStartObject("damage");
-            writer.WriteNumber("engine", raw.CarDamage.Engine);
-            writer.WriteNumber("transmission", raw.CarDamage.Transmission);
-            writer.WriteNumber("aerodynamics", raw.CarDamage.Aerodynamics);
-            writer.WriteNumber("suspension", raw.CarDamage.Suspension);
-            writer.WriteEndObject();
-
-            writer.WriteStartArray("brakeTemperatureCelsius");
-            for (int i = 0; i < 4; i++)
-            {
-                writer.WriteNumberValue(raw.BrakeTemp[i].CurrentTemp);
-            }
-            writer.WriteEndArray();
-
-            writer.WriteStartArray("brakePressureKiloNewtons");
-            for (int i = 0; i < 4; i++)
-            {
-                writer.WriteNumberValue(raw.BrakePressure[i]);
-            }
-            writer.WriteEndArray();
-
-            writer.WriteNumber("batteryStateOfChargePercent", raw.BatterySoC);
-            writer.WriteNumber("virtualEnergyLeftMj", raw.VirtualEnergyLeft);
-            writer.WriteNumber("virtualEnergyCapacityMj", raw.VirtualEnergyCapacity);
-            writer.WriteNumber("virtualEnergyPerLapMj", raw.VirtualEnergyPerLap);
-
-            writer.WriteNumber("engineTempCelsius", raw.EngineTemp);
-            writer.WriteNumber("engineOilTempCelsius", raw.EngineOilTemp);
-            writer.WriteNumber("fuelPressureKpa", raw.FuelPressure);
-            writer.WriteNumber("engineOilPressureKpa", raw.EngineOilPressure);
-            writer.WriteNumber("turboPressureBar", raw.TurboPressure);
-
-            writer.WriteNumber("tractionControlSetting", raw.TractionControlSetting);
-            writer.WriteNumber("tractionControlPercent", raw.TractionControlPercent);
-            writer.WriteNumber("engineMapSetting", raw.EngineMapSetting);
-            writer.WriteNumber("engineBrakeSetting", raw.EngineBrakeSetting);
-            writer.WriteNumber("absSetting", raw.AbsSetting);
-
-            writer.WriteNumber("tireTypeFront", raw.TireTypeFront);
-            writer.WriteNumber("tireTypeRear", raw.TireTypeRear);
-            writer.WriteNumber("tireSubtypeFront", raw.TireSubtypeFront);
-            writer.WriteNumber("tireSubtypeRear", raw.TireSubtypeRear);
-
-            writer.WriteNumber("controlType", raw.ControlType);
-
-            writer.WriteStartObject("flags");
-            writer.WriteNumber("yellow", raw.Flags.Yellow);
-            writer.WriteNumber("blue", raw.Flags.Blue);
-            writer.WriteNumber("black", raw.Flags.Black);
-            writer.WriteNumber("green", raw.Flags.Green);
-            writer.WriteNumber("checkered", raw.Flags.Checkered);
-            writer.WriteNumber("white", raw.Flags.White);
-            writer.WriteNumber("blackAndWhite", raw.Flags.BlackAndWhite);
-            writer.WriteEndObject();
-
-            writer.WriteStartObject("pit");
-            writer.WriteNumber("windowStatus", raw.PitWindowStatus);
-            writer.WriteNumber("windowStart", raw.PitWindowStart);
-            writer.WriteNumber("windowEnd", raw.PitWindowEnd);
-            writer.WriteNumber("state", raw.PitState);
-            writer.WriteNumber("action", raw.PitAction);
-            writer.WriteNumber("numPitstopsPerformed", raw.NumPitstopsPerformed);
-            writer.WriteNumber("totalDurationSeconds", raw.PitTotalDuration);
-            writer.WriteNumber("elapsedTimeSeconds", raw.PitElapsedTime);
-            writer.WriteEndObject();
-
-            writer.WriteEndObject();
+            writer.WriteNumberValue(raw.BrakeTemp[i].CurrentTemp);
         }
+        writer.WriteEndArray();
 
-        using var document = JsonDocument.Parse(buffer.WrittenMemory);
-        return document.RootElement.Clone();
+        writer.WriteStartArray("brakePressureKiloNewtons");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.BrakePressure[i]);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteNumber("batteryStateOfChargePercent", raw.BatterySoC);
+        writer.WriteNumber("virtualEnergyLeftMj", raw.VirtualEnergyLeft);
+        writer.WriteNumber("virtualEnergyCapacityMj", raw.VirtualEnergyCapacity);
+        writer.WriteNumber("virtualEnergyPerLapMj", raw.VirtualEnergyPerLap);
+
+        writer.WriteNumber("engineTempCelsius", raw.EngineTemp);
+        writer.WriteNumber("engineOilTempCelsius", raw.EngineOilTemp);
+        writer.WriteNumber("fuelPressureKpa", raw.FuelPressure);
+        writer.WriteNumber("engineOilPressureKpa", raw.EngineOilPressure);
+        writer.WriteNumber("turboPressureBar", raw.TurboPressure);
+
+        writer.WriteNumber("tractionControlSetting", raw.TractionControlSetting);
+        writer.WriteNumber("tractionControlPercent", raw.TractionControlPercent);
+        writer.WriteNumber("engineMapSetting", raw.EngineMapSetting);
+        writer.WriteNumber("engineBrakeSetting", raw.EngineBrakeSetting);
+        writer.WriteNumber("absSetting", raw.AbsSetting);
+
+        writer.WriteNumber("tireTypeFront", raw.TireTypeFront);
+        writer.WriteNumber("tireTypeRear", raw.TireTypeRear);
+        writer.WriteNumber("tireSubtypeFront", raw.TireSubtypeFront);
+        writer.WriteNumber("tireSubtypeRear", raw.TireSubtypeRear);
+
+        writer.WriteNumber("controlType", raw.ControlType);
+
+        writer.WriteStartObject("flags");
+        writer.WriteNumber("yellow", raw.Flags.Yellow);
+        writer.WriteNumber("blue", raw.Flags.Blue);
+        writer.WriteNumber("black", raw.Flags.Black);
+        writer.WriteNumber("green", raw.Flags.Green);
+        writer.WriteNumber("checkered", raw.Flags.Checkered);
+        writer.WriteNumber("white", raw.Flags.White);
+        writer.WriteNumber("blackAndWhite", raw.Flags.BlackAndWhite);
+        writer.WriteEndObject();
+
+        writer.WriteStartObject("pit");
+        writer.WriteNumber("windowStatus", raw.PitWindowStatus);
+        writer.WriteNumber("windowStart", raw.PitWindowStart);
+        writer.WriteNumber("windowEnd", raw.PitWindowEnd);
+        writer.WriteNumber("state", raw.PitState);
+        writer.WriteNumber("action", raw.PitAction);
+        writer.WriteNumber("numPitstopsPerformed", raw.NumPitstopsPerformed);
+        writer.WriteNumber("totalDurationSeconds", raw.PitTotalDuration);
+        writer.WriteNumber("elapsedTimeSeconds", raw.PitElapsedTime);
+        writer.WriteEndObject();
+
+        writer.WriteEndObject();
     }
 
     /// <summary>
@@ -289,36 +345,94 @@ internal static class R3ETelemetryMapper
     /// </summary>
     private static JsonElement BuildSessionExtras(in R3ESharedRaw raw)
     {
-        var buffer = new ArrayBufferWriter<byte>(512);
-        using (var writer = new Utf8JsonWriter(buffer))
+        var (buffer, writer) = RentExtrasWriter();
+        WriteSessionExtras(writer, in raw);
+        return MaterializeElement(buffer, writer);
+    }
+
+    private static void WriteSessionExtras(Utf8JsonWriter writer, in R3ESharedRaw raw)
+    {
+        writer.WriteStartObject();
+
+        writer.WriteNumber("gameMode", raw.GameMode);
+        writer.WriteNumber("sessionIteration", raw.SessionIteration);
+        writer.WriteNumber("sessionLengthFormat", raw.SessionLengthFormat);
+        writer.WriteNumber("numberOfLaps", raw.NumberOfLaps);
+        writer.WriteNumber("sessionTimeDurationSeconds", raw.SessionTimeDuration);
+        writer.WriteNumber("pitWindowStart", raw.PitWindowStart);
+        writer.WriteNumber("pitWindowEnd", raw.PitWindowEnd);
+        writer.WriteNumber("tireWearActive", raw.TireWearActive);
+        writer.WriteNumber("fuelUseActive", raw.FuelUseActive);
+        writer.WriteNumber("maxIncidentPoints", raw.MaxIncidentPoints);
+        writer.WriteNumber("controlType", raw.ControlType);
+
+        writer.WriteStartObject("vehicle");
+        writer.WriteNumber("carNumber", raw.VehicleInfo.CarNumber);
+        writer.WriteNumber("classId", raw.VehicleInfo.ClassId);
+        writer.WriteNumber("modelId", raw.VehicleInfo.ModelId);
+        writer.WriteNumber("userId", raw.VehicleInfo.UserId);
+        writer.WriteNumber("slotId", raw.VehicleInfo.SlotId);
+        writer.WriteNumber("teamId", raw.VehicleInfo.TeamId);
+        writer.WriteNumber("liveryId", raw.VehicleInfo.LiveryId);
+        writer.WriteNumber("manufacturerId", raw.VehicleInfo.ManufacturerId);
+        writer.WriteNumber("engineType", raw.VehicleInfo.EngineType);
+        writer.WriteEndObject();
+
+        writer.WriteEndObject();
+    }
+
+    // One scratch buffer and one JSON writer per thread, reused for every sample. Before, each of
+    // the 60 samples per second allocated a fresh 1 KB ArrayBufferWriter and a fresh Utf8JsonWriter
+    // purely to throw them away again. Utf8JsonWriter.Reset re-targets the existing instance, and
+    // ResetWrittenCount rewinds the buffer, so the steady state allocates neither. Thread-static
+    // rather than a shared instance because that needs no lock and no lifetime management; the
+    // connector's poll loop is single-threaded, so in practice there is exactly one of each.
+    [ThreadStatic]
+    private static ArrayBufferWriter<byte>? _extrasBuffer;
+
+    [ThreadStatic]
+    private static Utf8JsonWriter? _extrasWriter;
+
+    private static (ArrayBufferWriter<byte> Buffer, Utf8JsonWriter Writer) RentExtrasWriter()
+    {
+        var buffer = _extrasBuffer ??= new ArrayBufferWriter<byte>(1024);
+        buffer.ResetWrittenCount();
+
+        var writer = _extrasWriter;
+        if (writer is null)
         {
-            writer.WriteStartObject();
-
-            writer.WriteNumber("gameMode", raw.GameMode);
-            writer.WriteNumber("sessionIteration", raw.SessionIteration);
-            writer.WriteNumber("sessionLengthFormat", raw.SessionLengthFormat);
-            writer.WriteNumber("numberOfLaps", raw.NumberOfLaps);
-            writer.WriteNumber("sessionTimeDurationSeconds", raw.SessionTimeDuration);
-            writer.WriteNumber("pitWindowStart", raw.PitWindowStart);
-            writer.WriteNumber("pitWindowEnd", raw.PitWindowEnd);
-            writer.WriteNumber("tireWearActive", raw.TireWearActive);
-            writer.WriteNumber("fuelUseActive", raw.FuelUseActive);
-            writer.WriteNumber("maxIncidentPoints", raw.MaxIncidentPoints);
-            writer.WriteNumber("controlType", raw.ControlType);
-
-            writer.WriteStartObject("vehicle");
-            writer.WriteNumber("carNumber", raw.VehicleInfo.CarNumber);
-            writer.WriteNumber("classId", raw.VehicleInfo.ClassId);
-            writer.WriteNumber("modelId", raw.VehicleInfo.ModelId);
-            writer.WriteNumber("teamId", raw.VehicleInfo.TeamId);
-            writer.WriteNumber("liveryId", raw.VehicleInfo.LiveryId);
-            writer.WriteNumber("manufacturerId", raw.VehicleInfo.ManufacturerId);
-            writer.WriteNumber("engineType", raw.VehicleInfo.EngineType);
-            writer.WriteEndObject();
-
-            writer.WriteEndObject();
+            writer = new Utf8JsonWriter(buffer);
+            _extrasWriter = writer;
+        }
+        else
+        {
+            writer.Reset(buffer);
         }
 
+        return (buffer, writer);
+    }
+
+    /// <summary>Turns what was just written into detached JSON text.</summary>
+    /// <remarks>
+    /// One UTF-8 decode and nothing else. The sample path runs at the poll rate, and its result is
+    /// carried as text the whole way to the <c>jsonb</c> column, so there is nothing to parse here.
+    /// </remarks>
+    private static string MaterializeText(ArrayBufferWriter<byte> buffer, Utf8JsonWriter writer)
+    {
+        writer.Flush();
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    /// <summary>Turns what was just written into a detached <see cref="JsonElement"/>.</summary>
+    /// <remarks>
+    /// Session extras are still a <see cref="JsonElement"/> on <c>SessionInfo</c>, and a
+    /// <see cref="JsonElement"/> is only valid while its backing <see cref="JsonDocument"/> lives —
+    /// the clone is what detaches it from this reused buffer. Affordable here because it runs once
+    /// per session rather than once per sample.
+    /// </remarks>
+    private static JsonElement MaterializeElement(ArrayBufferWriter<byte> buffer, Utf8JsonWriter writer)
+    {
+        writer.Flush();
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         return document.RootElement.Clone();
     }

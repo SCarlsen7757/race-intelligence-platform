@@ -4,10 +4,11 @@ using Npgsql;
 namespace RaceIntelligence.Persistence.Repositories;
 
 /// <summary>
-/// Shared helper for the resolve-or-create pattern used across this namespace: attempt an insert,
-/// and if a concurrent caller won the race for the same unique key, detect that specific failure
-/// (as opposed to some other, real, database error) so the caller can fall back to re-selecting
-/// the row the other caller just created.
+/// Shared helper for the resolve-or-create pattern: attempt an insert, and if a concurrent caller
+/// won the race for the same unique key, detect that specific failure (as opposed to some other,
+/// real, database error) so the caller can fall back to re-selecting the row the other caller just
+/// created. Public because the ingest API's session endpoint needs the same distinction for its own
+/// idempotent insert, and kept it as a verbatim copy for as long as this was internal.
 /// </summary>
 /// <remarks>
 /// <b>Why insert + retry-on-conflict rather than <c>ON CONFLICT DO NOTHING</c> + re-select:</b> the
@@ -20,7 +21,7 @@ namespace RaceIntelligence.Persistence.Repositories;
 /// first time simultaneously — costs one extra round trip to re-select the row the loser lost to.
 /// Both approaches give the same end state: exactly one row per unique key, ever.
 /// </remarks>
-internal static class UniqueViolationDetection
+public static class UniqueViolationDetection
 {
     private const string UniqueViolationSqlState = "23505";
 

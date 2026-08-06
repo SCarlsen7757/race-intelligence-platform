@@ -27,6 +27,9 @@ namespace RaceIntelligence.Ingest.Contracts;
 /// <param name="SimCarClassId">The sim's own internal identifier for the car's class, if known. See <paramref name="SimCarId"/>.</param>
 /// <param name="SimManufacturerId">The sim's own internal identifier for the car's manufacturer, if known. See <paramref name="SimCarId"/>.</param>
 /// <param name="ExtrasJson">Simulator-specific session metadata with no canonical equivalent, as a raw JSON string. <see langword="null"/> if none.</param>
+/// <param name="SimDriverId">The sim's own stable identifier for the player, if known — a durable account id rather than a display name, so a session still resolves to the right driver after they rename themselves. Only unique within the sim that issued it, so consumers must scope it by <paramref name="GameVersion"/>'s game. See <paramref name="SimCarId"/> for the same convention applied to cars.</param>
+/// <param name="FuelUsageRate">How fast this session consumed fuel relative to real time, as the sim's raw rate code carried through untranslated — like <paramref name="SessionType"/>, collectors don't normalize it to a multiplier, since the encoding is sim-specific (RaceRoom uses <c>-1</c> = not available, <c>0</c> = consumption off, <c>1</c>–<c>4</c> = 1x–4x). <see langword="null"/> only when the source has no such concept.</param>
+/// <param name="TyreWearRate">How fast this session wore tyres relative to real time, as the sim's raw rate code carried through untranslated. Same encoding and reasoning as <paramref name="FuelUsageRate"/>, and independent of it — sims let the two be configured separately.</param>
 public sealed record SessionCreateRequest(
     int SchemaVersion,
     Guid SessionId,
@@ -44,4 +47,7 @@ public sealed record SessionCreateRequest(
     string? ExtrasJson,
     string? SimCarId = null,
     string? SimCarClassId = null,
-    string? SimManufacturerId = null);
+    string? SimManufacturerId = null,
+    string? SimDriverId = null,
+    int? FuelUsageRate = null,
+    int? TyreWearRate = null);

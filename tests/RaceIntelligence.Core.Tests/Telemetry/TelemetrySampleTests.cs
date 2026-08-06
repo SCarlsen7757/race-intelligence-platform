@@ -26,7 +26,7 @@ public class TelemetrySampleTests
             new TyreTemperature(80, 82, 84, 90, 70, 110),
             new TyreTemperature(80, 82, 84, 90, 70, 110),
             new TyreTemperature(80, 82, 84, 90, 70, 110)),
-        Extras = default,
+        Extras = "{}",
     };
 
     [Fact]
@@ -69,18 +69,29 @@ public class TelemetrySampleTests
     }
 
     [Fact]
-    public void NotAvailableSentinel_MustBeTranslatedToNull_NotZero()
+    public void FieldsThatMayBeUnavailable_AreNullable_SoASentinelHasSomewhereToGo()
     {
-        // Documents the contract: a connector translating a source's "not available" sentinel
-        // (e.g. RaceRoom's -1.0) must produce null, never 0 -- 0 has a distinct real meaning
-        // (empty fuel tank, zero wear).
-        var sample = CreateSample() with
-        {
-            FuelLeft = 0f, // a real, valid "empty tank" reading
-            TyreWear = new WheelData<float?>(null, null, null, null), // "not available" from the source
-        };
+        // Replaces a test that built a record with null tyre wear and then asserted the tyre wear
+        // was null -- it exercised the `with` expression, not the sentinel translation its name
+        // claimed. That translation belongs to (and is tested in) the connectors; see
+        // R3ETelemetryMapperSentinelTests. What Core owns is the shape that makes it expressible:
+        // a field a source may not report must be nullable, so a connector is never forced to pick
+        // a real value like 0 to stand in for "unavailable".
+        var type = typeof(TelemetrySample);
 
-        sample.FuelLeft.ShouldBe(0f);
-        sample.TyreWear.FrontLeft.ShouldBeNull();
+        foreach (string propertyName in new[] { nameof(TelemetrySample.Throttle), nameof(TelemetrySample.Brake), nameof(TelemetrySample.Position), nameof(TelemetrySample.TrackPositionFraction) })
+        {
+            var propertyType = type.GetProperty(propertyName)!.PropertyType;
+            Nullable.GetUnderlyingType(propertyType).ShouldNotBeNull($"{propertyName} must be nullable so 'not reported' is distinct from a real reading.");
+        }
+
+        // Per-wheel optional data is nullable per wheel, not per set: a sim can report pressure for
+        // some wheels and not others.
+        type.GetProperty(nameof(TelemetrySample.TyrePressure))!.PropertyType.ShouldBe(typeof(WheelData<float?>));
+        type.GetProperty(nameof(TelemetrySample.TyreWear))!.PropertyType.ShouldBe(typeof(WheelData<float?>));
+
+        // ...while a field every sim reliably reports stays non-nullable and required, so 0 there
+        // is unambiguously a real reading (an empty tank), never a stand-in for "unknown".
+        Nullable.GetUnderlyingType(type.GetProperty(nameof(TelemetrySample.FuelLeft))!.PropertyType).ShouldBeNull();
     }
 }

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using RaceIntelligence.Ingest.Contracts.Telemetry;
 using CoreTelemetry = RaceIntelligence.Core.Telemetry;
 
@@ -56,7 +56,7 @@ public static class TelemetrySampleContractMapper
         TyreTemperatureRearLeft = ToDto(sample.TyreTemperature.RearLeft),
         TyreTemperatureRearRight = ToDto(sample.TyreTemperature.RearRight),
         TrackPositionFraction = sample.TrackPositionFraction,
-        Extras = SerializeExtras(sample.Extras),
+        Extras = sample.Extras,
     };
 
     /// <summary>Converts a wire telemetry sample DTO back into its canonical Core form.</summary>
@@ -90,7 +90,7 @@ public static class TelemetrySampleContractMapper
             ToCore(dto.TyreTemperatureRearLeft),
             ToCore(dto.TyreTemperatureRearRight)),
         TrackPositionFraction = dto.TrackPositionFraction,
-        Extras = DeserializeExtras(dto.Extras),
+        Extras = dto.Extras,
     };
 
     private static TyreTemperatureDto ToDto(CoreTelemetry.TyreTemperature t) =>
@@ -99,20 +99,4 @@ public static class TelemetrySampleContractMapper
     private static CoreTelemetry.TyreTemperature ToCore(TyreTemperatureDto dto) =>
         new(dto.Inner, dto.Middle, dto.Outer, dto.Optimal, dto.Cold, dto.Hot);
 
-    /// <summary>
-    /// Serializes <see cref="CoreTelemetry.TelemetrySample.Extras"/> to the raw JSON text carried
-    /// on the wire. An <see cref="JsonValueKind.Undefined"/> element (an uninitialized
-    /// <c>required</c> property that was never explicitly set) is written as JSON <c>null</c>
-    /// rather than throwing — MessagePack has no concept of "no value at all" for a required
-    /// string member.
-    /// </summary>
-    private static string SerializeExtras(JsonElement extras) =>
-        extras.ValueKind == JsonValueKind.Undefined ? "null" : extras.GetRawText();
-
-    /// <summary>
-    /// Parses the wire <see cref="TelemetrySampleDto.Extras"/> JSON text back into a
-    /// <see cref="JsonElement"/>. The backing <see cref="JsonDocument"/> is deliberately not
-    /// disposed: <see cref="JsonElement"/> keeps an internal reference to its parent document.
-    /// </summary>
-    private static JsonElement DeserializeExtras(string json) => JsonDocument.Parse(json).RootElement;
 }

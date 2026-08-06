@@ -1,4 +1,4 @@
-using RaceIntelligence.Persistence.Mapping;
+﻿using RaceIntelligence.Persistence.Mapping;
 using RaceIntelligence.Persistence.Tests.Support;
 using Shouldly;
 
@@ -24,7 +24,7 @@ public sealed class ValueComparerTests(PostgresFixture fixture)
         await using var db = fixture.CreateContext();
         var sessionId = await SampleFactory.CreateSessionAsync(db, SampleFactory.NonTrivialExtras());
 
-        var sample = SampleFactory.TelemetrySample(sessionId, sequenceNumber: 1, extras: SampleFactory.NonTrivialExtras());
+        var sample = SampleFactory.TelemetrySample(sessionId, sequenceNumber: 1, extras: SampleFactory.NonTrivialExtrasText);
         db.TelemetrySamples.Add(TelemetrySampleMapper.ToEntity(sample));
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();

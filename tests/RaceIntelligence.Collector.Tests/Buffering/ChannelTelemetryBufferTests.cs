@@ -72,21 +72,90 @@ public class ChannelTelemetryBufferTests
         buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 0)).ShouldBeTrue();
 
         // The buffer is now full; a second TryWrite must block rather than drop.
-        var secondWrite = Task.Run(() => buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 1)));
+        var writerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondWrite = Task.Run(() =>
+        {
+            writerEntered.SetResult();
+            return buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 1));
+        });
 
-        // Give the blocked writer every opportunity to (incorrectly) complete early.
-        var completedEarly = await Task.WhenAny(secondWrite, Task.Delay(TimeSpan.FromMilliseconds(300)));
-        completedEarly.ShouldNotBe(secondWrite);
+        // Wait on the writer actually having started rather than on a fixed sleep. The short grace
+        // that follows only backs the negative assertion ("it has not completed"), which cannot be
+        // expressed as a signal -- it is not racing the logic to reach a positive result.
+        await writerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var completedEarly = await Task.WhenAny(secondWrite, Task.Delay(TimeSpan.FromMilliseconds(100)));
+        completedEarly.ShouldNotBe(secondWrite, "a full buffer in Wait mode must block the writer, not drop the sample.");
+        buffer.Metrics.TotalWritten.ShouldBe(1);
 
+        // Freeing one slot is the only thing that may release it.
         buffer.TryRead(out _).ShouldBeTrue();
 
-        var completed = await Task.WhenAny(secondWrite, Task.Delay(TimeSpan.FromSeconds(5)));
-        completed.ShouldBe(secondWrite);
-        (await secondWrite).ShouldBeTrue();
+        (await secondWrite.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)).ShouldBeTrue();
 
         var metrics = buffer.Metrics;
         metrics.TotalWritten.ShouldBe(2);
         metrics.TotalDropped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Complete_releases_a_writer_already_blocked_on_a_full_buffer()
+    {
+        // Shutdown path: the producer is parked inside a blocking TryWrite that owns its thread, so
+        // it can never observe a cancellation token itself. Complete must unpark it, or the host
+        // waits out its entire ShutdownTimeout.
+        await using var buffer = CreateBuffer(capacity: 1, BoundedChannelFullMode.Wait);
+        var sessionId = Guid.NewGuid();
+
+        buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 0)).ShouldBeTrue();
+
+        var writerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockedWrite = Task.Run(() =>
+        {
+            writerEntered.SetResult();
+            return buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 1));
+        });
+
+        await writerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        buffer.Complete();
+
+        (await blockedWrite.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken))
+            .ShouldBeFalse("the unparked write did not store the sample, so it must report a drop.");
+        buffer.Metrics.TotalDropped.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Cancelling_the_callers_token_releases_a_writer_blocked_on_a_full_buffer()
+    {
+        // The other half of the unpark contract: a caller that passes its stopping token can free
+        // its own parked producer without completing the buffer, which matters because the reader
+        // may still have samples to drain.
+        await using var buffer = CreateBuffer(capacity: 1, BoundedChannelFullMode.Wait);
+        var sessionId = Guid.NewGuid();
+        using var cts = new CancellationTokenSource();
+
+        buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 0)).ShouldBeTrue();
+
+        var writerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockedWrite = Task.Run(
+            () =>
+            {
+                writerEntered.SetResult();
+                return buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 1), cts.Token);
+            },
+            TestContext.Current.CancellationToken);
+
+        await writerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        await cts.CancelAsync();
+
+        (await blockedWrite.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken))
+            .ShouldBeFalse("the cancelled write did not store the sample, so it must report a drop.");
+        buffer.Metrics.TotalDropped.ShouldBe(1);
+
+        // The buffer itself is still usable — cancelling one write must not complete it.
+        buffer.TryRead(out _).ShouldBeTrue();
+        buffer.TryWrite(TelemetrySampleFactory.Create(sessionId, 2)).ShouldBeTrue();
     }
 
     [Fact]

@@ -5,10 +5,8 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Configurations;
 
-/// <summary>Maps <see cref="Session"/> to the <c>sessions</c> table.</summary>
 public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 {
-    /// <inheritdoc />
     public void Configure(EntityTypeBuilder<Session> builder)
     {
         builder.ToTable("sessions");
@@ -18,6 +16,7 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 
         builder.Property(s => s.GameVersionId).HasColumnName("game_version_id").IsRequired();
         builder.Property(s => s.DriverId).HasColumnName("driver_id");
+        builder.Property(s => s.PlayerName).HasColumnName("player_name");
         builder.Property(s => s.TrackLayoutId).HasColumnName("track_layout_id");
         builder.Property(s => s.CarId).HasColumnName("car_id");
         builder.Property(s => s.SimCarId).HasColumnName("sim_car_id");
@@ -27,9 +26,23 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
         // Stored as smallint, not a native Postgres enum: see TelemetrySample entity remarks.
         builder.Property(s => s.SessionType)
             .HasColumnName("session_type")
-            .HasConversion<short>()
+            .HasConversion(CheckedSmallIntConverter.SessionTypeConverter)
             .HasColumnType("smallint")
             .IsRequired();
+
+        // The sim's own raw rate codes, not normalized multipliers — see the entity's remarks.
+        // These three all narrow int -> short, and they do it checked: an unqualified
+        // HasConversion<short>() wraps silently, turning an out-of-range code into whatever bit
+        // pattern survives — for int.MaxValue that is -1, RaceRoom's "not available" sentinel.
+        builder.Property(s => s.FuelUsageRate)
+            .HasColumnName("fuel_usage_rate")
+            .HasConversion(CheckedSmallIntConverter.Converter)
+            .HasColumnType("smallint");
+
+        builder.Property(s => s.TyreWearRate)
+            .HasColumnName("tyre_wear_rate")
+            .HasConversion(CheckedSmallIntConverter.Converter)
+            .HasColumnType("smallint");
 
         builder.Property(s => s.Capabilities)
             .HasColumnName("capabilities")
@@ -58,6 +71,11 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
         builder.Property(s => s.EndedAt).HasColumnName("ended_at");
 
         builder.HasIndex(s => s.GameVersionId).HasDatabaseName("ix_sessions_game_version");
+
+        // The shape of every "compare driver A against driver B under the same rules" query:
+        // a driver's sessions narrowed to one wear/fuel rate combination.
+        builder.HasIndex(s => new { s.DriverId, s.TyreWearRate, s.FuelUsageRate })
+            .HasDatabaseName("ix_sessions_driver_wear_rates");
 
         builder.HasMany(s => s.Laps)
             .WithOne(l => l.Session)

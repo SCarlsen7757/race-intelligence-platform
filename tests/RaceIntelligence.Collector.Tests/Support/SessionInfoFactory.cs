@@ -25,6 +25,12 @@ internal static class SessionInfoFactory
         SessionType = SessionType.Practice,
         StartedAtUtc = startedAtUtc ?? DateTimeOffset.UtcNow,
         PlayerName = "Test Driver",
+        // Distinct non-default values on purpose. FuelUsageRate and TyreWearRate are both int? and
+        // are passed positionally by CollectorRequestMapper, so equal values here would let the two
+        // be swapped without any test noticing — see CollectorRequestMapperTests.
+        SimDriverId = "sim-driver-4711",
         CarName = "Test Car",
+        FuelUsageRate = 2,
+        TyreWearRate = 3,
     };
 }

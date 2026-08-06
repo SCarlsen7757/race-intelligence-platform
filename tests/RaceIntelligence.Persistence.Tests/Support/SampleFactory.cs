@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using RaceIntelligence.Core.Capabilities;
 using RaceIntelligence.Core.Games;
 using RaceIntelligence.Core.Sessions;
@@ -46,11 +46,14 @@ internal static class SampleFactory
         return session.Id;
     }
 
-    /// <summary>An empty JSON object, the neutral value for <c>required JsonElement Extras</c> fields in tests that don't care about its contents.</summary>
+    /// <summary>An empty JSON object, the neutral value for session <c>Extras</c> in tests that don't care about its contents.</summary>
     public static JsonElement EmptyObject() => JsonDocument.Parse("{}").RootElement;
 
-    /// <summary>Builds a non-trivial JSON object for jsonb round-trip assertions: nested object, array, numbers, bool, null.</summary>
-    public static JsonElement NonTrivialExtras() => JsonDocument.Parse(
+    /// <summary>The same neutral value for telemetry-sample <c>Extras</c>, which is raw JSON text.</summary>
+    public const string EmptyObjectText = "{}";
+
+    /// <summary>A non-trivial JSON object for jsonb round-trip assertions: nested object, array, numbers, bool, null.</summary>
+    public const string NonTrivialExtrasText =
         """
         {
             "pushToPass": { "available": true, "usesRemaining": 5 },
@@ -58,10 +61,14 @@ internal static class SampleFactory
             "correctionFactor": 1.0625,
             "note": null
         }
-        """).RootElement;
+        """;
+
+    /// <inheritdoc cref="NonTrivialExtrasText"/>
+    /// <remarks>Element form, for session <c>Extras</c>, which is still a <see cref="JsonElement"/>.</remarks>
+    public static JsonElement NonTrivialExtras() => JsonDocument.Parse(NonTrivialExtrasText).RootElement;
 
     /// <summary>Builds a canonical telemetry sample for <paramref name="sessionId"/> at <paramref name="sequenceNumber"/>.</summary>
-    public static TelemetrySample TelemetrySample(Guid sessionId, long sequenceNumber, DateTimeOffset? timestamp = null, JsonElement? extras = null) => new()
+    public static TelemetrySample TelemetrySample(Guid sessionId, long sequenceNumber, DateTimeOffset? timestamp = null, string? extras = null) => new()
     {
         SessionId = sessionId,
         SequenceNumber = sequenceNumber,
@@ -87,7 +94,7 @@ internal static class SampleFactory
         TyrePressure = new WheelData<float?>(180f, 180f, 175f, 175f),
         TyreWear = new WheelData<float?>(0.1f, 0.1f, 0.12f, 0.12f),
         TrackPositionFraction = 0.42f,
-        Extras = extras ?? EmptyObject(),
+        Extras = extras ?? EmptyObjectText,
     };
 
     /// <summary>

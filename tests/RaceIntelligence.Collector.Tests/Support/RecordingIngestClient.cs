@@ -21,6 +21,17 @@ internal sealed class RecordingIngestClient(List<string>? sharedLog = null) : II
 
     public List<TelemetryBatchRequest> UploadedBatches { get; } = [];
 
+    /// <summary>
+    /// When set, every <see cref="UploadTelemetryBatchAsync"/> call throws this instead of
+    /// succeeding — the shape of a failure that has already exhausted the HttpClient's resilience
+    /// policy. Without it there was no way to reach <see cref="TelemetryUploadService"/>'s
+    /// catch-log-and-discard path, which is the one place the pipeline knowingly loses data.
+    /// </summary>
+    public Exception? FailUploadsWith { get; set; }
+
+    /// <summary>Batches that were attempted while <see cref="FailUploadsWith"/> was set, in order.</summary>
+    public List<TelemetryBatchRequest> FailedUploadAttempts { get; } = [];
+
     public Task CreateSessionAsync(SessionCreateRequest request, CancellationToken cancellationToken = default)
     {
         lock (_log)
@@ -56,6 +67,17 @@ internal sealed class RecordingIngestClient(List<string>? sharedLog = null) : II
 
     public Task<TelemetryBatchResponse> UploadTelemetryBatchAsync(Guid sessionId, TelemetryBatchRequest batch, CancellationToken cancellationToken = default)
     {
+        if (FailUploadsWith is { } failure)
+        {
+            lock (_log)
+            {
+                _log.Add($"UploadBatchFailed:{sessionId}:{batch.Samples.Count}");
+            }
+
+            FailedUploadAttempts.Add(batch);
+            return Task.FromException<TelemetryBatchResponse>(failure);
+        }
+
         lock (_log)
         {
             _log.Add($"UploadBatch:{sessionId}:{batch.Samples.Count}");

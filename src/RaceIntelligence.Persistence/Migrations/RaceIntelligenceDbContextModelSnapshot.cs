@@ -96,7 +96,22 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("display_name");
 
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("game_id");
+
+                    b.Property<string>("SimDriverId")
+                        .HasColumnType("text")
+                        .HasColumnName("sim_driver_id");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("GameId", "DisplayName")
+                        .IsUnique()
+                        .HasFilter("sim_driver_id IS NULL");
+
+                    b.HasIndex("GameId", "SimDriverId")
+                        .IsUnique();
 
                     b.ToTable("drivers", (string)null);
                 });
@@ -253,9 +268,17 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("extras");
 
+                    b.Property<short?>("FuelUsageRate")
+                        .HasColumnType("smallint")
+                        .HasColumnName("fuel_usage_rate");
+
                     b.Property<Guid>("GameVersionId")
                         .HasColumnType("uuid")
                         .HasColumnName("game_version_id");
+
+                    b.Property<string>("PlayerName")
+                        .HasColumnType("text")
+                        .HasColumnName("player_name");
 
                     b.Property<int>("SchemaVersion")
                         .HasColumnType("integer")
@@ -289,6 +312,10 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("track_layout_id");
 
+                    b.Property<short?>("TyreWearRate")
+                        .HasColumnType("smallint")
+                        .HasColumnName("tyre_wear_rate");
+
                     b.Property<string>("Weather")
                         .HasColumnType("jsonb")
                         .HasColumnName("weather");
@@ -297,12 +324,13 @@ namespace RaceIntelligence.Persistence.Migrations
 
                     b.HasIndex("CarId");
 
-                    b.HasIndex("DriverId");
-
                     b.HasIndex("GameVersionId")
                         .HasDatabaseName("ix_sessions_game_version");
 
                     b.HasIndex("TrackLayoutId");
+
+                    b.HasIndex("DriverId", "TyreWearRate", "FuelUsageRate")
+                        .HasDatabaseName("ix_sessions_driver_wear_rates");
 
                     b.ToTable("sessions", (string)null);
                 });
@@ -338,7 +366,7 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasColumnType("real")
                         .HasColumnName("fuel_left");
 
-                    b.Property<short>("Gear")
+                    b.Property<short?>("Gear")
                         .HasColumnType("smallint")
                         .HasColumnName("gear");
 
@@ -425,10 +453,6 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("name");
 
-                    b.Property<string>("SimTrackId")
-                        .HasColumnType("text")
-                        .HasColumnName("sim_track_id");
-
                     b.HasKey("Id");
 
                     b.HasIndex("GameId", "Name")
@@ -451,10 +475,6 @@ namespace RaceIntelligence.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("name");
-
-                    b.Property<string>("SimLayoutId")
-                        .HasColumnType("text")
-                        .HasColumnName("sim_layout_id");
 
                     b.Property<Guid>("TrackId")
                         .HasColumnType("uuid")
@@ -491,6 +511,17 @@ namespace RaceIntelligence.Persistence.Migrations
                     b.Navigation("Game");
 
                     b.Navigation("Manufacturer");
+                });
+
+            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Driver", b =>
+                {
+                    b.HasOne("RaceIntelligence.Persistence.Entities.Game", "Game")
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Game");
                 });
 
             modelBuilder.Entity("RaceIntelligence.Persistence.Entities.GameVersion", b =>

@@ -15,8 +15,6 @@ namespace RaceIntelligence.Persistence.Repositories;
 /// other component) yields a new <see cref="GameVersion"/> row while reusing the same
 /// <see cref="Game"/> row, per the unique constraint on
 /// <c>(game_id, game_version, api_version_major, api_version_minor, connector_version)</c>.
-/// See <see cref="UniqueViolationDetection"/> for why insert + conflict-retry was chosen over
-/// <c>ON CONFLICT DO NOTHING</c>.
 /// </remarks>
 /// <param name="db">The context to resolve/create through.</param>
 public sealed class GameRepository(RaceIntelligenceDbContext db)
@@ -33,68 +31,34 @@ public sealed class GameRepository(RaceIntelligenceDbContext db)
         return (game, version);
     }
 
-    private async Task<Game> ResolveOrCreateGameAsync(GameIdentity identity, CancellationToken ct)
-    {
-        var existing = await db.Games.FirstOrDefaultAsync(g => g.Key == identity.Key, ct).ConfigureAwait(false);
-        if (existing is not null)
-        {
-            return existing;
-        }
+    private Task<Game> ResolveOrCreateGameAsync(GameIdentity identity, CancellationToken ct) =>
+        db.RowAsync(
+            token => db.Games.FirstOrDefaultAsync(g => g.Key == identity.Key, token),
+            () => new Game
+            {
+                Id = Guid.CreateVersion7(),
+                Key = identity.Key,
+                Name = identity.Name,
+                CreatedAt = DateTimeOffset.UtcNow,
+            },
+            "games",
+            ct);
 
-        var game = new Game
-        {
-            Id = Guid.CreateVersion7(),
-            Key = identity.Key,
-            Name = identity.Name,
-            CreatedAt = DateTimeOffset.UtcNow,
-        };
-
-        db.Games.Add(game);
-        try
-        {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return game;
-        }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
-        {
-            db.Entry(game).State = EntityState.Detached;
-            return await db.Games.SingleAsync(g => g.Key == identity.Key, ct).ConfigureAwait(false);
-        }
-    }
-
-    private async Task<GameVersion> ResolveOrCreateVersionAsync(Guid gameId, GameVersionIdentity identity, CancellationToken ct)
-    {
-        var existing = await FindVersionAsync(gameId, identity, ct).ConfigureAwait(false);
-        if (existing is not null)
-        {
-            return existing;
-        }
-
-        var version = new GameVersion
-        {
-            Id = Guid.CreateVersion7(),
-            GameId = gameId,
-            GameVersionText = identity.GameVersion,
-            ApiVersionMajor = identity.ApiVersionMajor,
-            ApiVersionMinor = identity.ApiVersionMinor,
-            ConnectorVersion = identity.ConnectorVersion,
-            FirstSeenAt = DateTimeOffset.UtcNow,
-        };
-
-        db.GameVersions.Add(version);
-        try
-        {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return version;
-        }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
-        {
-            db.Entry(version).State = EntityState.Detached;
-            return await FindVersionAsync(gameId, identity, ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    "Unique-constraint violation on game_versions was reported, but the conflicting row could not be re-selected.");
-        }
-    }
+    private Task<GameVersion> ResolveOrCreateVersionAsync(Guid gameId, GameVersionIdentity identity, CancellationToken ct) =>
+        db.RowAsync(
+            token => FindVersionAsync(gameId, identity, token),
+            () => new GameVersion
+            {
+                Id = Guid.CreateVersion7(),
+                GameId = gameId,
+                GameVersionText = identity.GameVersion,
+                ApiVersionMajor = identity.ApiVersionMajor,
+                ApiVersionMinor = identity.ApiVersionMinor,
+                ConnectorVersion = identity.ConnectorVersion,
+                FirstSeenAt = DateTimeOffset.UtcNow,
+            },
+            "game_versions",
+            ct);
 
     private Task<GameVersion?> FindVersionAsync(Guid gameId, GameVersionIdentity identity, CancellationToken ct) =>
         db.GameVersions.FirstOrDefaultAsync(

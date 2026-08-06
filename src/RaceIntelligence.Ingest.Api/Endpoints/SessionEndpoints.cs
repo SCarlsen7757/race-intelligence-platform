@@ -1,20 +1,19 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using RaceIntelligence.Ingest.Api.Auth;
 using RaceIntelligence.Ingest.Contracts;
 using RaceIntelligence.Ingest.Contracts.Mapping;
 using RaceIntelligence.Persistence;
+using RaceIntelligence.Persistence.Converters;
 using RaceIntelligence.Persistence.Mapping;
 using RaceIntelligence.Persistence.Repositories;
+using CoreSessions = RaceIntelligence.Core.Sessions;
 
 namespace RaceIntelligence.Ingest.Api.Endpoints;
 
 /// <summary>Maps the low-frequency, JSON session and lap endpoints under <c>/api/v1/sessions</c>.</summary>
 public static class SessionEndpoints
 {
-    private const string UniqueViolationSqlState = "23505";
-
     /// <summary>Registers the session/lap endpoints on <paramref name="app"/>.</summary>
     public static IEndpointRouteBuilder MapSessionEndpoints(this IEndpointRouteBuilder app)
     {
@@ -34,6 +33,17 @@ public static class SessionEndpoints
     /// earlier successful response was lost) and the rare concurrent-request race (caught via the
     /// primary-key unique-violation below).
     /// </summary>
+    /// <remarks>
+    /// Each resolve-or-create below runs its own <c>SaveChanges</c>, so without the explicit
+    /// transaction this method commits four to six times on the way to one logical insert. A failure
+    /// after any of them left the already-committed reference rows behind — most visibly a driver
+    /// row belonging to no session at all, which once had to be scrubbed by a migration before a
+    /// NOT NULL <c>game_id</c> could be added. Wrapping the sequence
+    /// makes the whole thing land or none of it. The repositories' unique-violation retries still
+    /// work inside it: EF Core takes a savepoint before each <c>SaveChanges</c> when a transaction
+    /// is already open and rolls back to it on failure, so a caught conflict does not leave the
+    /// transaction aborted.
+    /// </remarks>
     private static async Task<IResult> CreateSessionAsync(
         SessionCreateRequest request,
         RaceIntelligenceDbContext db,
@@ -48,39 +58,75 @@ public static class SessionEndpoints
             return ProblemResults.SchemaVersionUnsupported(request.SchemaVersion);
         }
 
+        // The sim's raw codes are carried through untranslated, but they still have to fit the
+        // smallint columns that store them. Narrowing an out-of-range value wraps it into a
+        // different, plausible-looking code, so it is rejected here instead.
+        if (!CheckedSmallIntConverter.IsRepresentable(request.FuelUsageRate))
+        {
+            return ProblemResults.ValueOutOfRange(nameof(request.FuelUsageRate), request.FuelUsageRate!.Value);
+        }
+
+        if (!CheckedSmallIntConverter.IsRepresentable(request.TyreWearRate))
+        {
+            return ProblemResults.ValueOutOfRange(nameof(request.TyreWearRate), request.TyreWearRate!.Value);
+        }
+
+        if (!CheckedSmallIntConverter.IsRepresentable(request.SessionType))
+        {
+            return ProblemResults.ValueOutOfRange(nameof(request.SessionType), request.SessionType);
+        }
+
         var existing = await db.Sessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == request.SessionId, ct).ConfigureAwait(false);
         if (existing is not null)
         {
             return Results.Ok(new { existing.Id });
         }
 
+        // ExtrasJson is raw client-supplied text, so parsing it is a client error when it fails, not
+        // a server one. Done before the transaction opens so a doomed request costs no database work.
+        CoreSessions.SessionInfo sessionInfo;
+        try
+        {
+            sessionInfo = SessionContractMapper.ToSessionInfo(request);
+        }
+        catch (JsonException ex)
+        {
+            return ProblemResults.MalformedJson(nameof(SessionCreateRequest.ExtrasJson), ex.Message);
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
         var (game, gameVersion) = await gameRepo.ResolveOrCreateAsync(
             GameVersionContractMapper.ToCore(request.GameVersion), ct).ConfigureAwait(false);
 
-        Guid? driverId = string.IsNullOrWhiteSpace(request.PlayerName)
-            ? null
-            : (await driverRepo.ResolveOrCreateAsync(request.PlayerName, ct).ConfigureAwait(false)).Id;
+        // The repository decides for itself whether there is anything to resolve — it returns null
+        // when neither a sim driver id nor a name was reported — so there is no pre-check here.
+        Guid? driverId = (await driverRepo.ResolveOrCreateAsync(
+            game.Id, request.SimDriverId, request.PlayerName, ct).ConfigureAwait(false))?.Id;
 
         var (_, layout) = await trackRepo.ResolveOrCreateAsync(
             game.Id, request.TrackName, request.LayoutName, request.LayoutLengthMeters ?? 0, ct: ct).ConfigureAwait(false);
 
-        Guid? carId = string.IsNullOrWhiteSpace(request.CarName)
-            ? null
-            : (await carRepo.ResolveOrCreateCarAsync(
-                game.Id, request.CarName, request.CarName, request.ManufacturerName, request.CarClassName, ct).ConfigureAwait(false)).Id;
+        // As with the driver above, the repository decides for itself whether there is anything to
+        // resolve. SimCarId is the identity; CarName is only the label shown for it.
+        Guid? carId = (await carRepo.ResolveOrCreateCarAsync(
+            game.Id, request.SimCarId, request.CarName, request.ManufacturerName, request.CarClassName, ct).ConfigureAwait(false))?.Id;
 
-        var sessionInfo = SessionContractMapper.ToSessionInfo(request);
         var entity = SessionMapper.ToEntity(sessionInfo, gameVersion.Id, driverId, layout.Id, carId, request.SchemaVersion);
 
         db.Sessions.Add(entity);
         try
         {
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
         }
-        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             // Lost a race with a concurrent identical create for the same SessionId; the row
-            // already exists, which is exactly the idempotent outcome this endpoint promises.
+            // already exists, which is exactly the idempotent outcome this endpoint promises. The
+            // winner resolved the same reference data on its way there, so discarding ours costs
+            // nothing and keeps the "all or nothing" guarantee intact.
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
         }
 
         return Results.Ok(new { entity.Id });
@@ -111,17 +157,32 @@ public static class SessionEndpoints
 
         if (request.WeatherJson is not null)
         {
-            session.Weather = JsonDocument.Parse(request.WeatherJson).RootElement;
+            if (!TryParseJson(request.WeatherJson, out var weather))
+            {
+                return ProblemResults.MalformedJson(nameof(SessionUpdateRequest.WeatherJson), weather.Reason!);
+            }
+
+            session.Weather = weather.Value;
         }
 
         if (request.SetupJson is not null)
         {
-            session.Setup = JsonDocument.Parse(request.SetupJson).RootElement;
+            if (!TryParseJson(request.SetupJson, out var setup))
+            {
+                return ProblemResults.MalformedJson(nameof(SessionUpdateRequest.SetupJson), setup.Reason!);
+            }
+
+            session.Setup = setup.Value;
         }
 
         if (request.ExtrasJson is not null)
         {
-            session.Extras = JsonDocument.Parse(request.ExtrasJson).RootElement;
+            if (!TryParseJson(request.ExtrasJson, out var extras))
+            {
+                return ProblemResults.MalformedJson(nameof(SessionUpdateRequest.ExtrasJson), extras.Reason!);
+            }
+
+            session.Extras = extras.Value;
         }
 
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -170,6 +231,25 @@ public static class SessionEndpoints
         return Results.Ok(new { SessionId = id, request.LapNumber });
     }
 
-    private static bool IsUniqueViolation(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: UniqueViolationSqlState };
+    /// <summary>
+    /// Parses client-supplied raw JSON text, reporting failure rather than throwing. The document is
+    /// cloned and disposed instead of being kept alive by the returned element, so its pooled
+    /// buffers go back to the pool.
+    /// </summary>
+    private static bool TryParseJson(string json, out ParsedJson parsed)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            parsed = new ParsedJson(document.RootElement.Clone(), null);
+            return true;
+        }
+        catch (JsonException ex)
+        {
+            parsed = new ParsedJson(default, ex.Message);
+            return false;
+        }
+    }
+
+    private readonly record struct ParsedJson(JsonElement Value, string? Reason);
 }

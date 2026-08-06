@@ -11,7 +11,7 @@ reads a Windows named shared-memory block that only exists while the game is run
 | .NET SDK 10.0.302 (see `global.json`) | everything |
 | Windows | the RaceRoom connector — it is marked `[SupportedOSPlatform("windows")]` |
 | RaceRoom, running | actual telemetry. The collector starts fine without it and waits |
-| Docker Desktop | **only** for Option A below, and for the full test suite |
+| Docker Desktop | Options A and C below, and the full test suite. Not needed for Option B |
 
 ---
 
@@ -64,19 +64,34 @@ correctly with `HttpClient.BaseAddress`.
 
 ## Option C — API and collector separately, no Aspire
 
-Occasionally useful for debugging one service in isolation. The catch: the ingest API gets its
-connection string from Aspire, so standalone it will throw
-`Connection string 'raceintel' is not configured.` at startup. Supply one yourself:
+Occasionally useful for debugging one service in isolation. Two things are missing without Aspire:
+a database, and the connection string pointing at it.
+
+Nothing in this repo starts a bare PostgreSQL for you, so use the one AppHost creates — start
+AppHost once as in Option A and leave its container running, then stop the AppHost-launched API and
+run it yourself. That container listens on `55432` with the fixed password you set in Option A.
+
+Without a connection string the API throws `Connection string 'raceintel' is not configured.` at
+startup, so supply one:
 
 ```powershell
-$env:ConnectionStrings__raceintel = "Host=localhost;Database=raceintel;Username=postgres;Password=postgres"
+$env:ConnectionStrings__raceintel = "Host=localhost;Port=55432;Database=raceintel;Username=postgres;Password=dev-local-only-password"
 dotnet run --project src/RaceIntelligence.Ingest.Api --launch-profile https
 ```
 
-Then run the collector as in Option B. The development defaults already line up — the API's
-`appsettings.Development.json` sets `Ingest:ApiKey` to `dev-local-only-key`, the collector's sets the
-same key and points at `https://localhost:7038/`, which is the API's `https` launch profile. So the
-two talk to each other with no extra configuration.
+Any other PostgreSQL works too — adjust host, port and password to match it.
+
+Then run the collector as in Option B. The API key lines up on its own — the API's
+`appsettings.Development.json` sets `Ingest:ApiKey` to `dev-local-only-key` and the collector's sets
+the same key — but the base URL does not. Under Aspire the collector resolves the API through
+service discovery (`https+http://ingest-api/`, injected by AppHost), so no port is baked into
+`appsettings.Development.json`. Running without Aspire there is nothing to resolve, so point the
+collector at the API's `https` launch profile URL yourself — see
+`src/RaceIntelligence.Ingest.Api/Properties/launchSettings.json` for the port:
+
+```powershell
+$env:Collector__IngestBaseUrl = "https://localhost:<https-port-from-launchSettings>/"
+```
 
 ---
 
@@ -134,9 +149,12 @@ gaming PC. **Don't put a real API key in `appsettings.json`.**
 dotnet test RaceIntelligence.slnx
 ```
 
-Without Docker running, roughly 30 of 161 tests **skip** rather than fail — the Aspire and
-PostgreSQL integration suites detect the missing container runtime and opt out. A run reporting
-`131 passed, 30 skipped` is a healthy run, not a broken one.
+With Docker running the whole suite should pass, with nothing skipped.
+
+Without a container runtime the Aspire and PostgreSQL integration suites detect its absence and
+**skip** rather than fail. A run with skips but no failures is therefore still healthy — it just
+means those suites didn't execute. That is the only thing that causes a skip in this repo, so a
+skip you can't explain by Docker being down is worth investigating.
 
 ## Adding a database migration
 

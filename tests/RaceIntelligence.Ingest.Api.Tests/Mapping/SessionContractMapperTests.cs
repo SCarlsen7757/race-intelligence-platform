@@ -33,6 +33,61 @@ public sealed class SessionContractMapperTests
     }
 
     [Fact]
+    public void ToSessionInfo_carries_the_sim_driver_id_and_both_rate_codes_through()
+    {
+        var request = DtoFactory.SessionCreateRequest() with
+        {
+            SimDriverId = "sim-driver-4711",
+            FuelUsageRate = 4,
+            TyreWearRate = 2,
+        };
+
+        var info = SessionContractMapper.ToSessionInfo(request);
+
+        info.SimDriverId.ShouldBe("sim-driver-4711");
+        info.FuelUsageRate.ShouldBe(4);
+        info.TyreWearRate.ShouldBe(2);
+    }
+
+    [Theory]
+    // -1 is RaceRoom's "not available" and 0 its "switched off": both are meaningful raw codes the
+    // wire must carry through untouched, and 0 in particular must never collapse into null.
+    [InlineData(-1, -1)]
+    [InlineData(0, 0)]
+    [InlineData(0, 4)]
+    [InlineData(-1, 0)]
+    public void ToSessionInfo_preserves_sentinel_rate_codes_verbatim(int fuelUsageRate, int tyreWearRate)
+    {
+        var request = DtoFactory.SessionCreateRequest() with
+        {
+            FuelUsageRate = fuelUsageRate,
+            TyreWearRate = tyreWearRate,
+        };
+
+        var info = SessionContractMapper.ToSessionInfo(request);
+
+        info.FuelUsageRate.ShouldBe(fuelUsageRate);
+        info.TyreWearRate.ShouldBe(tyreWearRate);
+    }
+
+    [Fact]
+    public void ToSessionInfo_preserves_a_null_sim_driver_id_and_null_rates()
+    {
+        var request = DtoFactory.SessionCreateRequest() with
+        {
+            SimDriverId = null,
+            FuelUsageRate = null,
+            TyreWearRate = null,
+        };
+
+        var info = SessionContractMapper.ToSessionInfo(request);
+
+        info.SimDriverId.ShouldBeNull("a sim that reports no driver id must not gain a fabricated one");
+        info.FuelUsageRate.ShouldBeNull();
+        info.TyreWearRate.ShouldBeNull();
+    }
+
+    [Fact]
     public void ToSessionInfo_defaults_extras_to_an_empty_object_when_json_is_null()
     {
         var request = DtoFactory.SessionCreateRequest() with { ExtrasJson = null };

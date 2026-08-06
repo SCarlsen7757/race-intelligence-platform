@@ -4,10 +4,8 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Configurations;
 
-/// <summary>Maps <see cref="Lap"/> to the <c>laps</c> table.</summary>
 public sealed class LapConfiguration : IEntityTypeConfiguration<Lap>
 {
-    /// <inheritdoc />
     public void Configure(EntityTypeBuilder<Lap> builder)
     {
         builder.ToTable("laps");

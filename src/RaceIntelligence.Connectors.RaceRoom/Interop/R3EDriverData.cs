@@ -75,12 +75,9 @@ internal struct R3EDriverData
     /// <summary>Orientation in Euler coordinates.</summary>
     public R3EVec3F32 Orientation;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float Unused1;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float Unused2;
 
-    /// <summary>Reserved data — DO NOT remove; required to keep every following field's offset correct.</summary>
     public float Unused3;
 }

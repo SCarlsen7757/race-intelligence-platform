@@ -11,4 +11,13 @@ public sealed record RaceRoomConnectorOptions
     /// disconnected or waiting for the simulator to start.
     /// </summary>
     public TimeSpan ReconnectDelay { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// How long the simulation tick counter may stay frozen while in a session before the game is
+    /// presumed to have exited (or crashed). This is the connector's only liveness signal: the
+    /// shared memory section outlives the RaceRoom process, so a dead game looks exactly like a
+    /// live one that stopped writing. Must comfortably exceed the longest legitimate freeze (an
+    /// alt-tab/loading stall), hence a default well above a paused frame or two.
+    /// </summary>
+    public TimeSpan StaleFrameTimeout { get; init; } = TimeSpan.FromSeconds(5);
 }

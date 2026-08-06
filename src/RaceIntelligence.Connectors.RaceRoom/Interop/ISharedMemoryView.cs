@@ -4,22 +4,34 @@ namespace RaceIntelligence.Connectors.RaceRoom.Interop;
 /// A source of raw bytes shaped like RaceRoom's <c>$R3E</c> shared memory block. This seam is
 /// what lets <see cref="RaceIntelligence.Connectors.RaceRoom.RaceRoomTelemetrySource"/> be
 /// exercised in tests without RaceRoom installed: production code uses
-/// <see cref="MappedFileSharedMemoryView"/>, tests use <see cref="FakeSharedMemoryView"/>.
+/// <see cref="MappedFileSharedMemoryView"/>, the test project supplies an in-memory double.
 /// </summary>
 /// <remarks>
 /// The view deliberately exposes a typed <see cref="Read{T}"/> rather than a
 /// <see cref="ReadOnlySpan{T}"/> over its bytes. Producing a span over a memory-mapped region
-/// requires acquiring an unmanaged pointer, which would force this assembly to enable unsafe
-/// code. Going through a typed read keeps every implementation fully verifiable while still
-/// avoiding an intermediate copy of the ~44 KB block on each poll.
+/// requires acquiring an unmanaged pointer, which would force this assembly to enable unsafe code.
+/// A typed read does copy the struct out of the mapping — it is not zero-copy — but it keeps every
+/// implementation fully verifiable, and the copy is small now that the trailing driver array is no
+/// longer mapped.
 /// </remarks>
 internal interface ISharedMemoryView : IDisposable
 {
     /// <summary>
-    /// <see langword="false"/> once the underlying source is known to be gone (e.g. the game
-    /// process exited). A telemetry source should treat this the same way it treats a read
-    /// throwing: tear the connection down and go back to <c>Disconnected</c>.
+    /// <see langword="false"/> once this view can no longer be read at all — it has been disposed,
+    /// or the implementation has some positive signal that the mapping is gone. A telemetry source
+    /// should treat that the same way it treats a read throwing: tear the connection down and go
+    /// back to <c>Disconnected</c>.
     /// </summary>
+    /// <remarks>
+    /// <b>This is not a liveness check for the game.</b> A Windows section object stays mapped and
+    /// fully readable for as long as any handle to it is open, so
+    /// <see cref="MappedFileSharedMemoryView"/> keeps returning <see langword="true"/> — and keeps
+    /// serving the last frame the game wrote — long after RaceRoom exits. Detecting that the game
+    /// is gone is the *reader's* job, and
+    /// <see cref="RaceIntelligence.Connectors.RaceRoom.RaceRoomTelemetrySource"/> does it by
+    /// watching the simulation tick counter stop advancing (see its
+    /// <c>RaceRoomConnectorOptions.StaleFrameTimeout</c>).
+    /// </remarks>
     bool IsValid { get; }
 
     /// <summary>The size of the view in bytes. Used to reject a block too small to hold the struct being read.</summary>

@@ -59,9 +59,9 @@ public sealed record TelemetrySampleDto
     [Key(7)]
     public required float Steering { get; init; }
 
-    /// <summary>Current gear. -2 = not available/unknown, -1 = reverse, 0 = neutral, greater than 0 = forward gear number.</summary>
+    /// <summary>Current gear: -1 = reverse, 0 = neutral, greater than 0 = forward gear number. <see langword="null"/> if the source does not report it.</summary>
     [Key(8)]
-    public required int Gear { get; init; }
+    public int? Gear { get; init; }
 
     /// <summary>Engine speed, in revolutions per minute.</summary>
     [Key(9)]
@@ -83,83 +83,83 @@ public sealed record TelemetrySampleDto
     [Key(13)]
     public int? Position { get; init; }
 
-    /// <summary>Front-left wheel rotational speed expressed as an equivalent linear speed, in meters per second.</summary>
+    /// <summary>Wheel rotational speed expressed as an equivalent linear speed, in meters per second.</summary>
     [Key(14)]
     public required float WheelSpeedFrontLeft { get; init; }
 
-    /// <summary>Front-right wheel rotational speed expressed as an equivalent linear speed, in meters per second.</summary>
+    /// <inheritdoc cref="WheelSpeedFrontLeft"/>
     [Key(15)]
     public required float WheelSpeedFrontRight { get; init; }
 
-    /// <summary>Rear-left wheel rotational speed expressed as an equivalent linear speed, in meters per second.</summary>
+    /// <inheritdoc cref="WheelSpeedFrontLeft"/>
     [Key(16)]
     public required float WheelSpeedRearLeft { get; init; }
 
-    /// <summary>Rear-right wheel rotational speed expressed as an equivalent linear speed, in meters per second.</summary>
+    /// <inheritdoc cref="WheelSpeedFrontLeft"/>
     [Key(17)]
     public required float WheelSpeedRearRight { get; init; }
 
-    /// <summary>Front-left suspension travel, in meters.</summary>
+    /// <summary>Suspension travel, in meters.</summary>
     [Key(18)]
     public required float SuspensionTravelFrontLeft { get; init; }
 
-    /// <summary>Front-right suspension travel, in meters.</summary>
+    /// <inheritdoc cref="SuspensionTravelFrontLeft"/>
     [Key(19)]
     public required float SuspensionTravelFrontRight { get; init; }
 
-    /// <summary>Rear-left suspension travel, in meters.</summary>
+    /// <inheritdoc cref="SuspensionTravelFrontLeft"/>
     [Key(20)]
     public required float SuspensionTravelRearLeft { get; init; }
 
-    /// <summary>Rear-right suspension travel, in meters.</summary>
+    /// <inheritdoc cref="SuspensionTravelFrontLeft"/>
     [Key(21)]
     public required float SuspensionTravelRearRight { get; init; }
 
-    /// <summary>Front-left tyre pressure, in kilopascals. <see langword="null"/> if the source does not report it.</summary>
+    /// <summary>Tyre pressure, in kilopascals. <see langword="null"/> if the source does not report it.</summary>
     [Key(22)]
     public float? TyrePressureFrontLeft { get; init; }
 
-    /// <summary>Front-right tyre pressure, in kilopascals. <see langword="null"/> if the source does not report it.</summary>
+    /// <inheritdoc cref="TyrePressureFrontLeft"/>
     [Key(23)]
     public float? TyrePressureFrontRight { get; init; }
 
-    /// <summary>Rear-left tyre pressure, in kilopascals. <see langword="null"/> if the source does not report it.</summary>
+    /// <inheritdoc cref="TyrePressureFrontLeft"/>
     [Key(24)]
     public float? TyrePressureRearLeft { get; init; }
 
-    /// <summary>Rear-right tyre pressure, in kilopascals. <see langword="null"/> if the source does not report it.</summary>
+    /// <inheritdoc cref="TyrePressureFrontLeft"/>
     [Key(25)]
     public float? TyrePressureRearRight { get; init; }
 
-    /// <summary>Front-left tyre wear, 0 (new) to 1 (fully worn). <see langword="null"/> if the source does not report it.</summary>
+    /// <summary>Tyre wear, 0 (new) to 1 (fully worn). <see langword="null"/> if the source does not report it.</summary>
     [Key(26)]
     public float? TyreWearFrontLeft { get; init; }
 
-    /// <summary>Front-right tyre wear, 0 (new) to 1 (fully worn). <see langword="null"/> if the source does not report it.</summary>
+    /// <inheritdoc cref="TyreWearFrontLeft"/>
     [Key(27)]
     public float? TyreWearFrontRight { get; init; }
 
-    /// <summary>Rear-left tyre wear, 0 (new) to 1 (fully worn). <see langword="null"/> if the source does not report it.</summary>
+    /// <inheritdoc cref="TyreWearFrontLeft"/>
     [Key(28)]
     public float? TyreWearRearLeft { get; init; }
 
-    /// <summary>Rear-right tyre wear, 0 (new) to 1 (fully worn). <see langword="null"/> if the source does not report it.</summary>
+    /// <inheritdoc cref="TyreWearFrontLeft"/>
     [Key(29)]
     public float? TyreWearRearRight { get; init; }
 
-    /// <summary>Front-left tyre temperature detail.</summary>
+    /// <summary>Per-wheel tyre temperature detail.</summary>
     [Key(30)]
     public required TyreTemperatureDto TyreTemperatureFrontLeft { get; init; }
 
-    /// <summary>Front-right tyre temperature detail.</summary>
+    /// <inheritdoc cref="TyreTemperatureFrontLeft"/>
     [Key(31)]
     public required TyreTemperatureDto TyreTemperatureFrontRight { get; init; }
 
-    /// <summary>Rear-left tyre temperature detail.</summary>
+    /// <inheritdoc cref="TyreTemperatureFrontLeft"/>
     [Key(32)]
     public required TyreTemperatureDto TyreTemperatureRearLeft { get; init; }
 
-    /// <summary>Rear-right tyre temperature detail.</summary>
+    /// <inheritdoc cref="TyreTemperatureFrontLeft"/>
     [Key(33)]
     public required TyreTemperatureDto TyreTemperatureRearRight { get; init; }
 

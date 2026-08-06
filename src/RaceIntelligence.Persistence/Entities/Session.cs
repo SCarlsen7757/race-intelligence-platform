@@ -27,25 +27,29 @@ public sealed class Session
     /// <summary>The exact game build / telemetry API version / connector version that produced this session.</summary>
     public Guid GameVersionId { get; set; }
 
-    /// <summary>Navigation to the <see cref="Entities.GameVersion"/>.</summary>
     public GameVersion? GameVersion { get; set; }
 
     /// <summary>The driver, if known.</summary>
     public Guid? DriverId { get; set; }
 
-    /// <summary>Navigation to the <see cref="Entities.Driver"/>, if known.</summary>
     public Driver? Driver { get; set; }
+
+    /// <summary>
+    /// The player/driver name as reported for <i>this</i> session, if known. Kept alongside
+    /// <see cref="DriverId"/> because <see cref="Entities.Driver.DisplayName"/> tracks the driver's
+    /// latest name and is rewritten on rename — this is what preserves the name actually in use at
+    /// the time the session ran.
+    /// </summary>
+    public string? PlayerName { get; set; }
 
     /// <summary>The track layout used, if known.</summary>
     public Guid? TrackLayoutId { get; set; }
 
-    /// <summary>Navigation to the <see cref="Entities.TrackLayout"/>, if known.</summary>
     public TrackLayout? TrackLayout { get; set; }
 
     /// <summary>The car driven, if known.</summary>
     public Guid? CarId { get; set; }
 
-    /// <summary>Navigation to the <see cref="Entities.Car"/>, if known.</summary>
     public Car? Car { get; set; }
 
     /// <summary>
@@ -70,6 +74,27 @@ public sealed class Session
     /// <see cref="TelemetrySample"/> remarks for why.
     /// </summary>
     public SessionType SessionType { get; set; }
+
+    /// <summary>
+    /// How fast this session consumed fuel relative to real time, stored as the sim's own raw rate
+    /// code rather than a normalized multiplier — like <see cref="SessionType"/>, the encoding is
+    /// sim-specific (RaceRoom: <c>-1</c> = not available, <c>0</c> = off, <c>1</c>–<c>4</c> = 1x–4x)
+    /// and reinterpreting it belongs to a later sim-aware analysis pass. Stored as <c>smallint</c>.
+    /// <see langword="null"/> only when the source has no such concept at all.
+    /// </summary>
+    /// <remarks>
+    /// Recorded because it changes what the session's fuel data means: sessions run under different
+    /// rates are not comparable inputs to a fuel model. Independent of <see cref="TyreWearRate"/>.
+    /// </remarks>
+    public int? FuelUsageRate { get; set; }
+
+    /// <summary>
+    /// How fast this session wore tyres relative to real time, stored as the sim's own raw rate
+    /// code using the same sim-specific encoding and for the same reason as
+    /// <see cref="FuelUsageRate"/>. Independent of it — a session can run accelerated tyre wear
+    /// with fuel consumption switched off entirely. Stored as <c>smallint</c>.
+    /// </summary>
+    public int? TyreWearRate { get; set; }
 
     /// <summary>
     /// The capabilities available from this session's source, stored as the raw <see cref="ulong"/>

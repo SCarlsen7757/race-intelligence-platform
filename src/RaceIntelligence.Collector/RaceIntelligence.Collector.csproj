@@ -1,11 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-RaceIntelligence.Collector-75b1646c-6f95-416a-8b71-ab37234ee54a</UserSecretsId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RaceIntelligence.Collector.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="MessagePack" />

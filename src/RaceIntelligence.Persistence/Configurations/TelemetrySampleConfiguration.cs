@@ -5,10 +5,8 @@ using RaceIntelligence.Persistence.Entities;
 
 namespace RaceIntelligence.Persistence.Configurations;
 
-/// <summary>Maps <see cref="TelemetrySample"/> to the <c>telemetry_samples</c> table.</summary>
 public sealed class TelemetrySampleConfiguration : IEntityTypeConfiguration<TelemetrySample>
 {
-    /// <inheritdoc />
     public void Configure(EntityTypeBuilder<TelemetrySample> builder)
     {
         builder.ToTable("telemetry_samples");
@@ -28,7 +26,7 @@ public sealed class TelemetrySampleConfiguration : IEntityTypeConfiguration<Tele
         builder.Property(t => t.Throttle).HasColumnName("throttle");
         builder.Property(t => t.Brake).HasColumnName("brake");
         builder.Property(t => t.Steering).HasColumnName("steering").IsRequired();
-        builder.Property(t => t.Gear).HasColumnName("gear").HasColumnType("smallint").IsRequired();
+        builder.Property(t => t.Gear).HasColumnName("gear").HasColumnType("smallint");
         builder.Property(t => t.EngineRpm).HasColumnName("engine_rpm").IsRequired();
         builder.Property(t => t.FuelLeft).HasColumnName("fuel_left").IsRequired();
         builder.Property(t => t.Position).HasColumnName("position").HasColumnType("smallint");
@@ -47,7 +45,6 @@ public sealed class TelemetrySampleConfiguration : IEntityTypeConfiguration<Tele
 
         builder.Property(t => t.Extras)
             .HasColumnName("extras")
-            .HasConversion(JsonElementConverter.Converter, JsonElementConverter.Comparer)
             .HasColumnType("jsonb")
             .IsRequired();
 

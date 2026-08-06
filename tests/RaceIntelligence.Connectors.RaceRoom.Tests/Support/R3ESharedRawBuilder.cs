@@ -135,6 +135,23 @@ internal sealed class R3ESharedRawBuilder
         _raw.SessionType = (int)R3ESessionType.Race;
         _raw.SessionPhase = (int)R3ESessionPhase.Green;
         _raw.CompletedLaps = 0;
+
+        // A clean on-track session: prev_lap_valid = 1 ("the lap that just completed was valid").
+        // The all-sentinels default leaves this at -1 (N/A), which ToLapInfo correctly reports as
+        // invalid -- so every lap produced by a state-machine test used to be an invalid lap, and
+        // no assertion noticed. Tests that specifically want an N/A or invalid previous lap set it
+        // themselves via WithPreviousLap.
+        _raw.PrevLapValid = 1;
+        return this;
+    }
+
+    /// <summary>Sets the previous lap's reported time and validity (<c>lap_time_previous_self</c>/<c>prev_lap_valid</c>).</summary>
+    /// <param name="lapTimeSeconds">Lap time in seconds, or <see langword="null"/> for RaceRoom's -1.0 "not available" sentinel.</param>
+    /// <param name="prevLapValid">-1 = N/A, 0 = invalid, 1 = valid.</param>
+    public R3ESharedRawBuilder WithPreviousLap(float? lapTimeSeconds, int prevLapValid)
+    {
+        _raw.LapTimePreviousSelf = lapTimeSeconds ?? -1f;
+        _raw.PrevLapValid = prevLapValid;
         return this;
     }
 

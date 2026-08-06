@@ -32,6 +32,17 @@ namespace RaceIntelligence.Connectors.RaceRoom;
 /// counter regressing (an in-game session restart, which otherwise looks identical) — ends the
 /// current session.
 /// </para>
+/// <para>
+/// <b>Game exit is detected by a frozen tick counter, not by the mapping disappearing.</b> The
+/// <c>$R3E</c> section stays mapped and readable for as long as this process holds a handle to it,
+/// so a RaceRoom that has exited (or crashed, or hung) is indistinguishable from one that simply
+/// stopped writing: every poll keeps returning the last frame it wrote, forever. While in a
+/// session, this source therefore treats <c>game_simulation_ticks</c> not advancing for
+/// <see cref="RaceRoomConnectorOptions.StaleFrameTimeout"/> as the game being gone — it ends the
+/// session and drops back to Disconnected so the reconnect loop can pick the game back up when it
+/// returns. Note that a *frozen* counter cannot be caught by the tick-regression check, which only
+/// fires on a counter that moves backwards.
+/// </para>
 /// </remarks>
 public sealed class RaceRoomTelemetrySource : ITelemetrySource
 {
@@ -206,7 +217,20 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
     private void ProcessConnectedTick(List<TelemetryEvent> events, DateTimeOffset now)
     {
         var view = _run.View;
-        if (view is null || !view.IsValid || !TryReadRaw(view, out R3ESharedRaw raw))
+        R3ESharedRaw raw = default;
+        var outcome = view is null || !view.IsValid
+            ? ReadOutcome.Failed
+            : TryReadRaw(view, out raw);
+
+        if (outcome == ReadOutcome.Torn)
+        {
+            // The game rewrote the block underneath us; this snapshot mixes two frames and must not
+            // be published. Skipping the tick is free — the next poll is 1/60th of a second away —
+            // whereas a torn frame would be stored permanently.
+            return;
+        }
+
+        if (outcome == ReadOutcome.Failed)
         {
             EndCurrentSessionIfAny(events, now);
             _run.View?.Dispose();
@@ -226,6 +250,28 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
                 StartSession(events, now, in raw);
             }
 
+            return;
+        }
+
+        // InSession: a tick counter that has stopped advancing for longer than the configured
+        // timeout means RaceRoom is no longer writing to the block. Checked before every other
+        // boundary rule because a dead game keeps serving the same frame indefinitely, and that
+        // frame is (by definition) still on-track, still the same session key, and has ticks that
+        // are equal rather than lower — so nothing else here would ever fire.
+        if (raw.Player.GameSimulationTicks != _run.LastTicks)
+        {
+            _run.LastTicksChangedAtUtc = now;
+        }
+        else if (now - _run.LastTicksChangedAtUtc >= _options.StaleFrameTimeout)
+        {
+            EndCurrentSessionIfAny(events, now);
+            _run.View?.Dispose();
+            _run.View = null;
+            SetState(
+                ConnectionState.Disconnected,
+                events,
+                now,
+                $"RaceRoom's simulation tick counter has not advanced for {_options.StaleFrameTimeout}; presuming the game exited.");
             return;
         }
 
@@ -269,6 +315,7 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             raw.SessionType);
         _run.LastCompletedLaps = raw.CompletedLaps;
         _run.LastTicks = raw.Player.GameSimulationTicks;
+        _run.LastTicksChangedAtUtc = now;
         _run.SequenceNumber = 0;
 
         SetState(ConnectionState.InSession, events, now, reason: null);
@@ -289,10 +336,20 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
 
         if (raw.CompletedLaps > _run.LastCompletedLaps)
         {
-            int completedLapNumber = _run.LastCompletedLaps + 1;
-            _run.LastCompletedLaps = raw.CompletedLaps;
-            var lap = R3ETelemetryMapper.ToLapInfo(in raw, _run.SessionId, completedLapNumber);
-            events.Add(new LapCompleted { OccurredAtUtc = now, Lap = lap });
+            // One LapCompleted per lap actually completed, not one per observation. A skipped poll
+            // (GC pause, a stalled frame, the process descheduled) can advance completed_laps by
+            // more than one, and emitting a single event would silently delete the laps in between.
+            // Only the newest of them is described by this snapshot's lap-scoped fields — the rest
+            // are reported with their timings unknown rather than with the newest lap's numbers.
+            int firstNewLap = _run.LastCompletedLaps + 1;
+            int newestLap = raw.CompletedLaps;
+            _run.LastCompletedLaps = newestLap;
+
+            for (int lapNumber = firstNewLap; lapNumber <= newestLap; lapNumber++)
+            {
+                var lap = R3ETelemetryMapper.ToLapInfo(in raw, _run.SessionId, lapNumber, snapshotDescribesThisLap: lapNumber == newestLap);
+                events.Add(new LapCompleted { OccurredAtUtc = now, Lap = lap });
+            }
         }
 
         _run.LastTicks = raw.Player.GameSimulationTicks;
@@ -320,24 +377,57 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         events.Add(new ConnectionStateChanged { OccurredAtUtc = now, State = newState, Reason = reason });
     }
 
-    /// <summary>Reads one raw snapshot. Returns <see langword="false"/> instead of throwing on any failure.</summary>
-    private static bool TryReadRaw(ISharedMemoryView view, out R3ESharedRaw raw)
+    /// <summary>What one attempt to read a snapshot produced.</summary>
+    private enum ReadOutcome
+    {
+        /// <summary>A whole, self-consistent frame.</summary>
+        Ok,
+
+        /// <summary>The game wrote to the block while we were reading it; the snapshot mixes two frames.</summary>
+        Torn,
+
+        /// <summary>The view could not be read at all.</summary>
+        Failed,
+    }
+
+    /// <summary>
+    /// Byte offset of <c>player.game_simulation_ticks</c> within the block — the field re-read to
+    /// detect a torn frame.
+    /// </summary>
+    private static readonly long SimulationTicksOffset =
+        Marshal.OffsetOf<R3ESharedRaw>(nameof(R3ESharedRaw.Player)).ToInt64()
+        + Marshal.OffsetOf<R3EPlayerData>(nameof(R3EPlayerData.GameSimulationTicks)).ToInt64();
+
+    /// <summary>
+    /// Reads one raw snapshot. Never throws — every failure is reported as a
+    /// <see cref="ReadOutcome"/> instead.
+    /// </summary>
+    /// <remarks>
+    /// RaceRoom publishes the block with no sequence lock, version counter, or any other
+    /// synchronization: it simply overwrites the memory in place while we read it, so a ~2 KB read
+    /// can straddle two frames and produce a snapshot that never existed (e.g. this frame's speed
+    /// beside last frame's gear). Re-reading <c>game_simulation_ticks</c> after the copy and
+    /// comparing it against the copy's own value catches exactly that — the counter advances every
+    /// physics tick, so a write that landed during our read almost always moved it.
+    /// </remarks>
+    private static ReadOutcome TryReadRaw(ISharedMemoryView view, out R3ESharedRaw raw)
     {
         try
         {
             if (view.Length < Unsafe.SizeOf<R3ESharedRaw>())
             {
                 raw = default;
-                return false;
+                return ReadOutcome.Failed;
             }
 
             raw = view.Read<R3ESharedRaw>();
-            return true;
+            int ticksAfterRead = view.Read<int>(SimulationTicksOffset);
+            return ticksAfterRead == raw.Player.GameSimulationTicks ? ReadOutcome.Ok : ReadOutcome.Torn;
         }
         catch (ObjectDisposedException)
         {
             raw = default;
-            return false;
+            return ReadOutcome.Failed;
         }
     }
 
@@ -405,6 +495,10 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         public SessionKey? CurrentKey;
         public int LastCompletedLaps;
         public int LastTicks;
+
+        /// <summary>When <see cref="LastTicks"/> last changed — the clock behind the stale-frame (game exited) check.</summary>
+        public DateTimeOffset LastTicksChangedAtUtc;
+
         public long SequenceNumber;
 
         public void ClearSession()
@@ -413,6 +507,7 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             CurrentKey = null;
             LastCompletedLaps = 0;
             LastTicks = 0;
+            LastTicksChangedAtUtc = default;
             SequenceNumber = 0;
         }
     }
