@@ -3,12 +3,12 @@ using System.Runtime.CompilerServices;
 namespace RaceIntelligence.Connectors.RaceRoom.Interop;
 
 // r3e.h wraps everything in "#pragma pack(push, 1)" and uses fixed-size C arrays for every
-// repeated field (tyre arrays, sector-time triples, the 128-entry driver list, UTF-8 name
-// buffers, ...). C# "fixed" buffers cannot hold anything but unmanaged primitive element types,
-// so a 128-element array of the (large, struct-typed) DriverData would not be expressible that
-// way. [InlineArray] (C# 12+) produces a real fixed-size, stack-allocatable, blittable sequence
-// of any unmanaged element type with no padding beyond the element type's own layout, which is
-// exactly what's needed to mirror these C arrays byte-for-byte.
+// repeated field (tyre arrays, sector-time triples, UTF-8 name buffers, ...). C# "fixed" buffers
+// cannot hold anything but unmanaged primitive element types, so the struct-typed ones (per-tyre
+// temperature readings) would not be expressible that way. [InlineArray] (C# 12+) produces a real
+// fixed-size, stack-allocatable, blittable sequence of any unmanaged element type with no padding
+// beyond the element type's own layout, which is exactly what's needed to mirror these C arrays
+// byte-for-byte.
 
 /// <summary>A fixed 64-byte UTF-8, NUL-terminated name buffer (<c>r3e_u8char[64]</c>).</summary>
 [InlineArray(64)]
@@ -71,13 +71,4 @@ internal struct TireTemp4
 internal struct BrakeTemp4
 {
     private R3EBrakeTemp _element0;
-}
-
-/// <summary>
-/// The <c>R3E_NUM_DRIVERS_MAX</c> (128) entry <see cref="R3EDriverData"/> array, in place order.
-/// </summary>
-[InlineArray(128)]
-internal struct DriverDataArray128
-{
-    private R3EDriverData _element0;
 }

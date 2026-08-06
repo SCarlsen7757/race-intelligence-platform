@@ -483,10 +483,12 @@ internal struct R3ESharedRaw
     /// <summary>Number of cars (including the player) in the race. <see cref="AllDriversOffset"/> points here.</summary>
     public int NumCars;
 
-    /// <summary>
-    /// Name and basic vehicle info for all drivers, in place order (<c>all_drivers_data_1</c> in
-    /// the header — kept the "_1" suffix from the C name; the official C# port drops it, which is
-    /// a naming difference only, not a layout one).
-    /// </summary>
-    public DriverDataArray128 DriverData;
+    // The header's final field, all_drivers_data_1, is an R3E_NUM_DRIVERS_MAX (128) entry
+    // R3EDriverData array — 41,984 of the block's 43,996 bytes. It is deliberately NOT mirrored
+    // here: nothing in this connector reads a single field of it, and every poll would otherwise
+    // copy it out of the mapping, ~2.5 MB/s of pure waste at 60 Hz. Being the *last* field, leaving
+    // it out shifts no other field's offset, and the version gate only requires the mapping to be
+    // at least this struct's size, so a shorter read of a longer block is exactly what we want.
+    // See R3ESharedRawLayoutTests, which pins both this struct's size and the full published block
+    // size so the omission stays deliberate rather than becoming a forgotten transcription gap.
 }
