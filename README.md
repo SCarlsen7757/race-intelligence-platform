@@ -20,7 +20,8 @@ modified, so any future algorithm can be re-run against the complete history.
 | Collector (buffer + upload) | Working — bounded buffer, batched MessagePack upload |
 | Ingest API | Working — API-key auth, versioned contracts |
 | PostgreSQL persistence | Working — EF Core + bulk binary-copy writer |
-| Analysis / Strategy / ML / AI | Interface scaffolds only — Phases 2-5 |
+| Analysis | Started — one deterministic model implemented and covered by tests |
+| Strategy / ML / AI race engineer | Interfaces only — no implementation behind them yet |
 
 With Docker running, `dotnet test RaceIntelligence.slnx` should come back fully green. The Aspire
 and PostgreSQL integration suites need a container runtime and skip themselves when one isn't
