@@ -22,7 +22,9 @@ modified, so any future algorithm can be re-run against the complete history.
 | PostgreSQL persistence | Working — EF Core + bulk binary-copy writer |
 | Analysis / Strategy / ML / AI | Interface scaffolds only — Phases 2-5 |
 
-161 tests. Roughly 30 of them need a container runtime and skip without one.
+With Docker running, `dotnet test RaceIntelligence.slnx` should come back fully green. The Aspire
+and PostgreSQL integration suites need a container runtime and skip themselves when one isn't
+available — that's the only reason a test here skips.
 
 ---
 

@@ -134,9 +134,12 @@ gaming PC. **Don't put a real API key in `appsettings.json`.**
 dotnet test RaceIntelligence.slnx
 ```
 
-Without Docker running, roughly 30 of 161 tests **skip** rather than fail — the Aspire and
-PostgreSQL integration suites detect the missing container runtime and opt out. A run reporting
-`131 passed, 30 skipped` is a healthy run, not a broken one.
+With Docker running the whole suite should pass, with nothing skipped.
+
+Without a container runtime the Aspire and PostgreSQL integration suites detect its absence and
+**skip** rather than fail. A run with skips but no failures is therefore still healthy — it just
+means those suites didn't execute. That is the only thing that causes a skip in this repo, so a
+skip you can't explain by Docker being down is worth investigating.
 
 ## Adding a database migration
 
