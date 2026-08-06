@@ -57,9 +57,10 @@ public static class SessionEndpoints
         var (game, gameVersion) = await gameRepo.ResolveOrCreateAsync(
             GameVersionContractMapper.ToCore(request.GameVersion), ct).ConfigureAwait(false);
 
-        Guid? driverId = string.IsNullOrWhiteSpace(request.PlayerName)
-            ? null
-            : (await driverRepo.ResolveOrCreateAsync(request.PlayerName, ct).ConfigureAwait(false)).Id;
+        // The repository decides for itself whether there is anything to resolve — it returns null
+        // when neither a sim driver id nor a name was reported — so there is no pre-check here.
+        Guid? driverId = (await driverRepo.ResolveOrCreateAsync(
+            game.Id, request.SimDriverId, request.PlayerName, ct).ConfigureAwait(false))?.Id;
 
         var (_, layout) = await trackRepo.ResolveOrCreateAsync(
             game.Id, request.TrackName, request.LayoutName, request.LayoutLengthMeters ?? 0, ct: ct).ConfigureAwait(false);

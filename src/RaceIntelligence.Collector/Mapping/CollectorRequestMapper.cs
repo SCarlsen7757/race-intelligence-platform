@@ -38,7 +38,10 @@ internal static class CollectorRequestMapper
         SerializeExtras(session.Extras),
         session.SimCarId,
         session.SimCarClassId,
-        session.SimManufacturerId);
+        session.SimManufacturerId,
+        session.SimDriverId,
+        session.FuelUsageRate,
+        session.TyreWearRate);
 
     /// <summary>
     /// Builds the <c>PATCH /api/v1/sessions/{id}</c> request body that records a session's end

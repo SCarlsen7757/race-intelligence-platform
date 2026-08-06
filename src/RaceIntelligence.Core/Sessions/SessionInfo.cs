@@ -51,7 +51,22 @@ public sealed record SessionInfo
     public DateTimeOffset? EndedAtUtc { get; init; }
 
     /// <summary>Name of the player/driver, if known.</summary>
+    /// <remarks>
+    /// A mutable label, not an identity — players rename themselves. <see cref="SimDriverId"/> is
+    /// what ties sessions from the same person together across a rename; this is recorded per
+    /// session so the name used at the time is not lost when the person later changes it.
+    /// </remarks>
     public string? PlayerName { get; init; }
+
+    /// <summary>
+    /// The sim's own stable identifier for the player, if known — a durable account id rather
+    /// than a display name, so a session can still be attributed to the right person after they
+    /// rename themselves. Only unique within the sim that issued it: two sims can hand out the
+    /// same numeric id to different people, so consumers must scope it by
+    /// <see cref="GameVersion"/>'s game. See <see cref="SimCarId"/> for the same convention
+    /// applied to cars.
+    /// </summary>
+    public string? SimDriverId { get; init; }
 
     /// <summary>Name of the car driven, if known.</summary>
     public string? CarName { get; init; }
@@ -74,6 +89,30 @@ public sealed record SessionInfo
 
     /// <summary>The sim's own internal identifier for the car's manufacturer, if known. See <see cref="SimCarId"/>.</summary>
     public string? SimManufacturerId { get; init; }
+
+    /// <summary>
+    /// How fast this session consumed fuel relative to real time, as the sim's own raw rate code.
+    /// Like <see cref="SessionType"/>, collectors carry this through untranslated rather than
+    /// normalizing it to a multiplier — the encoding is sim-specific (RaceRoom uses
+    /// <c>-1</c> = not available, <c>0</c> = consumption off, <c>1</c>–<c>4</c> = 1x–4x), and the
+    /// mapping to a canonical rate belongs to an analysis pass that knows which sim produced it.
+    /// <see langword="null"/> only when the source has no such concept at all.
+    /// </summary>
+    /// <remarks>
+    /// Recorded because it changes what the session's fuel data means: a lap at 4x burns four
+    /// times the fuel of the same lap at 1x, so sessions run under different rates are not
+    /// comparable inputs to a fuel model. Independent of <see cref="TyreWearRate"/> — sims let
+    /// the two be configured separately.
+    /// </remarks>
+    public int? FuelUsageRate { get; init; }
+
+    /// <summary>
+    /// How fast this session wore tyres relative to real time, as the sim's own raw rate code.
+    /// Carried through untranslated for the same reason as <see cref="FuelUsageRate"/>, and using
+    /// the same sim-specific encoding. Independent of it: a session can run accelerated tyre wear
+    /// with fuel consumption switched off entirely.
+    /// </summary>
+    public int? TyreWearRate { get; init; }
 
     /// <summary>Simulator-specific session metadata with no canonical equivalent (e.g. weather, setup).</summary>
     public JsonElement Extras { get; init; }

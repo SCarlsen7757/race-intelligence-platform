@@ -27,12 +27,15 @@ public static class SessionContractMapper
         SessionType = (CoreSessions.SessionType)request.SessionType,
         StartedAtUtc = request.StartedAtUtc,
         PlayerName = request.PlayerName,
+        SimDriverId = request.SimDriverId,
         CarName = request.CarName,
         CarClassName = request.CarClassName,
         ManufacturerName = request.ManufacturerName,
         SimCarId = request.SimCarId,
         SimCarClassId = request.SimCarClassId,
         SimManufacturerId = request.SimManufacturerId,
+        FuelUsageRate = request.FuelUsageRate,
+        TyreWearRate = request.TyreWearRate,
         Extras = ParseJson(request.ExtrasJson),
     };
 

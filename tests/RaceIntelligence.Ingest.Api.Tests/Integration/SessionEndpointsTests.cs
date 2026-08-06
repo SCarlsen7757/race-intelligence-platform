@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using Npgsql;
 using RaceIntelligence.Ingest.Api.Tests.Support;
 using RaceIntelligence.Ingest.Contracts;
 using Shouldly;
@@ -151,10 +153,200 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
         secondLap.StatusCode.ShouldBe(HttpStatusCode.OK, "re-submitting the same lap number must upsert, not error");
     }
 
+    [Fact]
+    public async Task Renaming_a_driver_updates_the_one_driver_row_and_leaves_each_sessions_own_name_intact()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // Same game, same sim driver id, different reported name: one person who renamed themselves.
+        var gameVersion = DtoFactory.UniqueGameVersion();
+        var simDriverId = UniqueSimDriverId();
+
+        var before = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = gameVersion,
+            SimDriverId = simDriverId,
+            PlayerName = "Name Before Rename",
+        };
+        var after = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = gameVersion,
+            SimDriverId = simDriverId,
+            PlayerName = "Name After Rename",
+        };
+
+        (await PostAsync("/api/v1/sessions", before)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await PostAsync("/api/v1/sessions", after)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = await OpenDatabaseAsync();
+
+        (await CountAsync(db, "SELECT count(*) FROM drivers WHERE sim_driver_id = @simDriverId", ("simDriverId", simDriverId)))
+            .ShouldBe(1, "the sim driver id is the identity, so a rename must not fork a second driver row");
+
+        (await ScalarAsync(db, "SELECT display_name FROM drivers WHERE sim_driver_id = @simDriverId", ("simDriverId", simDriverId)))
+            .ShouldBe("Name After Rename", "display_name is a mutable label tracking the most recently seen name");
+
+        (await CountAsync(
+            db,
+            "SELECT count(DISTINCT driver_id) FROM sessions WHERE id IN (@first, @second)",
+            ("first", before.SessionId),
+            ("second", after.SessionId)))
+            .ShouldBe(1, "both sessions belong to the same person");
+
+        // The name used at the time is per session, so overwriting display_name loses nothing.
+        (await ScalarAsync(db, "SELECT player_name FROM sessions WHERE id = @id", ("id", before.SessionId)))
+            .ShouldBe("Name Before Rename");
+        (await ScalarAsync(db, "SELECT player_name FROM sessions WHERE id = @id", ("id", after.SessionId)))
+            .ShouldBe("Name After Rename");
+    }
+
+    [Fact]
+    public async Task The_same_sim_driver_id_in_two_different_games_resolves_to_two_drivers()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // DtoFactory mints a fresh game key per call, so these two sessions come from two games that
+        // happen to have handed out the same numeric driver id to different people.
+        var simDriverId = UniqueSimDriverId();
+        var first = DtoFactory.SessionCreateRequest() with { SimDriverId = simDriverId, PlayerName = "Driver In Game One" };
+        var second = DtoFactory.SessionCreateRequest() with { SimDriverId = simDriverId, PlayerName = "Driver In Game Two" };
+        first.GameVersion.GameKey.ShouldNotBe(second.GameVersion.GameKey);
+
+        (await PostAsync("/api/v1/sessions", first)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await PostAsync("/api/v1/sessions", second)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = await OpenDatabaseAsync();
+
+        (await CountAsync(db, "SELECT count(*) FROM drivers WHERE sim_driver_id = @simDriverId", ("simDriverId", simDriverId)))
+            .ShouldBe(2, "sim driver ids share a numeric namespace across sims, so identity is scoped per game");
+
+        (await CountAsync(db, "SELECT count(DISTINCT game_id) FROM drivers WHERE sim_driver_id = @simDriverId", ("simDriverId", simDriverId)))
+            .ShouldBe(2);
+    }
+
+    [Theory]
+    // 3 = 3x wear with fuel consumption switched off entirely: the two rates are configured
+    // independently, and 0 is a real setting that must not be conflated with "unknown".
+    [InlineData(3, 0)]
+    // RaceRoom's "not available" sentinel, which is carried through raw rather than filtered out.
+    [InlineData(-1, -1)]
+    public async Task Session_wear_and_fuel_rates_are_persisted_exactly_as_posted(int tyreWearRate, int fuelUsageRate)
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var request = DtoFactory.SessionCreateRequest() with
+        {
+            TyreWearRate = tyreWearRate,
+            FuelUsageRate = fuelUsageRate,
+        };
+
+        (await PostAsync("/api/v1/sessions", request)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = await OpenDatabaseAsync();
+
+        var storedFuel = await ScalarAsync(db, "SELECT fuel_usage_rate FROM sessions WHERE id = @id", ("id", request.SessionId));
+        storedFuel.ShouldNotBeOfType<DBNull>("a rate that was reported must never read back as unknown");
+        Convert.ToInt32(storedFuel, CultureInfo.InvariantCulture).ShouldBe(fuelUsageRate);
+
+        var storedWear = await ScalarAsync(db, "SELECT tyre_wear_rate FROM sessions WHERE id = @id", ("id", request.SessionId));
+        storedWear.ShouldNotBeOfType<DBNull>();
+        Convert.ToInt32(storedWear, CultureInfo.InvariantCulture).ShouldBe(tyreWearRate);
+    }
+
+    [Fact]
+    public async Task Two_sessions_without_a_sim_driver_id_fall_back_to_one_driver_per_name()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        // A sim that exposes no driver id at all: identity degrades to (game, display name).
+        var gameVersion = DtoFactory.UniqueGameVersion();
+        var playerName = $"Name Only Driver {Guid.NewGuid():N}";
+
+        var first = DtoFactory.SessionCreateRequest() with { GameVersion = gameVersion, SimDriverId = null, PlayerName = playerName };
+        var second = DtoFactory.SessionCreateRequest() with { GameVersion = gameVersion, SimDriverId = null, PlayerName = playerName };
+
+        (await PostAsync("/api/v1/sessions", first)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await PostAsync("/api/v1/sessions", second)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = await OpenDatabaseAsync();
+
+        (await CountAsync(
+            db,
+            "SELECT count(*) FROM drivers WHERE sim_driver_id IS NULL AND display_name = @displayName",
+            ("displayName", playerName)))
+            .ShouldBe(1, "the name-fallback path must still collapse repeat sessions onto one driver");
+
+        (await CountAsync(
+            db,
+            "SELECT count(DISTINCT driver_id) FROM sessions WHERE id IN (@first, @second)",
+            ("first", first.SessionId),
+            ("second", second.SessionId)))
+            .ShouldBe(1);
+    }
+
     private async Task<HttpResponseMessage> PostAsync<T>(string path, T body)
     {
         using var message = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
         message.Headers.Add("X-Api-Key", AspireAppFixture.ApiKey);
         return await fixture.ApiClient.SendAsync(message, TestContext.Current.CancellationToken);
     }
+
+    /// <summary>A sim driver id no other test run can collide with, so the assertions below can match on it alone.</summary>
+    private static string UniqueSimDriverId() => $"sim-{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// Opens a connection to the fixture's throwaway Postgres container.
+    /// </summary>
+    /// <remarks>
+    /// The ingest API is write-only — it exposes no endpoint that reads a driver or a session back —
+    /// so the driver-identity and rate assertions above have to inspect the rows themselves. The
+    /// integration-test Postgres resource is deliberately given no fixed port, so the connection
+    /// string comes from the fixture rather than configuration.
+    /// </remarks>
+    private async Task<NpgsqlConnection> OpenDatabaseAsync()
+    {
+        var connectionString = await fixture.GetConnectionStringAsync("raceintel", TestContext.Current.CancellationToken)
+            ?? throw new InvalidOperationException("The 'raceintel' connection string could not be resolved from the AppHost.");
+
+        var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        return connection;
+    }
+
+    /// <summary>
+    /// Runs a single-value query that is expected to match a row, and fails loudly if it does not.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="NpgsqlCommand.ExecuteScalarAsync(CancellationToken)"/> returns <see langword="null"/>
+    /// when no row matched but <see cref="DBNull"/> when a row matched and the column was null —
+    /// two very different outcomes that <c>Convert.ToInt32</c> flattens to the same <c>0</c>. Without
+    /// this guard an assertion like <c>ShouldBe(0)</c> passes just as happily when the session was
+    /// never inserted at all, which is precisely the failure these tests exist to catch.
+    /// </remarks>
+    private static async Task<object> ScalarAsync(NpgsqlConnection connection, string sql, params (string Name, object? Value)[] parameters)
+    {
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+        }
+
+        return await command.ExecuteScalarAsync(TestContext.Current.CancellationToken)
+            ?? throw new InvalidOperationException($"Expected a row, but no row matched: {sql}");
+    }
+
+    private static async Task<long> CountAsync(NpgsqlConnection connection, string sql, params (string Name, object? Value)[] parameters) =>
+        Convert.ToInt64(await ScalarAsync(connection, sql, parameters), CultureInfo.InvariantCulture);
 }

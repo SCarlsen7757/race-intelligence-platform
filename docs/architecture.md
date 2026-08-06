@@ -290,7 +290,29 @@ This applies the same principle as algorithm versioning:
 
 ```
 Driver
+Game
+Sim Driver Id
+Display Name
 ```
+
+One database holds sessions from several people, and their driving signatures are
+exactly what the analysis layer exists to tell apart — one driver is hard on tyres
+but light on fuel, another is the reverse. Attribution has to survive the obvious
+failure: **players rename themselves.**
+
+So identity is the **sim's own stable driver id**, not the display name:
+
+- The **sim driver id** — a durable account id issued by the simulator. RaceRoom
+  exposes one over shared memory; a rename does not change it.
+- The **game** — scoping the id, because the id is only unique within the sim that
+  issued it. A RaceRoom user id and a future iRacing customer id share a numeric
+  namespace and would otherwise collide.
+- The **display name** — a mutable label, tracking the most recently seen name.
+  The name used during a given session is recorded on the session itself, so
+  renaming loses nothing.
+
+Sims that expose no driver id fall back to name matching within a game — worse, but
+the only option available for that source.
 
 ---
 
@@ -319,12 +341,33 @@ Manufacturer
 ```
 Session
 Game Version
+Driver
+Player Name
 Track
 Car
 Weather
 Setup
 Duration
+Fuel Usage Rate
+Tyre Wear Rate
 ```
+
+**Fuel usage rate** and **tyre wear rate** are session rules, configured
+independently — a session can run 3x tyre wear with fuel consumption switched off
+entirely. They are recorded because they change what the data *means*: a lap at 4x
+burns four times the fuel of the same lap at 1x, so two sessions run under different
+rates are not comparable inputs to a fuel or degradation model. Buried in a JSON
+blob they cannot be filtered or indexed on, which is what a training set needs.
+
+Both are stored as the **sim's own raw rate code, untranslated** — the same
+convention as `session_type` below. RaceRoom encodes them as `-1` = not available,
+`0` = off, `1`–`4` = 1x–4x. The collector performs no analysis and does not know
+which encoding is canonical; normalizing belongs to a later pass that knows which
+sim produced the value. When querying, note that `-1` sorts below `0`: use
+`> 0` to mean "the rate was on", not `>= 0`.
+
+**Player name** is the display name reported for this session specifically. Since
+`Driver` tracks the latest name, this is what keeps the historical one.
 
 ---
 

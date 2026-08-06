@@ -34,6 +34,13 @@ internal static class R3ETelemetryMapper
 
     private static int? NullIfNegative(int value) => value < 0 ? null : value;
 
+    /// <summary>
+    /// Converts a non-positive id to <see langword="null"/>. Distinct from
+    /// <see cref="NullIfNegative(int)"/>, which lets <c>0</c> through: for identity fields <c>0</c>
+    /// is not a usable value, it is RaceRoom's "no account" marker.
+    /// </summary>
+    private static int? NullIfNotPositive(int value) => value > 0 ? value : null;
+
     private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;
 
     /// <summary>Converts engine speed from RaceRoom's native rad/s to RPM.</summary>
@@ -150,6 +157,14 @@ internal static class R3ETelemetryMapper
             SessionType = (SessionType)raw.SessionType,
             StartedAtUtc = startedAtUtc,
             PlayerName = NullIfEmpty(DecodeUtf8Name(raw.PlayerName)),
+            // The stable account id behind that display name. VehicleInfo.UserId is the driver
+            // entry for the player's own slot and is preferred; Player.UserId is the fallback for
+            // snapshots where only the player block carries it. Both are tested with > 0, NOT
+            // >= 0: RaceRoom reports 0 or -1 when the session is offline/unauthenticated, and 0 is
+            // not a real account id — passing it through as "0" would silently merge every offline
+            // session of every driver into a single identity. That is why NullIfNegative, which
+            // deliberately lets 0 through for genuine numeric fields, is not used here.
+            SimDriverId = (NullIfNotPositive(raw.VehicleInfo.UserId) ?? NullIfNotPositive(raw.Player.UserId))?.ToString(),
             // Likewise, RaceRoom's shared memory exposes only numeric car/class/manufacturer ids
             // (VehicleInfo.ClassId/ModelId/ManufacturerId) — never human-readable names, and there
             // is no in-memory lookup table. These stay null; the raw ids are carried below instead.
@@ -159,6 +174,13 @@ internal static class R3ETelemetryMapper
             SimCarId = NullIfNegative(raw.VehicleInfo.ModelId)?.ToString(),
             SimCarClassId = NullIfNegative(raw.VehicleInfo.ClassId)?.ToString(),
             SimManufacturerId = NullIfNegative(raw.VehicleInfo.ManufacturerId)?.ToString(),
+            // Carried through raw, exactly like SessionType above, and with no sentinel filtering:
+            // RaceRoom encodes these as -1 = N/A, 0 = off, 1-4 = 1x-4x, so -1 stays -1 rather than
+            // becoming null. Turning a sim-specific rate code into a canonical multiplier is the
+            // analysis layer's job, not the collector's. The two settings are independent — a
+            // session can run accelerated tyre wear with fuel consumption switched off entirely.
+            FuelUsageRate = raw.FuelUseActive,
+            TyreWearRate = raw.TireWearActive,
             Extras = BuildSessionExtras(in raw),
         };
     }
@@ -310,6 +332,8 @@ internal static class R3ETelemetryMapper
             writer.WriteNumber("carNumber", raw.VehicleInfo.CarNumber);
             writer.WriteNumber("classId", raw.VehicleInfo.ClassId);
             writer.WriteNumber("modelId", raw.VehicleInfo.ModelId);
+            writer.WriteNumber("userId", raw.VehicleInfo.UserId);
+            writer.WriteNumber("slotId", raw.VehicleInfo.SlotId);
             writer.WriteNumber("teamId", raw.VehicleInfo.TeamId);
             writer.WriteNumber("liveryId", raw.VehicleInfo.LiveryId);
             writer.WriteNumber("manufacturerId", raw.VehicleInfo.ManufacturerId);

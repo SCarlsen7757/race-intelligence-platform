@@ -43,6 +43,23 @@ public sealed class AspireAppFixture : IAsyncLifetime
     /// <summary>An <see cref="HttpClient"/> pointed at the running ingest API, resolved via Aspire service discovery. Only valid when <see cref="IsAvailable"/>.</summary>
     public HttpClient ApiClient { get; private set; } = null!;
 
+    /// <summary>
+    /// The connection string for the named AppHost resource — <c>raceintel</c> being the Postgres
+    /// database the ingest API writes to. Only valid when <see cref="IsAvailable"/>.
+    /// </summary>
+    /// <remarks>
+    /// The ingest API is write-only by design, so an integration test that needs to assert on what
+    /// was actually persisted has no endpoint to read it back through and must query the database
+    /// directly. Exposing that here keeps the coupling to <see cref="DistributedApplication"/> in
+    /// the fixture, where the rest of it already lives.
+    /// </remarks>
+    /// <param name="resourceName">The AppHost resource name, e.g. <c>raceintel</c>.</param>
+    public ValueTask<string?> GetConnectionStringAsync(string resourceName, CancellationToken ct = default) =>
+        _app is null
+            ? throw new InvalidOperationException(
+                $"The Aspire app is not running, so '{resourceName}' has no connection string. Guard the test with IsAvailable.")
+            : _app.GetConnectionStringAsync(resourceName, ct);
+
     /// <inheritdoc />
     public async ValueTask InitializeAsync()
     {

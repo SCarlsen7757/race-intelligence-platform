@@ -15,7 +15,7 @@ public static class SessionMapper
     /// </summary>
     /// <param name="info">The canonical session to convert.</param>
     /// <param name="gameVersionId">The resolved <c>game_versions</c> row id for <see cref="CoreSessions.SessionInfo.GameVersion"/>.</param>
-    /// <param name="driverId">The resolved <c>drivers</c> row id, if <see cref="CoreSessions.SessionInfo.PlayerName"/> was known.</param>
+    /// <param name="driverId">The resolved <c>drivers</c> row id, if either <see cref="CoreSessions.SessionInfo.SimDriverId"/> or <see cref="CoreSessions.SessionInfo.PlayerName"/> was known.</param>
     /// <param name="trackLayoutId">The resolved <c>track_layouts</c> row id, if the track/layout were known.</param>
     /// <param name="carId">The resolved <c>cars</c> row id, if <see cref="CoreSessions.SessionInfo.CarName"/> was known.</param>
     /// <param name="schemaVersion">The canonical telemetry model's schema version this session's samples conform to.</param>
@@ -34,12 +34,15 @@ public static class SessionMapper
             Id = info.SessionId,
             GameVersionId = gameVersionId,
             DriverId = driverId,
+            PlayerName = info.PlayerName,
             TrackLayoutId = trackLayoutId,
             CarId = carId,
             SimCarId = info.SimCarId,
             SimCarClassId = info.SimCarClassId,
             SimManufacturerId = info.SimManufacturerId,
             SessionType = info.SessionType,
+            FuelUsageRate = info.FuelUsageRate,
+            TyreWearRate = info.TyreWearRate,
             Capabilities = info.Capabilities,
             SchemaVersion = schemaVersion,
             Weather = weather,

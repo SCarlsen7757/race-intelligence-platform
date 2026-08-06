@@ -5,6 +5,15 @@ SELECT
     s.started_at,
     s.ended_at,
     d.display_name                                      AS driver,
+    -- The sim's own stable driver id, scoped by game. This, not display_name, is what ties a
+    -- person's sessions together after they rename themselves.
+    d.sim_driver_id,
+    -- The name reported for this session specifically; d.display_name tracks the latest one.
+    s.player_name,
+    -- Session rules, as the sim's raw rate code: -1 = N/A, 0 = off, 1-4 = 1x-4x for RaceRoom.
+    -- Independent of each other. Note -1 sorts below 0 — use "> 0" to mean "the rate was on".
+    s.fuel_usage_rate,
+    s.tyre_wear_rate,
     t.name                                               AS track,
     tl.name                                              AS layout,
     c.name                                               AS car,
