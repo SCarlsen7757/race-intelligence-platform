@@ -4,12 +4,6 @@
     <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-
   <ItemGroup>
     <!-- Lets FakeSharedMemoryView and the interop structs stay internal while the test project drives them directly. -->
     <InternalsVisibleTo Include="RaceIntelligence.Connectors.RaceRoom.Tests" />
