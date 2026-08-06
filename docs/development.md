@@ -81,11 +81,17 @@ dotnet run --project src/RaceIntelligence.Ingest.Api --launch-profile https
 
 Any other PostgreSQL works too — adjust host, port and password to match it.
 
-Then run the collector as in Option B. The development defaults already line up: the API's
-`appsettings.Development.json` sets `Ingest:ApiKey` to `dev-local-only-key`, and the collector's sets
-the same key and points `IngestBaseUrl` at the API's `https` launch profile URL (see
-`src/RaceIntelligence.Ingest.Api/Properties/launchSettings.json` for the port). So the two talk to
-each other with no extra configuration.
+Then run the collector as in Option B. The API key lines up on its own — the API's
+`appsettings.Development.json` sets `Ingest:ApiKey` to `dev-local-only-key` and the collector's sets
+the same key — but the base URL does not. Under Aspire the collector resolves the API through
+service discovery (`https+http://ingest-api/`, injected by AppHost), so no port is baked into
+`appsettings.Development.json`. Running without Aspire there is nothing to resolve, so point the
+collector at the API's `https` launch profile URL yourself — see
+`src/RaceIntelligence.Ingest.Api/Properties/launchSettings.json` for the port:
+
+```powershell
+$env:Collector__IngestBaseUrl = "https://localhost:<https-port-from-launchSettings>/"
+```
 
 ---
 
