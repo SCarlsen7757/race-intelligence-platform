@@ -36,11 +36,12 @@ public sealed record SessionInfo
     public float? LayoutLengthMeters { get; init; }
 
     /// <summary>
-    /// The type of session. Collectors that perform no analysis (the norm) carry the sim's raw
-    /// session-type value through unmapped, reinterpreted through this enum's underlying type
-    /// rather than translated to its named values — the correct mapping depends on which sim
-    /// produced it, which is a property of the analysis layer, not the collector. A later analysis
-    /// pass (which does know the sim) is expected to rewrite this to the canonical numbering.
+    /// The simulator's own raw session-type value, reinterpreted through this enum's underlying
+    /// type. It is <b>not</b> normalised to the named <see cref="Sessions.SessionType"/> members,
+    /// now or later: collectors perform no analysis and the correct per-sim mapping belongs to the
+    /// analysis layer, which does not yet do it. Treat this as an uninterpreted sim-specific
+    /// integer — comparing it to <see cref="Sessions.SessionType.Race"/> and friends is only valid
+    /// once the caller has established which simulator produced the session.
     /// </summary>
     public required SessionType SessionType { get; init; }
 
