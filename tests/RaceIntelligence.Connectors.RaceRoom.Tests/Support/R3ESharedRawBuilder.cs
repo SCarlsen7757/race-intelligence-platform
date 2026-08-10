@@ -22,6 +22,13 @@ internal sealed class R3ESharedRawBuilder
         raw.VersionMajor = R3EVersionGate.RequiredMajor;
         raw.VersionMinor = R3EVersionGate.MinimumMinor;
 
+        // A real block describes its own layout in the header, and R3EVersionGate checks that
+        // description rather than trusting the minor version. Defaulting these to the layout this
+        // connector compiles to is what makes a builder-produced block look like a matching game
+        // build; tests that want a mismatched or silent one override them via WithLayoutSelfDescription.
+        raw.AllDriversOffset = R3EVersionGate.ExpectedAllDriversOffset;
+        raw.DriverDataSize = R3EVersionGate.ExpectedDriverDataSize;
+
         raw.GameInMenus = 1;
         raw.GamePaused = 0;
         raw.GameInReplay = 0;
@@ -243,6 +250,19 @@ internal sealed class R3ESharedRawBuilder
     {
         _raw.VersionMajor = major;
         _raw.VersionMinor = minor;
+        return this;
+    }
+
+    /// <summary>
+    /// Overrides the header's layout self-description (<c>all_drivers_offset</c>/<c>driver_data_size</c>),
+    /// which is what <see cref="R3EVersionGate"/> actually checks. Use a value other than the
+    /// default to stand in for a game build whose layout has moved, or zero for one that reports
+    /// no layout at all.
+    /// </summary>
+    public R3ESharedRawBuilder WithLayoutSelfDescription(int allDriversOffset, int driverDataSize)
+    {
+        _raw.AllDriversOffset = allDriversOffset;
+        _raw.DriverDataSize = driverDataSize;
         return this;
     }
 
