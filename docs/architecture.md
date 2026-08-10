@@ -268,6 +268,10 @@ Benefits:
 - Detect when a game update changed telemetry semantics.
 - Exclude sessions collected by a connector with a known bug.
 - Replay and recompute history correctly per version.
+- Keep sessions from several game versions distinguishable, since one connector
+  deliberately spans more than one — see
+  [The RaceRoom shared-memory layout](development.md#the-raceroom-shared-memory-layout) for how a
+  connector decides which game versions it can safely read.
 - Compare data across game updates instead of silently mixing it.
 
 This applies the same principle as algorithm versioning:

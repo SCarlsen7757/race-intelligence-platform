@@ -4,11 +4,27 @@ namespace RaceIntelligence.Connectors.RaceRoom.Interop;
 
 /// <summary>
 /// Byte-exact mirror of RaceRoom's <c>r3e_shared</c> struct (shared memory name <c>"$R3E"</c>),
-/// ported field-for-field from the authoritative
-/// <see href="https://github.com/kwstudios-sweden/r3e-api">r3e-api</see> C header (<c>sample-c/src/r3e.h</c>,
-/// API version 3.5), cross-checked against the official C# port (<c>sample-csharp/src/R3E.cs</c>).
+/// ported field-for-field from the upstream source of record for this layout —
+/// <see href="https://github.com/kwstudios-sweden/r3e-api/blob/master/sample-csharp/src/R3E.cs">r3e-api's
+/// <c>sample-csharp/src/R3E.cs</c></see>, API version 3.5 — and cross-checked against the C header
+/// the same repository publishes it from (<c>sample-c/src/r3e.h</c>).
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>Where this came from, and how to re-sync it.</b> The authoritative file is:
+/// </para>
+/// <code>
+/// https://github.com/kwstudios-sweden/r3e-api/raw/refs/heads/master/sample-csharp/src/R3E.cs
+/// </code>
+/// <para>
+/// It is vendored by hand, not generated, and there is no upstream changelog describing what moved
+/// between API versions — so a re-sync means diffing that file against these structs field by field
+/// and updating <c>R3ESharedRawLayoutTests</c>'s hand-computed offsets to match. The connector does
+/// not depend on being told a version changed: <see cref="R3EVersionGate"/> compares the running
+/// game's own layout self-description against these structs and refuses to read a block that
+/// disagrees, so a missed re-sync surfaces as a named connect failure rather than as shifted
+/// telemetry.
+/// </para>
 /// <para>
 /// The header wraps every struct in <c>#pragma pack(push, 1)</c> — there is no compiler padding
 /// anywhere in the real layout, so every struct here (this one and every nested one under
@@ -27,8 +43,10 @@ namespace RaceIntelligence.Connectors.RaceRoom.Interop;
 /// <para>
 /// The official r3e-api samples do not version-check the shared memory before reading it — this
 /// connector does (see <see cref="RaceIntelligence.Connectors.RaceRoom.Interop.R3EVersionGate"/>),
-/// because trusting an unfamiliar major/minor version to still match this exact layout would risk
-/// silently misinterpreting every field.
+/// because trusting an unfamiliar version to still match this exact layout would risk silently
+/// misinterpreting every field. The gate is structural rather than numeric: one transcription
+/// therefore covers every major-3 game build whose layout it can confirm, old or new, instead of
+/// only the single minor it was written against.
 /// </para>
 /// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]

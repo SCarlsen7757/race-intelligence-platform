@@ -105,12 +105,72 @@ Disconnected  →  WaitingForSimulator  →  Connected  →  InSession
 
 - **WaitingForSimulator** — polling for the `RRRE64` (or `RRRE`) process. Normal before you launch
   the game.
-- **Connected** — shared memory opened and its version accepted. The connector requires API major
-  version 3 and refuses anything else rather than risk misreading every field.
+- **Connected** — shared memory opened and its layout accepted. The connector requires API major
+  version 3 and refuses anything else rather than risk misreading every field. Within major 3 it
+  checks the block's layout rather than its minor version — see
+  [The RaceRoom shared-memory layout](#the-raceroom-shared-memory-layout) below.
 - **InSession** — you left the menus into a recognized session type. Telemetry is flowing at 60 Hz.
 
 A session ends when you return to the menus, pass the checkered flag, change track/layout/session
 type, or restart the session in-game.
+
+## The RaceRoom shared-memory layout
+
+The structs under `src/RaceIntelligence.Connectors.RaceRoom/Interop/` are a hand-written C# port of
+the layout RaceRoom publishes in its `$R3E` shared-memory block. The source of record is one file in
+the official [r3e-api](https://github.com/kwstudios-sweden/r3e-api) repository:
+
+```
+https://github.com/kwstudios-sweden/r3e-api/raw/refs/heads/master/sample-csharp/src/R3E.cs
+```
+
+It is vendored by hand — nothing generates or downloads it at build time — and it is cross-checked
+against the C header the same repo publishes (`sample-c/src/r3e.h`). Both currently declare API
+version **3.5**.
+
+### Why the connector doesn't gate on the version number
+
+Upstream ships no changelog saying which minor version moved which field, so "accept minor ≥ 5"
+would be a guess in both directions: it refuses older builds whose layout is in fact identical over
+the bytes we read, and it waves through a newer build that inserted a field ahead of one we read —
+the case that silently corrupts every value rather than failing.
+
+So the gate is **structural**. The block describes its own layout in its header, and
+`R3EVersionGate` compares that description against the compiled structs:
+
+| Header field | Compared against | Catches |
+|---|---|---|
+| `all_drivers_offset` | offset of `num_cars` (2008) | any field added, removed or resized ahead of the driver array |
+| `driver_data_size` | `sizeof(R3EDriverData)` (328) | growth *inside* the driver array, which the offset alone can't see |
+
+The result:
+
+- **Any major-3 build whose layout matches is accepted**, whatever minor it reports — one
+  transcription covers many game versions, including ones older than 3.5.
+- **A build whose layout has moved is refused**, even if its minor looks new enough, with both
+  numbers in the message: `reports its driver data at byte offset 2040, but this connector's
+  transcription puts it at 2008`.
+- **Major 4 is refused outright.** Upstream reserves majors for exactly the incompatible reshuffle a
+  prefix check cannot absorb.
+
+The reported major/minor is still recorded on every session, so data collected under different game
+versions stays distinguishable later.
+
+### Re-syncing after a RaceRoom update
+
+If the connector starts refusing to connect with a layout-mismatch message, RaceRoom changed the
+block:
+
+1. Diff the current `R3E.cs` (URL above) against `Interop/` field by field.
+2. Update the structs, keeping every `*Unused*` reserved field — deleting one shifts everything after it.
+3. Update the hand-computed offsets in `R3ESharedRawLayoutTests` to match, and the pinned values in
+   `R3EVersionGateTests.ExpectedLayout_MatchesTheHandComputedOffsetsFromR3ECs`.
+
+Those layout tests are the only automated defense against a transcription error — they compute
+offsets by hand from the published header and compare against what the CLR actually lays out, so a
+wrong field type or position fails the build rather than the race.
+
+---
 
 ## Stopping it
 

@@ -17,7 +17,7 @@ so far, and analysis has just started. The roadmap beyond that is in
 
 | Area | State |
 |---|---|
-| RaceRoom connector | Working — shared memory, 60 Hz, version-gated |
+| RaceRoom connector | Working — shared memory, 60 Hz, layout-gated across game versions |
 | Canonical telemetry model | Working — simulator-independent, capability-based |
 | Collector (buffer + upload) | Working — bounded buffer, batched MessagePack upload |
 | Ingest API | Working — API-key auth, versioned contracts |
@@ -126,4 +126,6 @@ Released under the [MIT License](LICENSE). Use it, fork it, build connectors for
 
 The RaceRoom shared-memory structs under `src/RaceIntelligence.Connectors.RaceRoom/Interop/` are an
 independent C# port of the layout published by
-[r3e-api](https://github.com/kwstudios-sweden/r3e-api); see those files for details.
+[r3e-api](https://github.com/kwstudios-sweden/r3e-api), taken from
+[`sample-csharp/src/R3E.cs`](https://github.com/kwstudios-sweden/r3e-api/raw/refs/heads/master/sample-csharp/src/R3E.cs);
+see those files and [docs/development.md](docs/development.md) for details.
