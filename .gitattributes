@@ -1,0 +1,16 @@
+# Normalize line endings so a checkout on one platform does not produce files another cannot run.
+* text=auto
+
+# Shell scripts must keep LF even when checked out on Windows. With CRLF the shebang line reads as
+# "/bin/sh\r" and the script fails on Linux and macOS with "bad interpreter". The git hooks below
+# are run by every contributor, so this is not cosmetic.
+*.sh text eol=lf
+.githooks/* text eol=lf
+
+# Generated from the EF Core migrations (see docs/development.md). Marked so it is collapsed in
+# diffs by default and excluded from language statistics — it is output, not hand-written source.
+#
+# eol=lf is load-bearing, not cosmetic: `dotnet ef migrations script` writes CRLF on Windows and LF
+# on Linux, so without normalization the CI job that regenerates this file and diffs it would fail
+# on every run purely because the runner is not Windows.
+docs/schema.sql text eol=lf linguist-generated=true

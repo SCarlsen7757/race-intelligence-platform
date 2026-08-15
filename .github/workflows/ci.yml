@@ -33,6 +33,21 @@ jobs:
       - name: Restore
         run: dotnet restore RaceIntelligence.slnx
 
+      # docs/schema.sql is generated from the migrations and committed, so the schema is reviewable
+      # as a schema and so the knowledge graph can read it without a database. Nothing else fails
+      # when it goes stale — the tests build their database from the migrations, not from this file
+      # — so a forgotten regeneration would otherwise sit unnoticed until someone trusted the file.
+      #
+      # Regenerating and diffing is the whole check. `dotnet ef migrations script` is deterministic
+      # (verified: identical bytes across runs), and .gitattributes normalizes the file to LF, so
+      # the CRLF this writes on a Windows developer's machine does not register as a difference.
+      - name: Verify docs/schema.sql matches the migrations
+        run: |
+          dotnet tool install --global dotnet-ef
+          dotnet ef migrations script --project src/RaceIntelligence.Persistence --output docs/schema.sql
+          git diff --exit-code -- docs/schema.sql \
+            || { echo "::error file=docs/schema.sql::Out of date. Regenerate it in the same commit as the migration: dotnet ef migrations script --project src/RaceIntelligence.Persistence --output docs/schema.sql"; exit 1; }
+
       - name: Build
         # Directory.Build.props already sets TreatWarningsAsErrors=true; -warnaserror also promotes
         # warnings raised outside that property's reach. The repo builds with zero warnings today,

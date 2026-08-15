@@ -1,0 +1,39 @@
+#!/bin/sh
+#
+# Refreshes the graphify knowledge graph after a checkout that changed the working tree.
+#
+# Tracked in the repository for the same reason as post-commit — see the comment there.
+#
+# Set GRAPHIFY_SKIP_HOOK=1 to skip.
+
+set -u
+
+[ "${GRAPHIFY_SKIP_HOOK:-0}" = "1" ] && exit 0
+
+# Args: <previous HEAD> <new HEAD> <1 = branch checkout, 0 = file checkout>.
+# A file checkout (`git checkout -- path`) is too granular to rebuild for, and a branch checkout
+# that did not move HEAD changed nothing.
+[ "${3:-0}" = "1" ] || exit 0
+[ "${1:-}" = "${2:-}" ] && exit 0
+
+REPO=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+SCRIPT="$REPO/tools/update-graph.py"
+[ -f "$SCRIPT" ] || exit 0
+
+PY=""
+PY_FILE="$REPO/graphify-out/.graphify_python"
+if [ -f "$PY_FILE" ]; then
+    CANDIDATE=$(tr -d '\r\n' < "$PY_FILE")
+    [ -n "$CANDIDATE" ] && [ -x "$CANDIDATE" ] && PY="$CANDIDATE"
+fi
+[ -z "$PY" ] && PY=$(command -v python3 2>/dev/null)
+[ -z "$PY" ] && PY=$(command -v python 2>/dev/null)
+[ -z "$PY" ] && exit 0
+
+LOG="$REPO/graphify-out/hook.log"
+mkdir -p "$REPO/graphify-out" 2>/dev/null
+
+echo "[graph hook] updating knowledge graph in background (log: graphify-out/hook.log)"
+"$PY" "$SCRIPT" >"$LOG" 2>&1 &
+
+exit 0
