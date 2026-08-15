@@ -24,6 +24,12 @@ public class RaceRoomTelemetrySourceStateMachineTests
         // Deliberately long: every test except the frozen-frame one drives the tick counter
         // forward itself, and must never trip the stale-frame (game exited) check by accident.
         StaleFrameTimeout = TimeSpan.FromMinutes(5),
+        MaxSuspendDuration = TimeSpan.FromMinutes(5),
+
+        // Start on the first qualifying frame. Tests here script frames one at a time and would
+        // otherwise spend the debounce window on every session start; the debounce has its own
+        // test below.
+        SessionStartDebounce = TimeSpan.Zero,
     };
 
     /// <summary>Advances the enumerator once and asserts the event produced is of the expected type.</summary>
@@ -128,14 +134,330 @@ public class RaceRoomTelemetrySourceStateMachineTests
         lapCompleted.Lap.IsValid.ShouldBeTrue(
             "a clean on-track lap must be reported as valid -- this went unnoticed while the builder defaulted prev_lap_valid to -1 (N/A).");
 
-        // 5. Back to menus (checkered) -> SessionEnded, then back to Connected.
+        // 5. Back to menus -> the session is suspended, not ended. A menu frame cannot be told
+        // apart from a mid-session pause, so the session stays open until something unambiguous
+        // happens.
         view.SetFrame(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+
+        var suspended = await NextAsync<ConnectionStateChanged>(enumerator);
+        suspended.State.ShouldBe(ConnectionState.SessionSuspended);
+
+        // 6. Loading a different session is unambiguous, so the previous one is closed out here.
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Other Track", "Other Layout")
+            .WithTicks(1000)
+            .Build()
+            .ToBytes());
 
         var sessionEnded = await NextAsync<SessionEnded>(enumerator);
         sessionEnded.SessionId.ShouldBe(sessionId);
 
         var backToConnected = await NextAsync<ConnectionStateChanged>(enumerator);
         backToConnected.State.ShouldBe(ConnectionState.Connected);
+    }
+
+    [Fact]
+    public async Task InSessionMenu_SuspendsAndResumesTheSameSession()
+    {
+        // The bug this guards: RaceRoom sets game_in_menus for its in-session (ESC) menu, not only
+        // for the main menu. Treating that as a session boundary ended the session and minted a new
+        // id every time the driver paused, so one qualifying session was stored as six -- and every
+        // lap completed while the menu was open was dropped, because restarting re-based the lap
+        // counter against the game's current completed_laps.
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await using var source = new RaceRoomTelemetrySource(FastOptions, () => view);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(100)
+            .WithCompletedLaps(2)
+            .Build()
+            .ToBytes());
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+        var started = await NextAsync<SessionStarted>(enumerator);
+        Guid sessionId = started.Session.SessionId;
+
+        var firstSample = await NextAsync<TelemetrySampleReceived>(enumerator);
+        firstSample.Sample.SequenceNumber.ShouldBe(0L);
+
+        // The driver presses ESC. Everything else about the frame still describes the session.
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .InSessionMenu()
+            .WithTicks(100)
+            .WithCompletedLaps(2)
+            .Build()
+            .ToBytes());
+
+        var suspended = await NextAsync<ConnectionStateChanged>(enumerator);
+        suspended.State.ShouldBe(ConnectionState.SessionSuspended);
+        suspended.Reason.ShouldNotBeNull();
+
+        // Back on track, with the game having credited a lap while the menu was open.
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(160)
+            .WithCompletedLaps(3)
+            .WithPreviousLap(88.25f, prevLapValid: 1)
+            .Build()
+            .ToBytes());
+
+        var resumed = await NextAsync<ConnectionStateChanged>(enumerator);
+        resumed.State.ShouldBe(
+            ConnectionState.InSession,
+            "leaving a menu must resume the suspended session, not start a new one.");
+
+        var afterResume = await NextAsync<TelemetrySampleReceived>(enumerator);
+        afterResume.Sample.SessionId.ShouldBe(sessionId, "the resumed session must keep its id.");
+        afterResume.Sample.SequenceNumber.ShouldBe(1L, "sequence numbering must continue across a suspension, not restart.");
+
+        var lap = await NextAsync<LapCompleted>(enumerator);
+        lap.Lap.SessionId.ShouldBe(sessionId);
+        lap.Lap.LapNumber.ShouldBe(3, "a lap completed while the menu was open must still be reported on resume.");
+        lap.Lap.LapTime.ShouldBe(TimeSpan.FromSeconds(88.25));
+    }
+
+    [Fact]
+    public async Task NoSamplesArePublishedWhileSuspended()
+    {
+        // A paused simulator republishes the same frame forever. Sampling it at the poll rate would
+        // store thousands of identical rows describing a stationary car and, worse, make a pause
+        // look like a stint of perfectly consistent laps to anything reading the telemetry back.
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await using var source = new RaceRoomTelemetrySource(FastOptions, () => view);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(100)
+            .Build()
+            .ToBytes());
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+        await NextAsync<SessionStarted>(enumerator);
+        await NextAsync<TelemetrySampleReceived>(enumerator);
+
+        // game_paused rather than a menu: the other way a frame stops describing a moving car.
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .Paused()
+            .WithTicks(100)
+            .Build()
+            .ToBytes());
+
+        var suspended = await NextAsync<ConnectionStateChanged>(enumerator);
+        suspended.State.ShouldBe(ConnectionState.SessionSuspended);
+
+        // Let the poll loop run over the frozen frame many times. The very next event must be the
+        // resume, with nothing sampled in between.
+        await Task.Delay(TimeSpan.FromMilliseconds(60), cts.Token);
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(220)
+            .Build()
+            .ToBytes());
+
+        var next = await NextAsync<ConnectionStateChanged>(enumerator);
+        next.State.ShouldBe(
+            ConnectionState.InSession,
+            "no TelemetrySampleReceived may be emitted between suspending and resuming.");
+    }
+
+    [Fact]
+    public async Task RestartFromTheInSessionMenu_EndsTheSessionRatherThanResuming()
+    {
+        // Restarting from the ESC menu returns to the same track, layout, type and iteration -- the
+        // session key is identical, so only the re-based tick counter distinguishes it from an
+        // ordinary resume. Getting this wrong would silently append a second run's telemetry to the
+        // first run's session.
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await using var source = new RaceRoomTelemetrySource(FastOptions, () => view);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(900)
+            .Build()
+            .ToBytes());
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+        var started = await NextAsync<SessionStarted>(enumerator);
+        await NextAsync<TelemetrySampleReceived>(enumerator);
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .InSessionMenu()
+            .WithTicks(900)
+            .Build()
+            .ToBytes());
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> SessionSuspended
+
+        // Resume, but with the tick counter re-based -- the driver chose "restart session".
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(0)
+            .Build()
+            .ToBytes());
+
+        var ended = await NextAsync<SessionEnded>(enumerator);
+        ended.SessionId.ShouldBe(started.Session.SessionId);
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+
+        var restarted = await NextAsync<SessionStarted>(enumerator);
+        restarted.Session.SessionId.ShouldNotBe(started.Session.SessionId);
+    }
+
+    [Fact]
+    public async Task SessionIterationChange_EndsTheSessionEvenThoughEverythingElseMatches()
+    {
+        // Two qualifying sessions at the same track differ in nothing but session_iteration. Before
+        // it joined the key, the only thing separating them was the trip through the menus in
+        // between -- which is exactly the coupling that made a pause look like a new session.
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await using var source = new RaceRoomTelemetrySource(FastOptions, () => view);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithSessionType(R3ESessionType.Qualify)
+            .WithSessionIteration(1)
+            .WithTicks(100)
+            .Build()
+            .ToBytes());
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+        var first = await NextAsync<SessionStarted>(enumerator);
+        await NextAsync<TelemetrySampleReceived>(enumerator);
+
+        // Same track, same layout, same type, higher tick count -- only the iteration moves on.
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithSessionType(R3ESessionType.Qualify)
+            .WithSessionIteration(2)
+            .WithTicks(200)
+            .Build()
+            .ToBytes());
+
+        var ended = await NextAsync<SessionEnded>(enumerator);
+        ended.SessionId.ShouldBe(first.Session.SessionId);
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+
+        var second = await NextAsync<SessionStarted>(enumerator);
+        second.Session.SessionId.ShouldNotBe(first.Session.SessionId);
+    }
+
+    [Fact]
+    public async Task ASessionKeyThatFlickersForLessThanTheDebounce_NeverStartsASession()
+    {
+        // The game publishes the next session's type while it is still loading, which produced real
+        // database rows lasting a fraction of a second and holding a handful of samples.
+        var options = FastOptions with { SessionStartDebounce = TimeSpan.FromMilliseconds(200) };
+
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await using var source = new RaceRoomTelemetrySource(options, () => view);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+
+        // A brief glimpse of a session that is still loading...
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Flicker Track", "Flicker Layout")
+            .WithTicks(10)
+            .Build()
+            .ToBytes());
+
+        await Task.Delay(TimeSpan.FromMilliseconds(40), cts.Token);
+
+        // ...gone again before the debounce elapses.
+        view.SetFrame(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await Task.Delay(TimeSpan.FromMilliseconds(40), cts.Token);
+
+        // The session that actually loads is the one that must be recorded.
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Real Track", "Real Layout")
+            .WithTicks(500)
+            .Build()
+            .ToBytes());
+
+        var toInSession = await NextAsync<ConnectionStateChanged>(enumerator);
+        toInSession.State.ShouldBe(ConnectionState.InSession);
+
+        var started = await NextAsync<SessionStarted>(enumerator);
+        started.Session.TrackName.ShouldBe(
+            "Real Track",
+            "the half-loaded session must never have been started -- only the one whose key settled.");
+    }
+
+    [Fact]
+    public async Task ASuspensionOutlastingMaxSuspendDuration_EndsTheSession()
+    {
+        // Suspension keeps a session open across a pause, so it needs its own upper bound: quitting
+        // to the main menu and walking away must not leave a session open indefinitely. This is
+        // also the only liveness check that can run while suspended, since a paused game freezes
+        // the tick counter that StaleFrameTimeout watches.
+        var options = FastOptions with { MaxSuspendDuration = TimeSpan.FromMilliseconds(150) };
+
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await using var source = new RaceRoomTelemetrySource(options, () => view);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(100)
+            .Build()
+            .ToBytes());
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+        var started = await NextAsync<SessionStarted>(enumerator);
+        await NextAsync<TelemetrySampleReceived>(enumerator);
+
+        view.SetFrame(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+
+        var suspended = await NextAsync<ConnectionStateChanged>(enumerator);
+        suspended.State.ShouldBe(ConnectionState.SessionSuspended);
+
+        var ended = await NextAsync<SessionEnded>(enumerator);
+        ended.SessionId.ShouldBe(started.Session.SessionId);
+
+        var connected = await NextAsync<ConnectionStateChanged>(enumerator);
+        connected.State.ShouldBe(ConnectionState.Connected);
+        connected.Reason.ShouldNotBeNull().ShouldContain("suspended");
     }
 
     [Fact]

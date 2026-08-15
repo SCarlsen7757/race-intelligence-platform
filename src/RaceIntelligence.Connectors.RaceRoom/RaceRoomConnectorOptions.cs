@@ -20,4 +20,29 @@ public sealed record RaceRoomConnectorOptions
     /// alt-tab/loading stall), hence a default well above a paused frame or two.
     /// </summary>
     public TimeSpan StaleFrameTimeout { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long a session may stay suspended (driver in an in-session menu, or the game paused)
+    /// before it is ended anyway.
+    /// </summary>
+    /// <remarks>
+    /// Suspension exists so a menu visit does not fragment one session into several, so this has to
+    /// comfortably exceed a realistic pause — adjusting a setup, answering the door. It is also the
+    /// only liveness check that applies while suspended: a paused simulator freezes
+    /// <c>game_simulation_ticks</c>, so <see cref="StaleFrameTimeout"/> cannot run at the same time
+    /// without declaring every long pause a crashed game.
+    /// </remarks>
+    public TimeSpan MaxSuspendDuration { get; init; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// How long a session's identifying tuple must stay unchanged before a session is considered
+    /// started.
+    /// </summary>
+    /// <remarks>
+    /// The game briefly publishes the next session's type while it is still loading, which produced
+    /// real sessions lasting a fraction of a second and holding a handful of samples. Waiting for
+    /// the tuple to settle discards those without needing to know the loading sequence. Set to
+    /// <see cref="TimeSpan.Zero"/> to start on the first qualifying frame.
+    /// </remarks>
+    public TimeSpan SessionStartDebounce { get; init; } = TimeSpan.FromSeconds(1);
 }

@@ -17,6 +17,26 @@ public enum ConnectionState
     /// <summary>Connected and an on-track session is active.</summary>
     InSession,
 
+    /// <summary>
+    /// A session is still active but the simulator is not currently producing on-track frames —
+    /// the driver is in an in-session menu, or the game is paused.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Distinct from <see cref="Connected"/>, which means no session exists at all. Suspension is
+    /// deliberately <b>not</b> a session boundary: the same session resumes afterwards, keeping its
+    /// id, its sequence numbering and its lap count. Treating a menu visit as the end of a session
+    /// fragmented one real session into many, and silently dropped any lap completed while the menu
+    /// was open.
+    /// </para>
+    /// <para>
+    /// No <see cref="TelemetrySampleReceived"/> is emitted while suspended. A paused simulator
+    /// republishes the same frame indefinitely, so sampling it would store thousands of identical
+    /// rows describing a car that is not moving.
+    /// </para>
+    /// </remarks>
+    SessionSuspended,
+
     /// <summary>The source encountered an unrecoverable error and stopped producing events.</summary>
     Faulted,
 }
