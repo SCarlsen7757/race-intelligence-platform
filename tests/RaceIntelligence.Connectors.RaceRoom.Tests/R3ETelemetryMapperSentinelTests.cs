@@ -81,20 +81,54 @@ public class R3ETelemetryMapperSentinelTests
         sample.TyrePressure.RearRight.ShouldBe(expectedRearRight);
     }
 
+    // RaceRoom's tire_wear is tread REMAINING (1.0 fresh, falling as the tyre wears), while the
+    // canonical TyreWear is wear ACCUMULATED (0 new, 1 fully worn), so the mapper inverts. The
+    // sentinel must be filtered before that inversion: -1.0 means "not available", and inverting it
+    // first yields a confident, fictional 2.0.
     [Theory]
     [InlineData(-1f, -1f, -1f, -1f, null, null, null, null)]
-    [InlineData(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)]
-    [InlineData(-1f, 0.15f, -1f, 0.22f, null, 0.15f, null, 0.22f)]
-    public void TyreWear_NegativeSentinelPerWheel_MapsToNull(
+    [InlineData(1f, 1f, 1f, 1f, 0f, 0f, 0f, 0f)] // fresh tyres -> no wear
+    [InlineData(0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f)] // no tread left -> fully worn
+    [InlineData(-1f, 0.85f, -1f, 0.78f, null, 0.15f, null, 0.22f)]
+    public void TyreWear_IsInvertedFromTreadRemaining_AndSentinelsMapToNull(
         float frontLeft, float frontRight, float rearLeft, float rearRight,
         float? expectedFrontLeft, float? expectedFrontRight, float? expectedRearLeft, float? expectedRearRight)
     {
         var sample = MapSample(b => b.WithTyreWear(frontLeft, frontRight, rearLeft, rearRight));
 
-        sample.TyreWear.FrontLeft.ShouldBe(expectedFrontLeft);
-        sample.TyreWear.FrontRight.ShouldBe(expectedFrontRight);
-        sample.TyreWear.RearLeft.ShouldBe(expectedRearLeft);
-        sample.TyreWear.RearRight.ShouldBe(expectedRearRight);
+        ShouldBeWear(sample.TyreWear.FrontLeft, expectedFrontLeft);
+        ShouldBeWear(sample.TyreWear.FrontRight, expectedFrontRight);
+        ShouldBeWear(sample.TyreWear.RearLeft, expectedRearLeft);
+        ShouldBeWear(sample.TyreWear.RearRight, expectedRearRight);
+    }
+
+    /// <summary>
+    /// Compares an optional wear value with a tolerance. <c>1f - 0.85f</c> is 0.15000004, not
+    /// 0.15 — subtracting from one is exactly where float noise shows up, so an exact comparison
+    /// would fail on arithmetic rather than on behaviour.
+    /// </summary>
+    private static void ShouldBeWear(float? actual, float? expected)
+    {
+        if (expected is null)
+        {
+            actual.ShouldBeNull();
+            return;
+        }
+
+        actual.ShouldNotBeNull().ShouldBe(expected.Value, tolerance: 1e-6);
+    }
+
+    [Fact]
+    public void TyreWear_IncreasesAsTheTyreWearsDown()
+    {
+        // The property that actually matters downstream: a degradation model fits a slope against
+        // this field, so a value that falls over a stint inverts the sign of every wear rate. Real
+        // telemetry from a 24-lap stint moved from 0.9979 to 0.8098 tread remaining.
+        var fresh = MapSample(b => b.WithTyreWear(0.9979f, 0.9979f, 0.9977f, 0.9977f));
+        var worn = MapSample(b => b.WithTyreWear(0.8098f, 0.8098f, 0.8195f, 0.8195f));
+
+        worn.TyreWear.FrontLeft.ShouldNotBeNull().ShouldBeGreaterThan(fresh.TyreWear.FrontLeft!.Value);
+        worn.TyreWear.RearLeft.ShouldNotBeNull().ShouldBeGreaterThan(fresh.TyreWear.RearLeft!.Value);
     }
 
     [Fact]
