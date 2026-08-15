@@ -220,10 +220,36 @@ skip you can't explain by Docker being down is worth investigating.
 
 ```powershell
 dotnet ef migrations add <Name> --project src/RaceIntelligence.Persistence
+dotnet ef migrations script --project src/RaceIntelligence.Persistence --output docs/schema.sql
 ```
 
 A design-time factory (`RaceIntelligenceDbContextFactory`) exists so this works without starting the
 API.
+
+The second command matters. `docs/schema.sql` is a generated DDL dump of the migrations, committed
+so the schema is reviewable as a schema rather than inferred from entity classes and fluent
+configuration spread across a dozen files — a migration shows up in review as the table it actually
+creates. It is also what puts the tables and their foreign keys into the knowledge graph, which is
+why the graph needs no database running. Regenerate it in the same commit as the migration, or both
+the file and the graph keep describing the previous schema.
+
+## Git hooks
+
+The hooks live in `.githooks/` and are tracked in the repository, not in `.git/hooks` — that
+directory is not version-controlled, so anything there drifts per machine and never appears in
+review. `Directory.Build.props` points `core.hooksPath` at `.githooks` on the first build, so a
+fresh clone is configured by `dotnet build` rather than by a setup step someone has to remember.
+
+`post-commit` and `post-checkout` refresh the graphify knowledge graph in the background (a full
+update takes several seconds and a commit should not wait for it). Output goes to
+`graphify-out/hook.log`. Neither hook can fail a commit — every path exits 0 — and both skip during
+rebase, merge and cherry-pick. Set `GRAPHIFY_SKIP_HOOK=1` to bypass them.
+
+To check or change what git is using:
+
+```powershell
+git config --get core.hooksPath      # expect: .githooks
+```
 
 ## Health endpoints
 

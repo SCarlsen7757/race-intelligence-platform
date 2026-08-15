@@ -12,6 +12,40 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!--
+    Point git at the tracked .githooks/ directory instead of .git/hooks, which is not
+    version-controlled and so drifts per machine and is invisible in review. Doing it here means a
+    fresh clone is configured by its first build rather than by a setup step someone can forget.
+
+    Runs once per build session (not per project) and only when this is a git checkout with the
+    config not already set, so it costs nothing on later builds. ContinueOnError keeps a missing
+    git, a submodule, or a source archive from failing the build.
+  -->
+  <Target Name="ConfigureGitHooksPath"
+          BeforeTargets="Build"
+          Condition="'$(GitHooksPathConfigured)' != 'true' AND Exists('$(MSBuildThisFileDirectory).git') AND Exists('$(MSBuildThisFileDirectory).githooks')">
+    <PropertyGroup>
+      <GitHooksPathConfigured>true</GitHooksPathConfigured>
+    </PropertyGroup>
+    <Exec Command="git config --get core.hooksPath"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ContinueOnError="true"
+          IgnoreExitCode="true"
+          StandardOutputImportance="low"
+          ConsoleToMsBuild="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="ExistingHooksPath" />
+    </Exec>
+    <Exec Command="git config core.hooksPath .githooks"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ContinueOnError="true"
+          IgnoreExitCode="true"
+          StandardOutputImportance="low"
+          Condition="'$(ExistingHooksPath.Trim())' != '.githooks'" />
+    <Message Importance="high"
+             Text="Configured git core.hooksPath -> .githooks (knowledge graph stays current after commits)"
+             Condition="'$(ExistingHooksPath.Trim())' != '.githooks'" />
+  </Target>
+
   <PropertyGroup>
     <Product>Race Intelligence Platform</Product>
     <Company>SCarlsen7757</Company>

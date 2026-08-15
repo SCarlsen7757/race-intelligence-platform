@@ -48,6 +48,17 @@ secrets.json
 ## Telemetry capture fixtures that are too large to track
 *.telemetry.bin
 
+## graphify knowledge graph — derived entirely from the sources it indexes, so it is rebuilt
+# rather than tracked (`graphify update`). The HTML and JSON are megabytes each and rewritten
+# wholesale on every run, which no diff can usefully compress.
+graphify-out/
+
+## Claude Code — settings.json is shared config and is tracked; settings.local.json holds
+# per-developer permissions and machine paths, so it stays local.
+.claude/settings.local.json
+# Harness-created git worktrees — a full second checkout of this repo.
+.claude/worktrees/
+
 ## OS noise
 Thumbs.db
 ehthumbs.db
