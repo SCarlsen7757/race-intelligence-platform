@@ -39,6 +39,29 @@ internal static class R3ETelemetryMapper
 
     private static int? NullIfNegative(int value) => value < 0 ? null : value;
 
+    /// <summary>
+    /// Converts RaceRoom's <c>tire_wear</c> to the canonical
+    /// <see cref="TelemetrySample.TyreWear"/> convention.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Despite its name, RaceRoom reports tread <i>remaining</i>: the value starts at 1.0 on fresh
+    /// tyres and falls as they wear. The header documents only "Range 0.0-1.0", so this was read
+    /// off real telemetry — a 24-lap stint moved from 0.9979 to 0.8098, monotonically down.
+    /// </para>
+    /// <para>
+    /// The canonical field is the other way round (0 = new, 1 = fully worn), so this inverts. That
+    /// direction is deliberate: "wear" that decreases as tyres wear out would invert the sign of
+    /// every degradation rate computed from it.
+    /// </para>
+    /// <para>
+    /// The sentinel check happens first, and must: <c>-1.0</c> means "not available", and inverting
+    /// it before testing would turn it into a confident, entirely fictional <c>2.0</c>.
+    /// </para>
+    /// </remarks>
+    private static float? TreadRemainingToWear(float treadRemaining) =>
+        NullIfNegative(treadRemaining) is { } remaining ? 1f - remaining : null;
+
     /// <summary>RaceRoom's <c>gear</c> value for "not available", distinct from -1 (reverse).</summary>
     private const int GearNotAvailable = -2;
 
@@ -111,10 +134,10 @@ internal static class R3ETelemetryMapper
             NullIfNegative(raw.TirePressure[3]));
 
         var tyreWear = new WheelData<float?>(
-            NullIfNegative(raw.TireWear[0]),
-            NullIfNegative(raw.TireWear[1]),
-            NullIfNegative(raw.TireWear[2]),
-            NullIfNegative(raw.TireWear[3]));
+            TreadRemainingToWear(raw.TireWear[0]),
+            TreadRemainingToWear(raw.TireWear[1]),
+            TreadRemainingToWear(raw.TireWear[2]),
+            TreadRemainingToWear(raw.TireWear[3]));
 
         return new TelemetrySample
         {
@@ -288,6 +311,59 @@ internal static class R3ETelemetryMapper
         for (int i = 0; i < 4; i++)
         {
             writer.WriteNumberValue(raw.BrakePressure[i]);
+        }
+        writer.WriteEndArray();
+
+        // Per-tyre channels with no canonical equivalent yet. tyreGrip is the reason this block
+        // exists: it is grip loss measured directly, rather than inferred from lap time the way a
+        // lap-time trend has to, and a degradation model built without it can only see the symptom.
+        //
+        // Written raw, sentinels included (-1 = N/A), like every other value in this object. These
+        // are candidates for promotion to canonical fields, and that is where the -1 -> null
+        // translation belongs, alongside the one TyreWear already gets.
+        writer.WriteStartArray("tyreGrip");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireGrip[i]);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteStartArray("tyreLoadNewtons");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireLoad[i]);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteStartArray("tyreDirt");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireDirt[i]);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteStartArray("tyreFlatspot");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireFlatspot[i]);
+        }
+        writer.WriteEndArray();
+
+        // Rotation speed in rad/s alongside the canonical linear WheelSpeed: the pair is what makes
+        // slip ratio recoverable later, which neither value gives on its own.
+        writer.WriteStartArray("tyreRotationRadiansPerSecond");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireRps[i]);
+        }
+        writer.WriteEndArray();
+
+        // Surface material under each tyre (r3e_mtrl_type) — the cheapest evidence that a lap left
+        // the track, which is what lap quality scoring needs to discount it.
+        writer.WriteStartArray("tyreSurfaceMaterial");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireOnMtrl[i]);
         }
         writer.WriteEndArray();
 

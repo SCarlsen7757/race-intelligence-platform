@@ -74,6 +74,79 @@ public class R3ETelemetryMapperExtrasTests
         propertyNames.ShouldContain("brakePressureKiloNewtons");
         propertyNames.ShouldContain("flags");
         propertyNames.ShouldContain("pit");
+        propertyNames.ShouldContain("tyreGrip");
+        propertyNames.ShouldContain("tyreLoadNewtons");
+        propertyNames.ShouldContain("tyreDirt");
+        propertyNames.ShouldContain("tyreFlatspot");
+        propertyNames.ShouldContain("tyreRotationRadiansPerSecond");
+        propertyNames.ShouldContain("tyreSurfaceMaterial");
+    }
+
+    [Fact]
+    public void SampleExtras_CarryTheTyreChannelsADegradationModelNeeds()
+    {
+        // None of these can be backfilled: they are only ever observed live, and raw telemetry is
+        // never rewritten. tyreGrip especially -- it is the one channel that measures grip loss
+        // directly instead of inferring it from lap time.
+        var extras = SampleExtras(builder => builder.Configure((ref R3ESharedRaw raw) =>
+        {
+            // Asymmetric throughout, so a transposed index or a field wired to the wrong source
+            // cannot pass.
+            raw.TireGrip[0] = 0.91f;
+            raw.TireGrip[1] = 0.92f;
+            raw.TireGrip[2] = 0.93f;
+            raw.TireGrip[3] = 0.94f;
+
+            raw.TireLoad[0] = 1100f;
+            raw.TireLoad[1] = 1200f;
+            raw.TireLoad[2] = 1300f;
+            raw.TireLoad[3] = 1400f;
+
+            raw.TireDirt[0] = 0.01f;
+            raw.TireDirt[1] = 0.02f;
+            raw.TireDirt[2] = 0.03f;
+            raw.TireDirt[3] = 0.04f;
+
+            raw.TireFlatspot[0] = 0;
+            raw.TireFlatspot[1] = 1;
+            raw.TireFlatspot[2] = 0;
+            raw.TireFlatspot[3] = 1;
+
+            raw.TireRps[0] = 51f;
+            raw.TireRps[1] = 52f;
+            raw.TireRps[2] = 53f;
+            raw.TireRps[3] = 54f;
+
+            raw.TireOnMtrl[0] = 1;
+            raw.TireOnMtrl[1] = 2;
+            raw.TireOnMtrl[2] = 3;
+            raw.TireOnMtrl[3] = 4;
+        }));
+
+        extras.GetProperty("tyreGrip").EnumerateArray().Select(e => e.GetSingle())
+            .ShouldBe([0.91f, 0.92f, 0.93f, 0.94f]);
+        extras.GetProperty("tyreLoadNewtons").EnumerateArray().Select(e => e.GetSingle())
+            .ShouldBe([1100f, 1200f, 1300f, 1400f]);
+        extras.GetProperty("tyreDirt").EnumerateArray().Select(e => e.GetSingle())
+            .ShouldBe([0.01f, 0.02f, 0.03f, 0.04f]);
+        extras.GetProperty("tyreFlatspot").EnumerateArray().Select(e => e.GetInt32())
+            .ShouldBe([0, 1, 0, 1]);
+        extras.GetProperty("tyreRotationRadiansPerSecond").EnumerateArray().Select(e => e.GetSingle())
+            .ShouldBe([51f, 52f, 53f, 54f]);
+        extras.GetProperty("tyreSurfaceMaterial").EnumerateArray().Select(e => e.GetInt32())
+            .ShouldBe([1, 2, 3, 4]);
+    }
+
+    [Fact]
+    public void SampleExtras_TyreChannelsKeepTheirNotAvailableSentinel()
+    {
+        // These stay raw, like every other value in this object: -1 means the sim did not report
+        // it. Anything reading them has to know that, which is exactly the argument for promoting
+        // tyreGrip to a canonical field, where the -1 -> null translation already has a home.
+        var extras = SampleExtras();
+
+        extras.GetProperty("tyreGrip").EnumerateArray().Select(e => e.GetSingle())
+            .ShouldBe([-1f, -1f, -1f, -1f]);
     }
 
     [Fact]
