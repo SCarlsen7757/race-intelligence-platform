@@ -132,6 +132,35 @@ internal sealed class R3ESharedRawBuilder
         return this;
     }
 
+    /// <summary>
+    /// Opens the in-session (ESC) menu over whatever session the builder currently describes,
+    /// leaving the session fields untouched.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="InMenus"/>, which models the <i>main</i> menu and clears the
+    /// session type and phase. RaceRoom sets <c>game_in_menus</c> for both, which is what made an
+    /// ordinary pause indistinguishable from leaving the session.
+    /// </remarks>
+    public R3ESharedRawBuilder InSessionMenu()
+    {
+        _raw.GameInMenus = 1;
+        return this;
+    }
+
+    /// <summary>Sets <c>game_paused</c> — a pause that does not necessarily open a menu.</summary>
+    public R3ESharedRawBuilder Paused(bool paused = true)
+    {
+        _raw.GamePaused = paused ? 1 : 0;
+        return this;
+    }
+
+    /// <summary>Sets <c>session_iteration</c>: 1 = first session of this type, 2 = second, -1 = N/A.</summary>
+    public R3ESharedRawBuilder WithSessionIteration(int iteration)
+    {
+        _raw.SessionIteration = iteration;
+        return this;
+    }
+
     /// <summary>Puts the snapshot into an on-track race session at the given track/layout.</summary>
     public R3ESharedRawBuilder InRaceSession(string track, string layout)
     {
