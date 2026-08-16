@@ -53,6 +53,18 @@ public enum SimCapabilities : ulong
 
     /// <summary>The connector reports raw suspension telemetry beyond basic travel (e.g. velocity, ride height).</summary>
     SuspensionTelemetry = 1UL << 11,
+
+    /// <summary>
+    /// The connector reports a <see cref="RaceIntelligence.Core.Sessions.SessionStandings"/>
+    /// snapshot covering every car in the session, not just the one being driven locally.
+    /// </summary>
+    OpponentStandings = 1UL << 12,
+
+    /// <summary>The connector reports sector times for cars other than the local one.</summary>
+    OpponentSectorTimes = 1UL << 13,
+
+    /// <summary>The connector reports pit lane and pit stop state for cars other than the local one.</summary>
+    OpponentPitState = 1UL << 14,
 }
 
 /// <summary>

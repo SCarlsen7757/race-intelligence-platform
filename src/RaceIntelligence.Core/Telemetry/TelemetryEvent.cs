@@ -62,6 +62,19 @@ public sealed record TelemetrySampleReceived : TelemetryEvent
     public required TelemetrySample Sample { get; init; }
 }
 
+/// <summary>Raised when the simulator's view of the whole field is re-read.</summary>
+/// <remarks>
+/// Emitted at its own cadence, independent of <see cref="TelemetrySampleReceived"/>: the field's
+/// scoring data changes far more slowly than a car's control inputs, and re-reading it is
+/// comparatively expensive. Like samples, it is not emitted while
+/// <see cref="ConnectionState.SessionSuspended"/> — a frozen frame's standings describe the moment
+/// the driver opened the menu, not the moment they are read.
+/// </remarks>
+public sealed record StandingsUpdated : TelemetryEvent
+{
+    public required SessionStandings Standings { get; init; }
+}
+
 /// <summary>Raised when a lap completes.</summary>
 public sealed record LapCompleted : TelemetryEvent
 {

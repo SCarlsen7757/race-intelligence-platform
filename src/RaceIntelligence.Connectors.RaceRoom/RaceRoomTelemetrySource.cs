@@ -92,8 +92,15 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
     /// <inheritdoc />
     public GameVersionIdentity? Version => _version;
 
-    /// <inheritdoc />
-    public SimCapabilities Capabilities { get; } =
+    /// <summary>
+    /// What this connector can produce, independent of any instance.
+    /// </summary>
+    /// <remarks>
+    /// Static because the collector has to declare it to the live hub when opening a publishing
+    /// connection, which happens before any telemetry source has been constructed — and because
+    /// the answer cannot vary between instances anyway.
+    /// </remarks>
+    public static SimCapabilities DeclaredCapabilities { get; } =
         SimCapabilities.TyreWear |
         SimCapabilities.TyrePressure |
         SimCapabilities.TyreTemperature |
@@ -103,7 +110,15 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         SimCapabilities.Drs |
         SimCapabilities.Damage |
         SimCapabilities.PitWindow |
-        SimCapabilities.SuspensionTelemetry;
+        SimCapabilities.SuspensionTelemetry |
+        // RaceRoom's driver array covers every car in the session, but only at scoring granularity
+        // — hence no opponent tyre/fuel/input capability to declare alongside these three.
+        SimCapabilities.OpponentStandings |
+        SimCapabilities.OpponentSectorTimes |
+        SimCapabilities.OpponentPitState;
+
+    /// <inheritdoc />
+    public SimCapabilities Capabilities => DeclaredCapabilities;
 
     /// <inheritdoc />
     public ConnectionState State => _state;
@@ -459,6 +474,75 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         }
 
         _run.LastTicks = raw.Player.GameSimulationTicks;
+
+        EmitStandingsIfDue(events, now, in raw);
+    }
+
+    /// <summary>
+    /// Reads the driver array and emits <see cref="StandingsUpdated"/>, no more often than
+    /// <see cref="RaceRoomConnectorOptions.StandingsInterval"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Called from <see cref="EmitSample"/> rather than from the tick loop directly, so that
+    /// standings inherit exactly the conditions under which a sample is publishable: a live
+    /// session, an untorn frame, and not suspended. A menu frame's driver array describes the
+    /// moment the driver pressed escape, and republishing it would show a race still unfolding
+    /// while nothing is moving.
+    /// </para>
+    /// <para>
+    /// A torn or failed array read is not a connection failure: the player snapshot it accompanies
+    /// was read cleanly and has already been published. The tick is skipped and the due-time is
+    /// left untouched, so the next poll retries immediately rather than waiting out another
+    /// interval.
+    /// </para>
+    /// </remarks>
+    private void EmitStandingsIfDue(List<TelemetryEvent> events, DateTimeOffset now, in R3ESharedRaw raw)
+    {
+        // Any negative interval disables standings, not only Timeout.InfiniteTimeSpan (-1 tick).
+        // Testing for that exact value would let TimeSpan.FromSeconds(-1) fall through to the
+        // comparison below, where "elapsed < a negative" is never true — silently turning an
+        // obvious attempt to switch the feature off into reading the field on every single poll.
+        if (_options.StandingsInterval < TimeSpan.Zero)
+        {
+            return;
+        }
+
+        // No "never read yet" special case: LastStandingsAtUtc defaults to year 1, so the elapsed
+        // span is ~739,000 days and the first tick of a session is always due.
+        if (now - _run.LastStandingsAtUtc < _options.StandingsInterval)
+        {
+            return;
+        }
+
+        var view = _run.View;
+        if (view is null || !view.IsValid)
+        {
+            return;
+        }
+
+        if (R3EDriverDataReader.TryRead(view, in raw, out var drivers) != DriverArrayReadOutcome.Ok)
+        {
+            return;
+        }
+
+        _run.LastStandingsAtUtc = now;
+
+        if (drivers.Length == 0)
+        {
+            // A session with no field reported yet — nothing to say, and an empty tower would read
+            // as "everyone retired" rather than "not known yet".
+            return;
+        }
+
+        // Settled from the local car, whose root block carries both a lap time and that lap's
+        // splits, then applied to every car in the field. Checked on each snapshot rather than once
+        // because the first frames of a session cannot answer it — nobody has completed a lap yet.
+        _run.SectorTimeConvention = R3ESectorTimeConventionDetector.Detect(in raw, _run.SectorTimeConvention);
+
+        var standings = R3ETelemetryMapper.ToSessionStandings(
+            drivers, in raw, _run.SessionId, now, _run.SectorTimeConvention);
+        events.Add(new StandingsUpdated { OccurredAtUtc = now, Standings = standings });
     }
 
     /// <summary>
@@ -507,7 +591,11 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
     /// Byte offset of <c>player.game_simulation_ticks</c> within the block — the field re-read to
     /// detect a torn frame.
     /// </summary>
-    private static readonly long SimulationTicksOffset =
+    /// <remarks>
+    /// Internal rather than private because <see cref="R3EDriverDataReader"/> makes the same
+    /// torn-frame check against the same field, and the two must never drift apart.
+    /// </remarks>
+    internal static readonly long SimulationTicksOffset =
         Marshal.OffsetOf<R3ESharedRaw>(nameof(R3ESharedRaw.Player)).ToInt64()
         + Marshal.OffsetOf<R3EPlayerData>(nameof(R3EPlayerData.GameSimulationTicks)).ToInt64();
 
@@ -625,6 +713,19 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
 
         public DateTimeOffset PendingKeySinceUtc;
 
+        /// <summary>
+        /// When the driver array was last read — the clock behind
+        /// <see cref="RaceRoomConnectorOptions.StandingsInterval"/>. Never set means "not yet this
+        /// session", which reads as due.
+        /// </summary>
+        public DateTimeOffset LastStandingsAtUtc;
+
+        /// <summary>
+        /// How this game fills its sector triples. Held per session and re-established each time,
+        /// since a session boundary is also where a game update could take effect.
+        /// </summary>
+        public R3ESectorTimeConvention SectorTimeConvention;
+
         public void ClearSession()
         {
             SessionId = default;
@@ -634,6 +735,8 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             LastTicksChangedAtUtc = default;
             SequenceNumber = 0;
             SuspendedAtUtc = default;
+            LastStandingsAtUtc = default;
+            SectorTimeConvention = R3ESectorTimeConvention.Cumulative;
         }
 
         public void ClearPendingStart()

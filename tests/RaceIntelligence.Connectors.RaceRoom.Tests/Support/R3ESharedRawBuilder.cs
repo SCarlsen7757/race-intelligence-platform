@@ -14,6 +14,7 @@ namespace RaceIntelligence.Connectors.RaceRoom.Tests.Support;
 internal sealed class R3ESharedRawBuilder
 {
     private R3ESharedRaw _raw = CreateDefault();
+    private R3EDriverData[] _drivers = [];
 
     private static R3ESharedRaw CreateDefault()
     {
@@ -315,10 +316,60 @@ internal sealed class R3ESharedRawBuilder
     /// <summary>A mutation applied directly to a builder's in-progress <see cref="R3ESharedRaw"/>.</summary>
     public delegate void RawEditor(ref R3ESharedRaw raw);
 
+    /// <summary>
+    /// Places <paramref name="drivers"/> in the block's trailing <c>all_drivers_data_1</c> array and
+    /// sets <c>num_cars</c> to match.
+    /// </summary>
+    /// <remarks>
+    /// Only meaningful via <see cref="BuildBytes"/>: the array is not a field of
+    /// <see cref="R3ESharedRaw"/> (it is deliberately unmapped), so <see cref="Build"/> cannot carry
+    /// it. Overrides <see cref="WithCompletedLaps"/>-style scalar setters not at all — the two
+    /// describe different cars' worth of state.
+    /// </remarks>
+    public R3ESharedRawBuilder WithDrivers(params R3EDriverData[] drivers)
+    {
+        ArgumentNullException.ThrowIfNull(drivers);
+
+        _drivers = drivers;
+        _raw.NumCars = drivers.Length;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets <c>num_cars</c> without supplying matching entries, for tests that need the header to
+    /// claim a field the block does not actually contain.
+    /// </summary>
+    public R3ESharedRawBuilder WithNumCars(int numCars)
+    {
+        _raw.NumCars = numCars;
+        return this;
+    }
+
     public R3ESharedRaw Build() => _raw;
 
-    /// <summary>Builds and serializes directly to the byte layout <see cref="FakeSharedMemoryView"/> expects.</summary>
-    public byte[] BuildBytes() => _raw.ToBytes();
+    /// <summary>
+    /// Builds and serializes directly to the byte layout <see cref="FakeSharedMemoryView"/> expects.
+    /// </summary>
+    /// <remarks>
+    /// When <see cref="WithDrivers"/> supplied entries, the result is the mapped struct followed by
+    /// those entries — which is where the real block puts them, since <c>all_drivers_offset</c>
+    /// points at <c>num_cars</c> and the struct ends immediately after it. Without them the result
+    /// is just the struct, exactly as before, so every existing test is unaffected.
+    /// </remarks>
+    public byte[] BuildBytes()
+    {
+        byte[] prefix = _raw.ToBytes();
+        if (_drivers.Length == 0)
+        {
+            return prefix;
+        }
+
+        ReadOnlySpan<byte> driverBytes = MemoryMarshal.AsBytes<R3EDriverData>(_drivers);
+        byte[] block = new byte[prefix.Length + driverBytes.Length];
+        prefix.CopyTo(block, 0);
+        driverBytes.CopyTo(block.AsSpan(prefix.Length));
+        return block;
+    }
 
     /// <summary>
     /// Encodes a UTF-8, NUL-terminated 64-byte name buffer, matching how RaceRoom's shared memory
