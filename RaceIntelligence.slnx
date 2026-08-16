@@ -19,6 +19,7 @@
   </Folder>
   <Folder Name="/Shared/">
     <Project Path="src/RaceIntelligence.Ingest.Contracts/RaceIntelligence.Ingest.Contracts.csproj" />
+    <Project Path="src/RaceIntelligence.Live.Contracts/RaceIntelligence.Live.Contracts.csproj" />
     <Project Path="src/RaceIntelligence.ServiceDefaults/RaceIntelligence.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/Tests/">
@@ -27,6 +28,7 @@
     <Project Path="tests/RaceIntelligence.Connectors.RaceRoom.Tests/RaceIntelligence.Connectors.RaceRoom.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Persistence.Tests/RaceIntelligence.Persistence.Tests.csproj" />
   </Folder>
 </Solution>
