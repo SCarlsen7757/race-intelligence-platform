@@ -45,4 +45,23 @@ public sealed record RaceRoomConnectorOptions
     /// <see cref="TimeSpan.Zero"/> to start on the first qualifying frame.
     /// </remarks>
     public TimeSpan SessionStartDebounce { get; init; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// How often to re-read the whole field's scoring data — the source of
+    /// <see cref="RaceIntelligence.Core.Telemetry.StandingsUpdated"/>. Default: 10 Hz.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Deliberately much slower than <see cref="PollInterval"/>. The driver array is 328 bytes per
+    /// car, so a full grid is a far larger read than the player snapshot, and every field in it —
+    /// position, lap and sector times, gaps, pit state — changes on the scale of seconds. Reading
+    /// it at the sample rate would multiply the connector's memory traffic for data that could not
+    /// possibly differ between consecutive frames.
+    /// </para>
+    /// <para>
+    /// Set to <see cref="TimeSpan.Zero"/> to read it on every poll, or to
+    /// <see cref="Timeout.InfiniteTimeSpan"/> to disable standings entirely.
+    /// </para>
+    /// </remarks>
+    public TimeSpan StandingsInterval { get; init; } = TimeSpan.FromMilliseconds(100);
 }
