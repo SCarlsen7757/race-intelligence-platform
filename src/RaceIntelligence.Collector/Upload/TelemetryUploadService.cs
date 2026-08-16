@@ -72,15 +72,15 @@ public sealed class TelemetryUploadService(
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var collectorOptions = options.Value;
-        var batch = new OpenBatch(collectorOptions.MaxBatchSize);
+        var ingestOptions = options.Value.Ingest;
+        var batch = new OpenBatch(ingestOptions.MaxBatchSize);
 
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
                 TimeSpan? maxWait = batch.Samples.Count > 0
-                    ? batch.OpenedAt + collectorOptions.MaxBatchAge - timeProvider.GetUtcNow()
+                    ? batch.OpenedAt + ingestOptions.MaxBatchAge - timeProvider.GetUtcNow()
                     : null;
 
                 var outcome = await WaitForNextAsync(maxWait, stoppingToken).ConfigureAwait(false);
@@ -96,7 +96,7 @@ public sealed class TelemetryUploadService(
                     break;
                 }
 
-                await DrainAvailableSamplesAsync(batch, collectorOptions.MaxBatchSize, stoppingToken).ConfigureAwait(false);
+                await DrainAvailableSamplesAsync(batch, ingestOptions.MaxBatchSize, stoppingToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

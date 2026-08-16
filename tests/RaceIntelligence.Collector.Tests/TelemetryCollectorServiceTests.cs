@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using RaceIntelligence.Collector.Buffering;
+using RaceIntelligence.Collector.Live;
 using RaceIntelligence.Collector.Tests.Support;
 using RaceIntelligence.Collector.Upload;
 using RaceIntelligence.Core.Sessions;
@@ -61,7 +62,7 @@ public class TelemetryCollectorServiceTests
         }, CancellationToken.None);
 
         var service = new TelemetryCollectorService(
-            source, buffer, ingestClient, new OpenBatchTracker(), TimeProvider.System, NullLogger<TelemetryCollectorService>.Instance);
+            source, buffer, ingestClient, new NullLiveOutbox(), new OpenBatchTracker(), TimeProvider.System, NullLogger<TelemetryCollectorService>.Instance);
 
         await service.StartAsync(cts.Token);
         try
@@ -97,7 +98,7 @@ public class TelemetryCollectorServiceTests
     }
 
     [Fact]
-    public async Task Connection_state_changes_do_not_throw_and_do_not_call_the_ingest_client()
+    public async Task Connection_state_changes_do_not_throw_and_are_not_forwarded_to_the_ingest_client_or_the_live_outbox()
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         cts.CancelAfter(TimeSpan.FromSeconds(20));
@@ -110,9 +111,10 @@ public class TelemetryCollectorServiceTests
 
         await using var buffer = new ChannelTelemetryBuffer(10, BoundedChannelFullMode.Wait, NullLogger<ChannelTelemetryBuffer>.Instance);
         var ingestClient = new RecordingIngestClient();
+        var liveOutbox = new RecordingLiveOutbox();
         var source = new ScriptedTelemetrySource(events);
         var service = new TelemetryCollectorService(
-            source, buffer, ingestClient, new OpenBatchTracker(), TimeProvider.System, NullLogger<TelemetryCollectorService>.Instance);
+            source, buffer, ingestClient, liveOutbox, new OpenBatchTracker(), TimeProvider.System, NullLogger<TelemetryCollectorService>.Instance);
 
         await service.StartAsync(cts.Token);
         try
@@ -130,6 +132,11 @@ public class TelemetryCollectorServiceTests
         ingestClient.CreatedSessions.ShouldBeEmpty();
         ingestClient.UpdatedSessions.ShouldBeEmpty();
         ingestClient.RecordedLaps.ShouldBeEmpty();
+
+        // Nor the live outbox: a connection-state change is collector bookkeeping, not something
+        // the hub has any use for.
+        liveOutbox.StartedSessions.ShouldBeEmpty();
+        liveOutbox.EndedSessions.ShouldBeEmpty();
     }
 
     [Fact]
@@ -157,7 +164,7 @@ public class TelemetryCollectorServiceTests
         await using var buffer = new ChannelTelemetryBuffer(10, BoundedChannelFullMode.Wait, NullLogger<ChannelTelemetryBuffer>.Instance);
         var ingestClient = new RecordingIngestClient();
         var service = new TelemetryCollectorService(
-            new ScriptedTelemetrySource(events), buffer, ingestClient, openBatch, timeProvider, NullLogger<TelemetryCollectorService>.Instance);
+            new ScriptedTelemetrySource(events), buffer, ingestClient, new NullLiveOutbox(), openBatch, timeProvider, NullLogger<TelemetryCollectorService>.Instance);
 
         await service.StartAsync(cts.Token);
         try
@@ -212,7 +219,7 @@ public class TelemetryCollectorServiceTests
         await using var buffer = new ChannelTelemetryBuffer(10, BoundedChannelFullMode.Wait, NullLogger<ChannelTelemetryBuffer>.Instance);
         var ingestClient = new RecordingIngestClient();
         var service = new TelemetryCollectorService(
-            new ScriptedTelemetrySource(events), buffer, ingestClient, openBatch, timeProvider, NullLogger<TelemetryCollectorService>.Instance);
+            new ScriptedTelemetrySource(events), buffer, ingestClient, new NullLiveOutbox(), openBatch, timeProvider, NullLogger<TelemetryCollectorService>.Instance);
 
         await service.StartAsync(cts.Token);
         try
@@ -253,7 +260,7 @@ public class TelemetryCollectorServiceTests
 
         await using var buffer = new ChannelTelemetryBuffer(capacity: 2, BoundedChannelFullMode.Wait, NullLogger<ChannelTelemetryBuffer>.Instance);
         var service = new TelemetryCollectorService(
-            new ScriptedTelemetrySource(events), buffer, new RecordingIngestClient(), new OpenBatchTracker(), TimeProvider.System,
+            new ScriptedTelemetrySource(events), buffer, new RecordingIngestClient(), new NullLiveOutbox(), new OpenBatchTracker(), TimeProvider.System,
             NullLogger<TelemetryCollectorService>.Instance);
 
         await service.StartAsync(cts.Token);
