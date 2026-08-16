@@ -82,6 +82,46 @@ The important design philosophy is:
                 +-----------------------+
 ```
 
+### The live path
+
+Everything above is the archive path: permanent, batched, and read long after the session. Alongside
+it runs a second path with the opposite priorities, feeding a dashboard a race engineer watches
+while the race happens.
+
+```
+   Gaming PC                          Home Server                     Anywhere
+   ---------                          -----------                     --------
+
+   Sim Connector
+     |  60 Hz local car ---> Buffer ---> Upload --HTTP+key--> Ingest.Api --> PostgreSQL
+     |
+     |  10 Hz whole field
+     +--------------------> LiveOutbox --WS+key--> +-----------------+
+                            (conflating)           | Web (live hub)  |
+                                                   |  room registry  |--WS (open)--> Dashboard
+   Second gaming PC ------------WS+key------------>|  tower + focus  |
+                                                   +-----------------+
+```
+
+The two paths share only the connector that feeds them, and neither can stall the other. Three
+properties define the live one, and each is the opposite of what the archive path does:
+
+- **Conflating, not buffered.** Every hop keeps the newest frame and drops the rest. A live value
+  is worthless the moment a fresher one exists, so a recovering socket must deliver the current
+  race rather than a replay of where the cars used to be.
+- **In memory, not stored.** No tables, no migrations. The archive path already keeps what is worth
+  keeping forever; a hub restart mid-race costs a reconnect.
+- **Open to read, keyed to write.** Anyone with the link can watch. Publishing needs a key, because
+  a fabricated timing tower is indistinguishable from a real one to the person making a pit call
+  from it.
+
+Two hosts on the server rather than one: the auth postures are opposites, and bulk-COPY transactions
+should not share a process with a latency-sensitive fan-out loop.
+
+Opponent data is scoring-granularity only — position, gaps, lap and sector times, pit state. Pedals,
+tyre pressure and tyre wear exist solely for the car a machine is driving. That asymmetry is why
+several collectors in one session merge into one enriched view rather than competing.
+
 ---
 
 ## Core Design Principles
@@ -564,6 +604,15 @@ work can start before multi-simulator support is finished, and probably will.
 - Canonical telemetry model
 - PostgreSQL storage
 - Background upload and session storage
+
+### In progress — the live dashboard
+
+- Whole-field standings from the connector, and the live wire contracts *(built)*
+- Collector live publishing, independently switchable from archiving *(built)*
+- Live hub: publisher and viewer sockets, room registry, timing tower *(built)*
+- React dashboard: active clients, timing tower, focus panel
+- Merging several collectors in one session into one enriched view
+- Head-to-head comparison and a historical read API
 
 ### In progress — analysis
 

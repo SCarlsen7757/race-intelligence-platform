@@ -24,6 +24,11 @@ developing the pipeline itself and want to see telemetry land in a database.
 # One-time: set the shared secret the collector and API both use.
 dotnet user-secrets set "Parameters:ingest-api-key" "dev-local-only-key" --project src/RaceIntelligence.AppHost
 
+# One-time: the secret the collector presents to the live hub when publishing. A separate key from
+# the ingest one on purpose — the two guard services with different exposure, and the hub is the one
+# meant to be reachable through a tunnel.
+dotnet user-secrets set "Parameters:live-api-key" "dev-local-only-key" --project src/RaceIntelligence.AppHost
+
 # One-time: fix the local Postgres password so it doesn't regenerate on every run — otherwise any
 # external tool (DataGrip, psql, ...) has to be reconfigured each time you restart AppHost.
 dotnet user-secrets set "Parameters:postgres-password" "dev-local-only-password" --project src/RaceIntelligence.AppHost
@@ -31,7 +36,12 @@ dotnet user-secrets set "Parameters:postgres-password" "dev-local-only-password"
 dotnet run --project src/RaceIntelligence.AppHost
 ```
 
-The Aspire dashboard opens in a browser with all three resources. PostgreSQL runs in a container
+The Aspire dashboard opens in a browser with all four resources. The collector publishes live as
+well as archiving here — AppHost sets `Collector__Live__Enabled`, unlike the shipped default —
+because the point of the full graph is to exercise the whole pipeline. The hub's own room list is
+readable at `<web>/api/v1/live/rooms`; the dashboard that renders it arrives in step 5.
+
+PostgreSQL runs in a container
 with a persistent data volume, so telemetry survives restarts — deliberately, since losing a test
 session's data on every restart would make the "raw data is permanent" behaviour impossible to
 exercise. It's also reachable on a fixed host port (`55432`, chosen to avoid colliding with a
@@ -241,6 +251,33 @@ dotnet run --project src/RaceIntelligence.Collector -- --live --no-ingest # publ
 
 With `Live:Enabled` off, the connector doesn't read the simulator's driver array at all, so a
 collector that isn't publishing pays nothing for the feature.
+
+### Live hub settings
+
+The hub (`RaceIntelligence.Web`) binds its own settings from the `Live` section.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `ApiKey` | *(empty)* | **Required.** The key a collector must present to publish. Startup fails without it |
+| `RoomExpiry` | `00:00:30` | How long a session survives with no frames before the hub forgets it |
+| `RoomSweepInterval` | `00:00:05` | How often expired rooms are swept |
+| `MaxPublisherMessageBytes` | `524288` | Largest frame accepted from a collector |
+
+Two endpoints, with deliberately opposite auth:
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /live/publish` (WebSocket) | `X-Api-Key` | A collector publishes its session |
+| `GET /live/view` (WebSocket) | **none** | A race engineer watches |
+| `GET /api/v1/live/rooms` | **none** | The room list as JSON, identical to what the socket sends |
+
+Publishing is gated and viewing is not because the risks are opposite: a viewer can only read what
+someone chose to publish, while a publisher injects the data every race engineer is making decisions
+from — and a fabricated timing tower looks exactly like a real one.
+
+`RoomExpiry` is measured from the **last frame**, not from the last publisher disconnecting. That
+gap is what lets a collector whose socket drops mid-race rejoin the room it was already in, keeping
+its room id and every viewer's subscription intact across the reconnect.
 
 ---
 
