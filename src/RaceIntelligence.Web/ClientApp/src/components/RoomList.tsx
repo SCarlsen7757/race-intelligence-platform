@@ -33,7 +33,7 @@ export function RoomList({ rooms, connected, onWatch }: RoomListProps) {
             </div>
 
             <div className="room__meta">
-              <span className="pill">{formatSessionType(room.sessionType)}</span>
+              <span className="pill">{formatSessionType(room.gameKey, room.sessionType)}</span>
               <span className="pill pill--muted">{room.gameKey}</span>
               <span className="room__drivers">
                 {room.driverCount} {room.driverCount === 1 ? 'car' : 'cars'}

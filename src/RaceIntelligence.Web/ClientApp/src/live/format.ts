@@ -129,21 +129,36 @@ export function formatAge(isoUtc: string, now: number = Date.now()): string {
 /**
  * Session type names.
  *
- * Mirrors the canonical `SessionType` enum, not any simulator's own numbering — the connector has
- * already interpreted it, which is precisely what lets this take no game key. A second simulator
- * needs no change here.
+ * **Takes a game key because the value is the simulator's own raw code, not the canonical
+ * `SessionType` numbering.** The connector deliberately passes `session_type` through
+ * uninterpreted — translating it belongs to a layer that knows which simulator produced it, and
+ * this is that layer.
+ *
+ * The failure mode if this is read as canonical is quiet and convincing: RaceRoom's 0 is practice
+ * where canonical 0 is unknown, so every label shifts by one and a race reports as qualifying.
+ * Nothing on screen looks broken. A live session at Daytona is what caught it.
  */
-export function formatSessionType(sessionType: number): string {
-  switch (sessionType) {
-    case 1:
-      return 'Practice';
-    case 2:
-      return 'Qualifying';
-    case 3:
-      return 'Race';
-    case 4:
-      return 'Warmup';
-    default:
-      return 'Session';
+export function formatSessionType(gameKey: string, sessionType: number): string {
+  // -1 is RaceRoom's "not available", and is the only value shared across every simulator here.
+  if (sessionType < 0) {
+    return 'Session';
   }
+
+  if (gameKey === 'raceroom') {
+    switch (sessionType) {
+      case 0:
+        return 'Practice';
+      case 1:
+        return 'Qualifying';
+      case 2:
+        return 'Race';
+      case 3:
+        return 'Warmup';
+      default:
+        return 'Session';
+    }
+  }
+
+  // An unrecognised simulator gets no guess. Naming a session wrongly is worse than not naming it.
+  return 'Session';
 }

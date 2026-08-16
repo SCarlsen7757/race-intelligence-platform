@@ -9,7 +9,7 @@ function room(overrides: Partial<LiveRoomSummary> = {}): LiveRoomSummary {
     gameKey: 'raceroom',
     trackName: 'Spa',
     layoutName: 'Grand Prix',
-    sessionType: 3,
+    sessionType: 2,
     driverCount: 12,
     publishers: [
       {

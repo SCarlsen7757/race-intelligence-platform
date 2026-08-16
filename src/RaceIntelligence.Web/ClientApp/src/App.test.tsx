@@ -53,7 +53,7 @@ const roomList: LiveViewMessage = {
       gameKey: 'raceroom',
       trackName: 'Spa',
       layoutName: 'Grand Prix',
-      sessionType: 3,
+      sessionType: 2,
       driverCount: 2,
       publishers: [
         {

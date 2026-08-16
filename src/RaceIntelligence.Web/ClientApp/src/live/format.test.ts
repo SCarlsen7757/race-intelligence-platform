@@ -75,23 +75,30 @@ describe('formatSpeed', () => {
 });
 
 /**
- * Mirrors the canonical SessionType enum, not RaceRoom's own numbering — the connector has already
- * interpreted it. Getting this wrong labels every race as qualifying, which is the kind of error
- * nobody questions because the screen looks fine.
+ * The value is RaceRoom's own raw code, not the canonical SessionType numbering — the connector
+ * passes session_type through uninterpreted. Reading it as canonical shifts every label by one and
+ * reports a race as qualifying, which looks entirely normal on screen.
  */
 describe('formatSessionType', () => {
   it.each([
-    [1, 'Practice'],
-    [2, 'Qualifying'],
-    [3, 'Race'],
-    [4, 'Warmup'],
-  ])('maps canonical session type %i to %s', (value, expected) => {
-    expect(formatSessionType(value)).toBe(expected);
+    [0, 'Practice'],
+    [1, 'Qualifying'],
+    [2, 'Race'],
+    [3, 'Warmup'],
+  ])("maps RaceRoom's raw session type %i to %s", (value, expected) => {
+    expect(formatSessionType('raceroom', value)).toBe(expected);
+  });
+
+  it("renders RaceRoom's -1 sentinel as unnamed rather than as a session type", () => {
+    expect(formatSessionType('raceroom', -1)).toBe('Session');
+  });
+
+  it('does not guess for a simulator whose numbering it does not know', () => {
+    expect(formatSessionType('some-other-sim', 2)).toBe('Session');
   });
 
   it('falls back for an unknown value rather than guessing', () => {
-    expect(formatSessionType(0)).toBe('Session');
-    expect(formatSessionType(99)).toBe('Session');
+    expect(formatSessionType('raceroom', 99)).toBe('Session');
   });
 });
 
