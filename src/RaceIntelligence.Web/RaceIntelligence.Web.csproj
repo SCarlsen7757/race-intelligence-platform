@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RaceIntelligence.Live.Contracts\RaceIntelligence.Live.Contracts.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.ServiceDefaults\RaceIntelligence.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <!-- Microsoft.Extensions.Options.DataAnnotations is part of the shared framework the Web SDK
+       targets, so ValidateDataAnnotations() needs no package reference here. -->
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+</Project>

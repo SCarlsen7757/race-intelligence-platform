@@ -12,6 +12,7 @@
     <Project Path="src/RaceIntelligence.AppHost/RaceIntelligence.AppHost.csproj" />
     <Project Path="src/RaceIntelligence.Collector/RaceIntelligence.Collector.csproj" />
     <Project Path="src/RaceIntelligence.Ingest.Api/RaceIntelligence.Ingest.Api.csproj" />
+    <Project Path="src/RaceIntelligence.Web/RaceIntelligence.Web.csproj" />
   </Folder>
   <Folder Name="/Infrastructure/">
     <Project Path="src/RaceIntelligence.Connectors.RaceRoom/RaceIntelligence.Connectors.RaceRoom.csproj" />
@@ -30,5 +31,6 @@
     <Project Path="tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Persistence.Tests/RaceIntelligence.Persistence.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Web.Tests/RaceIntelligence.Web.Tests.csproj" />
   </Folder>
 </Solution>
