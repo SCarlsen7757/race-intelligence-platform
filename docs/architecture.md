@@ -610,9 +610,11 @@ work can start before multi-simulator support is finished, and probably will.
 - Whole-field standings from the connector, and the live wire contracts *(built)*
 - Collector live publishing, independently switchable from archiving *(built)*
 - Live hub: publisher and viewer sockets, room registry, timing tower *(built)*
-- React dashboard: active clients, timing tower, focus panel
+- React dashboard: active clients, timing tower, focus panel *(built)*
 - Merging several collectors in one session into one enriched view
 - Head-to-head comparison and a historical read API
+- RaceRoom-specific channels on the live wire: push-to-pass, DRS, virtual energy, cut-track
+  warnings, tyre subtype, pit menu state
 
 ### In progress — analysis
 

@@ -281,6 +281,55 @@ its room id and every viewer's subscription intact across the reconnect.
 
 ---
 
+## The dashboard
+
+The React dashboard lives in `src/RaceIntelligence.Web/ClientApp/` and is served by the hub itself,
+so there is one origin, one tunnel, and no API address to configure — the page opens its socket
+back to wherever it was loaded from.
+
+### Working on it
+
+```powershell
+# Terminal 1 — the hub.
+dotnet run --project src/RaceIntelligence.Web --launch-profile http
+
+# Terminal 2 — Vite, with hot reload. Proxies /api and /live to the hub above.
+cd src/RaceIntelligence.Web/ClientApp
+npm install
+npm run dev      # http://localhost:5173
+```
+
+Open `http://localhost:5173` while developing the UI. `dotnet run` alone serves `wwwroot`, which is
+whatever `npm run build` last produced — fine for checking the real bundle, no use for iterating.
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Vite dev server with hot reload, proxying to the hub |
+| `npm run build` | Typecheck, then build into `../wwwroot` |
+| `npm run typecheck` | Types only |
+| `npm test` | Vitest |
+
+`wwwroot/` and `node_modules/` are generated and gitignored. **`dotnet publish` builds the
+dashboard automatically** (`npm ci && npm run build`) and includes it in the output; a plain
+`dotnet build` does not, because a `dotnet test` run has no use for a bundle and would pay seconds
+for it every time. Set `-p:SkipClientAppBuild=true` to publish the hub without Node installed.
+
+### How it stays fast
+
+The focus stream runs at the collector's full poll rate, and **that data never goes through React
+state**. The socket writes into a plain store; the focus panel reads it from one
+`requestAnimationFrame` loop and paints to canvas via uPlot. React state holds only the
+slow-changing half — the room list, the tower, errors. A `setState` per focus frame would mean a
+render cycle 60 times a second, which drops frames on a laptop well before it does on a desktop.
+
+### Testing without RaceRoom
+
+The dashboard needs a publisher, not a simulator. Anything that speaks the live contracts works —
+the collector itself with `--live`, or a small harness posting synthetic frames. That is how the
+tower and focus panel were exercised on a machine with no game installed.
+
+---
+
 ## Tests
 
 ```powershell
