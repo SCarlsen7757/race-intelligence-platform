@@ -24,10 +24,13 @@ public class TelemetryUploadServiceTests
         var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var collectorOptions = Options.Create(new CollectorOptions
         {
-            IngestBaseUrl = "https://localhost/",
-            ApiKey = "key",
-            MaxBatchSize = 500,
-            MaxBatchAge = TimeSpan.FromSeconds(2),
+            Ingest = new IngestOptions
+            {
+                BaseUrl = "https://localhost/",
+                ApiKey = "key",
+                MaxBatchSize = 500,
+                MaxBatchAge = TimeSpan.FromSeconds(2),
+            },
         });
 
         await using var buffer = CreateBuffer();
@@ -69,10 +72,13 @@ public class TelemetryUploadServiceTests
         var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var collectorOptions = Options.Create(new CollectorOptions
         {
-            IngestBaseUrl = "https://localhost/",
-            ApiKey = "key",
-            MaxBatchSize = 3,
-            MaxBatchAge = TimeSpan.FromMinutes(10), // deliberately long: the clock is never advanced.
+            Ingest = new IngestOptions
+            {
+                BaseUrl = "https://localhost/",
+                ApiKey = "key",
+                MaxBatchSize = 3,
+                MaxBatchAge = TimeSpan.FromMinutes(10), // deliberately long: the clock is never advanced.
+            },
         });
 
         await using var buffer = CreateBuffer();
@@ -110,10 +116,13 @@ public class TelemetryUploadServiceTests
         var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var collectorOptions = Options.Create(new CollectorOptions
         {
-            IngestBaseUrl = "https://localhost/",
-            ApiKey = "key",
-            MaxBatchSize = 500,
-            MaxBatchAge = TimeSpan.FromMinutes(10),
+            Ingest = new IngestOptions
+            {
+                BaseUrl = "https://localhost/",
+                ApiKey = "key",
+                MaxBatchSize = 500,
+                MaxBatchAge = TimeSpan.FromMinutes(10),
+            },
         });
 
         await using var buffer = CreateBuffer();
@@ -157,10 +166,13 @@ public class TelemetryUploadServiceTests
         var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var collectorOptions = Options.Create(new CollectorOptions
         {
-            IngestBaseUrl = "https://localhost/",
-            ApiKey = "key",
-            MaxBatchSize = 2,
-            MaxBatchAge = TimeSpan.FromMinutes(10),
+            Ingest = new IngestOptions
+            {
+                BaseUrl = "https://localhost/",
+                ApiKey = "key",
+                MaxBatchSize = 2,
+                MaxBatchAge = TimeSpan.FromMinutes(10),
+            },
         });
 
         await using var buffer = CreateBuffer();
@@ -213,10 +225,13 @@ public class TelemetryUploadServiceTests
         var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var collectorOptions = Options.Create(new CollectorOptions
         {
-            IngestBaseUrl = "https://localhost/",
-            ApiKey = "key",
-            MaxBatchSize = 500, // never reached
-            MaxBatchAge = TimeSpan.FromMinutes(10), // never reached: the clock is never advanced
+            Ingest = new IngestOptions
+            {
+                BaseUrl = "https://localhost/",
+                ApiKey = "key",
+                MaxBatchSize = 500, // never reached
+                MaxBatchAge = TimeSpan.FromMinutes(10), // never reached: the clock is never advanced
+            },
         });
 
         await using var buffer = CreateBuffer();
@@ -249,10 +264,13 @@ public class TelemetryUploadServiceTests
         var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var collectorOptions = Options.Create(new CollectorOptions
         {
-            IngestBaseUrl = "https://localhost/",
-            ApiKey = "key",
-            MaxBatchSize = 500,
-            MaxBatchAge = TimeSpan.FromMinutes(10),
+            Ingest = new IngestOptions
+            {
+                BaseUrl = "https://localhost/",
+                ApiKey = "key",
+                MaxBatchSize = 500,
+                MaxBatchAge = TimeSpan.FromMinutes(10),
+            },
         });
 
         await using var buffer = CreateBuffer();

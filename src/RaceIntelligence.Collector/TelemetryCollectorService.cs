@@ -1,7 +1,10 @@
+using RaceIntelligence.Collector.Live;
 using RaceIntelligence.Collector.Mapping;
 using RaceIntelligence.Collector.Upload;
 using RaceIntelligence.Core.Buffering;
+using RaceIntelligence.Core.Sessions;
 using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Live.Contracts;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -36,6 +39,7 @@ public sealed class TelemetryCollectorService(
     ITelemetrySource telemetrySource,
     ITelemetryBuffer buffer,
     IIngestClient ingestClient,
+    ILiveOutbox liveOutbox,
     OpenBatchTracker openBatch,
     TimeProvider timeProvider,
     ILogger<TelemetryCollectorService> logger) : BackgroundService
@@ -46,6 +50,23 @@ public sealed class TelemetryCollectorService(
     private static readonly TimeSpan FlushPollInterval = TimeSpan.FromMilliseconds(50);
 
     private Guid? _currentSessionId;
+
+    /// <summary>
+    /// The current session's driver identity, carried so live frames for the local car can say
+    /// whose they are. A <see cref="TelemetrySample"/> describes a car; only the session knows the
+    /// driver in it.
+    /// </summary>
+    private string? _currentSimDriverId;
+
+    /// <summary>
+    /// The roster fingerprint last announced to the hub. Tracked so the session is re-announced
+    /// when the field changes materially — the hub matches clients into one room by roster overlap,
+    /// and an announcement made before anybody had loaded in carries no roster at all.
+    /// </summary>
+    private string _announcedRosterFingerprint = string.Empty;
+
+    /// <summary>The session as first announced, kept so a roster change can be re-announced against it.</summary>
+    private SessionInfo? _currentSession;
 
     /// <summary>
     /// The in-flight end-of-session completion (drain wait plus PATCH), kept off the poll loop.
@@ -112,6 +133,7 @@ public sealed class TelemetryCollectorService(
     {
         SessionStarted started => HandleSessionStartedAsync(started, cancellationToken),
         TelemetrySampleReceived sample => HandleSampleReceived(sample, cancellationToken),
+        StandingsUpdated standings => HandleStandingsUpdated(standings),
         LapCompleted lap => HandleLapCompletedAsync(lap, cancellationToken),
         SessionEnded ended => HandleSessionEndedAsync(ended, cancellationToken),
         ConnectionStateChanged stateChanged => HandleConnectionStateChanged(stateChanged),
@@ -121,6 +143,14 @@ public sealed class TelemetryCollectorService(
     private async Task HandleSessionStartedAsync(SessionStarted started, CancellationToken cancellationToken)
     {
         _currentSessionId = started.Session.SessionId;
+        _currentSession = started.Session;
+        _currentSimDriverId = started.Session.SimDriverId;
+        _announcedRosterFingerprint = string.Empty;
+
+        // Announced before the ingest call, and not conditional on it. The two paths are
+        // independent by design: an ingest API that is down must not also take the live view with
+        // it, and vice versa. This call cannot throw or block.
+        liveOutbox.PublishSessionStarted(started.Session, _announcedRosterFingerprint, rosterSize: 0);
 
         var request = CollectorRequestMapper.ToSessionCreateRequest(started.Session);
         await ingestClient.CreateSessionAsync(request, cancellationToken).ConfigureAwait(false);
@@ -148,6 +178,33 @@ public sealed class TelemetryCollectorService(
         // the only thing that lets shutdown unpark it.
         _ = buffer.TryWrite(sample, cancellationToken);
 
+        // After the buffer, so a live path that somehow misbehaved could not delay the archive. The
+        // outbox conflates rather than queues, so this neither blocks nor grows.
+        liveOutbox.PublishSelf(sample, _currentSimDriverId);
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Forwards the observed view of the field to the live path. Nothing archives it — standings are
+    /// live-only, so this event has no ingest counterpart.
+    /// </summary>
+    private Task HandleStandingsUpdated(StandingsUpdated standingsUpdated)
+    {
+        var standings = standingsUpdated.Standings;
+        liveOutbox.PublishStandings(standings);
+
+        // Re-announce the session when the field has changed enough to move the fingerprint. The
+        // hub decides which clients belong in one room from roster overlap, and the announcement
+        // made at session start was necessarily empty — nobody had loaded in yet.
+        string fingerprint = LiveRosterFingerprint.Compute(standings.Drivers);
+        if (!string.Equals(fingerprint, _announcedRosterFingerprint, StringComparison.Ordinal)
+            && _currentSession is { } session)
+        {
+            _announcedRosterFingerprint = fingerprint;
+            liveOutbox.PublishSessionStarted(session, fingerprint, standings.Drivers.Count);
+        }
+
         return Task.CompletedTask;
     }
 
@@ -174,7 +231,16 @@ public sealed class TelemetryCollectorService(
         if (_currentSessionId == sessionEnded.SessionId)
         {
             _currentSessionId = null;
+            _currentSession = null;
+            _currentSimDriverId = null;
+            _announcedRosterFingerprint = string.Empty;
         }
+
+        // Immediately, not after the drain below: the drain exists so the archive's tail samples
+        // land before the session is marked ended server-side, and the live view has no tail to
+        // wait for. Telling the hub now is what stops a finished session sitting in the dashboard
+        // until its room times out.
+        liveOutbox.PublishSessionEnded(sessionEnded.SessionId, reason: null);
 
         var previous = _sessionEndCompletion;
         _sessionEndCompletion = CompleteSessionAsync(previous, sessionEnded, cancellationToken);

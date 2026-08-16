@@ -20,6 +20,7 @@
     <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
     <ProjectReference Include="..\RaceIntelligence.Connectors.RaceRoom\RaceIntelligence.Connectors.RaceRoom.csproj" />
     <ProjectReference Include="..\RaceIntelligence.Ingest.Contracts\RaceIntelligence.Ingest.Contracts.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Live.Contracts\RaceIntelligence.Live.Contracts.csproj" />
     <ProjectReference Include="..\RaceIntelligence.ServiceDefaults\RaceIntelligence.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>

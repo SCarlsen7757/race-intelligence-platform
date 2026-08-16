@@ -54,13 +54,21 @@ dotnet run --project src/RaceIntelligence.Collector
 Point it at the server by overriding two settings — environment variables are easiest:
 
 ```powershell
-$env:Collector__IngestBaseUrl = "https://home-server:5443/"
-$env:Collector__ApiKey        = "<the server's Ingest__ApiKey value>"
+$env:Collector__Ingest__BaseUrl = "https://home-server:5443/"
+$env:Collector__Ingest__ApiKey  = "<the server's Ingest__ApiKey value>"
 dotnet run --project src/RaceIntelligence.Collector
 ```
 
-`IngestBaseUrl` **must end in a trailing slash** or the relative request paths won't combine
+`Ingest:BaseUrl` **must end in a trailing slash** or the relative request paths won't combine
 correctly with `HttpClient.BaseAddress`.
+
+To also publish a live view for a race engineer to watch, add the hub and pass `--live`:
+
+```powershell
+$env:Collector__Live__BaseUrl = "https://home-server:5444/"
+$env:Collector__Live__ApiKey  = "<the hub's publish key>"
+dotnet run --project src/RaceIntelligence.Collector -- --live
+```
 
 ## Option C — API and collector separately, no Aspire
 
@@ -90,7 +98,7 @@ collector at the API's `https` launch profile URL yourself — see
 `src/RaceIntelligence.Ingest.Api/Properties/launchSettings.json` for the port:
 
 ```powershell
-$env:Collector__IngestBaseUrl = "https://localhost:<https-port-from-launchSettings>/"
+$env:Collector__Ingest__BaseUrl = "https://localhost:<https-port-from-launchSettings>/"
 ```
 
 ---
@@ -188,18 +196,51 @@ session.
 Collector settings bind from the `Collector` section. They're validated on startup, so a bad value
 fails immediately rather than silently dropping telemetry mid-race.
 
+The collector does two independent jobs and either can run without the other:
+
+- **Ingest** — archives telemetry to the ingest API for permanent storage. On by default.
+- **Live** — publishes a live view to the dashboard hub for a race engineer to watch. Off by
+  default, because it sends this machine's session somewhere other people can see it.
+
+Enabling neither fails at startup: the collector would read the simulator and do nothing with it.
+
 | Setting | Default | Notes |
 |---|---|---|
-| `IngestBaseUrl` | `https://localhost:5443/` | Trailing slash required |
-| `ApiKey` | *(empty)* | Required. Sent as the `X-Api-Key` header |
-| `PollInterval` | `00:00:00.0166667` | 60 Hz |
-| `BufferCapacity` | `20000` | Samples held before `BufferFullMode` applies |
-| `BufferFullMode` | `Wait` | `Wait` or `DropWrite` |
-| `MaxBatchSize` | `500` | Flush trigger by size |
-| `MaxBatchAge` | `00:00:02` | Flush trigger by age |
+| `PollInterval` | `00:00:00.0166667` | 60 Hz. Feeds both jobs |
+| `Ingest:Enabled` | `true` | Archive to the ingest API |
+| `Ingest:BaseUrl` | `https://localhost:5443/` | Trailing slash required |
+| `Ingest:ApiKey` | *(empty)* | Required when enabled. Sent as `X-Api-Key` |
+| `Ingest:BufferCapacity` | `20000` | Samples held before `BufferFullMode` applies |
+| `Ingest:BufferFullMode` | `Wait` | `Wait` or `DropWrite` |
+| `Ingest:MaxBatchSize` | `500` | Flush trigger by size |
+| `Ingest:MaxBatchAge` | `00:00:02` | Flush trigger by age |
+| `Live:Enabled` | `false` | Publish to the dashboard hub |
+| `Live:BaseUrl` | `https://localhost:5444/` | `http`/`https`, not `ws` — the scheme is switched when the socket opens |
+| `Live:ApiKey` | *(empty)* | Required when enabled. Viewing the dashboard is open; publishing is not |
+| `Live:ClientId` | *(generated)* | Set once per machine so a restart isn't a new client |
+| `Live:ClientName` | *(machine name)* | Label shown in the dashboard's client list |
+| `Live:StandingsInterval` | `00:00:00.100` | 10 Hz timing tower. Must not be shorter than `PollInterval` |
+| `Live:ReconnectDelay` | `00:00:01` | First backoff after the socket drops |
+| `Live:MaxReconnectDelay` | `00:00:30` | Backoff ceiling |
 
-Override any of them with `Collector__<Name>` as an environment variable, or via user secrets on the
-gaming PC. **Don't put a real API key in `appsettings.json`.**
+Override any of them with `Collector__<Block>__<Name>` as an environment variable (e.g.
+`Collector__Live__ApiKey`), or via user secrets on the gaming PC. **Don't put a real API key in
+`appsettings.json`.**
+
+Either job can also be switched from the command line, which is the quickest way to change your
+mind for one run:
+
+```powershell
+dotnet run --project src/RaceIntelligence.Collector -- --live             # archive and publish
+dotnet run --project src/RaceIntelligence.Collector -- --live --no-ingest # publish only
+```
+
+`--live`, `--no-live`, `--ingest` and `--no-ingest` are shorthands for the corresponding
+`Collector:<Block>:Enabled` key. Anything without a shorthand still takes the long form —
+`--Collector:Live:StandingsInterval 00:00:00.2`.
+
+With `Live:Enabled` off, the connector doesn't read the simulator's driver array at all, so a
+collector that isn't publishing pays nothing for the feature.
 
 ---
 
