@@ -71,6 +71,7 @@ jobs:
           dotnet test tests/RaceIntelligence.Collector.Tests/RaceIntelligence.Collector.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Persistence.Tests/RaceIntelligence.Persistence.Tests.csproj --configuration Release
 
   # The RaceRoom connector reads the sim's shared memory through a *named* memory-mapped file
