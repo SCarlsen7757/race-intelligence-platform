@@ -68,8 +68,10 @@ public sealed record RoomListMessage(IReadOnlyList<LiveRoomSummary> Rooms) : Liv
 /// <param name="TrackName">Track name as the simulator reports it.</param>
 /// <param name="LayoutName">Layout name as the simulator reports it.</param>
 /// <param name="SessionType">
-/// The canonical <see cref="RaceIntelligence.Core.Sessions.SessionType"/> as an integer, so the
-/// dashboard can label a session without knowing which simulator produced it.
+/// The simulator's own raw session type value, uninterpreted — <b>not</b> the canonical
+/// <see cref="RaceIntelligence.Core.Sessions.SessionType"/> numbering. Interpret it against
+/// <see cref="LiveRoomSummary.GameKey"/>; RaceRoom's 0 is practice, where the canonical 0 is
+/// unknown.
 /// </param>
 /// <param name="DriverCount">Cars in the session, however many clients it took to see them.</param>
 /// <param name="Publishers">The clients feeding this room.</param>

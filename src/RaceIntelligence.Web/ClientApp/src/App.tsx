@@ -50,7 +50,7 @@ export function App() {
               ← All sessions
             </button>
             <span className="app__session">
-              {room.trackName} · {room.layoutName} · {formatSessionType(room.sessionType)}
+              {room.trackName} · {room.layoutName} · {formatSessionType(room.gameKey, room.sessionType)}
             </span>
           </nav>
         )}

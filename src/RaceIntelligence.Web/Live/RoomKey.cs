@@ -23,7 +23,7 @@ namespace RaceIntelligence.Web.Live;
 /// <param name="GameKey">Which simulator.</param>
 /// <param name="TrackName">Track name as the simulator reports it.</param>
 /// <param name="LayoutName">Layout name as the simulator reports it.</param>
-/// <param name="SessionType">The canonical <see cref="RaceIntelligence.Core.Sessions.SessionType"/> as an integer.</param>
+/// <param name="SessionType">The simulator's own raw session type value, uninterpreted.</param>
 /// <param name="SessionIteration">Which session of this type it is.</param>
 public readonly record struct RoomKey(
     string GameKey,

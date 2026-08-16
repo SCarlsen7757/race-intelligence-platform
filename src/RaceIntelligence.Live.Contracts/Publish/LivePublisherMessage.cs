@@ -72,10 +72,16 @@ public sealed record LiveHello(
 /// <param name="LayoutName">Layout name as the simulator reports it.</param>
 /// <param name="LayoutLengthMeters">Lap length, when reported.</param>
 /// <param name="SessionType">
-/// The canonical <see cref="RaceIntelligence.Core.Sessions.SessionType"/> as an integer — the
-/// connector's interpretation, not the simulator's raw code. Practice means practice whichever
-/// simulator produced it, which is what lets the dashboard label a session without knowing the
-/// game.
+/// <b>The simulator's own raw session type value, uninterpreted.</b> It arrives here typed as
+/// <see cref="RaceIntelligence.Core.Sessions.SessionType"/>, but the connector deliberately does
+/// not translate RaceRoom's numbering into the canonical enum's — see the remarks on
+/// <c>R3ETelemetryMapper.ToSessionInfo</c>. The enum is a carrier for the raw int, not a
+/// conversion of it, so RaceRoom's 0 is practice while the canonical 0 is unknown.
+/// <para>
+/// Anything rendering this therefore has to interpret it against <paramref name="GameKey"/>.
+/// Reading it as canonical shifts every label by one, which looks entirely plausible on screen —
+/// a race reported as qualifying — and is why this is spelled out rather than left to the type.
+/// </para>
 /// </param>
 /// <param name="SessionIteration">Which session of this type it is (first qualifying, second, ...).</param>
 /// <param name="StartedAtUtc">When the client observed the session start.</param>
