@@ -19,6 +19,7 @@
     <Project Path="src/RaceIntelligence.Persistence/RaceIntelligence.Persistence.csproj" />
   </Folder>
   <Folder Name="/Shared/">
+    <Project Path="src/RaceIntelligence.Collector.Abstractions/RaceIntelligence.Collector.Abstractions.csproj" />
     <Project Path="src/RaceIntelligence.Ingest.Contracts/RaceIntelligence.Ingest.Contracts.csproj" />
     <Project Path="src/RaceIntelligence.Live.Contracts/RaceIntelligence.Live.Contracts.csproj" />
     <Project Path="src/RaceIntelligence.ServiceDefaults/RaceIntelligence.ServiceDefaults.csproj" />
