@@ -16,6 +16,13 @@ namespace RaceIntelligence.Ingest.Contracts;
 public static class SchemaVersion
 {
     /// <summary>The current, and so far only, supported schema version.</summary>
+    /// <remarks>
+    /// <b>Pinned at 1 until the project is released.</b> The argument above is about permanence,
+    /// and nothing is permanent yet: there is no release tag, no deployment, and no archive whose
+    /// rows have to stay readable across a change. So the DTO shape changes in place and this does
+    /// not move. From <c>v1.0.0</c> it starts stepping with the changelog, exactly as described
+    /// above — see <c>CLAUDE.md</c> for the project-wide rule.
+    /// </remarks>
     public const int Current = 1;
 
     /// <summary>

@@ -39,6 +39,14 @@ public sealed class PublisherSessionTests
     /// this hub does not understand is told immediately and with a reason — instead of appearing to
     /// connect and then silently publishing nothing.
     /// </summary>
+    /// <remarks>
+    /// The mismatch this actually catches before the project ships is a stale process: a collector
+    /// left running from an earlier build, against a hub that has since moved on. The wire shape is
+    /// free to change in place while nothing is deployed (see the versioning rule in CLAUDE.md), so
+    /// the handshake is what turns that into a named refusal rather than a decode error mid-race.
+    /// The refusal therefore has to name <b>both</b> versions, or it says only that something is
+    /// wrong and not which side is behind.
+    /// </remarks>
     [Fact]
     public async Task A_client_speaking_an_unsupported_schema_is_refused_with_a_reason()
     {
@@ -50,29 +58,8 @@ public sealed class PublisherSessionTests
         await hub.CreatePublisherSession().RunAsync(socket, TestContext.Current.CancellationToken);
 
         socket.ClosedWith.ShouldBe(WebSocketCloseStatus.PolicyViolation);
-        socket.CloseDescription.ShouldNotBeNull().ShouldContain("99");
-        hub.Rooms.Count.ShouldBe(0);
-    }
-
-    /// <summary>
-    /// The specific mismatch the schema bump to 2 exists to catch. A version 1 collector's frames
-    /// would decode against this hub right up until it sent an extras frame, whose union key it has
-    /// no member for — so the failure is moved forward into the handshake, where it names both
-    /// versions instead of arriving as a decode error mid-race.
-    /// </summary>
-    [Fact]
-    public async Task A_version_1_collector_is_refused_by_a_version_2_hub()
-    {
-        var hub = new LiveHubFixture();
-        var socket = new FakeLiveSocket();
-
-        socket.Push(LiveDtoFactory.Hello(schemaVersion: 1));
-
-        await hub.CreatePublisherSession().RunAsync(socket, TestContext.Current.CancellationToken);
-
-        socket.ClosedWith.ShouldBe(WebSocketCloseStatus.PolicyViolation);
         socket.CloseDescription.ShouldNotBeNull()
-            .ShouldContain("1", Case.Sensitive, "the refusal names the version the client speaks");
+            .ShouldContain("99", Case.Sensitive, "the refusal names the version the client speaks");
         socket.CloseDescription.ShouldContain(
             LiveSchemaVersion.Current.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Case.Sensitive,

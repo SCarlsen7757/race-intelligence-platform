@@ -27,18 +27,26 @@ public static class LiveSchemaVersion
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>2</b> — adds <c>Clutch</c> to <c>LiveSelfFrame</c> (<c>Key(18)</c>) and the
-    /// <c>LiveExtrasFrame</c> union member. A new union member is not a backwards-compatible
-    /// addition: a hub built against version 1 has no entry for key 5 and fails deserialization
-    /// outright, taking the publishing connection down mid-race with a decode error rather than a
-    /// reason. Bumping here moves that failure into the handshake, where it is refused with a
-    /// message naming both versions.
+    /// <b>Pinned at 1, and it stays there until the project is released.</b> Nothing is tagged and
+    /// nothing is deployed, so there is no older collector anywhere for a newer hub to be
+    /// compatible with — every part of this system is built and started from the same commit. A
+    /// version ladder in that situation records history nobody can observe, and each rung is a
+    /// branch to keep working and reason about for a compatibility case that cannot arise.
     /// </para>
     /// <para>
-    /// <b>1</b> — the original tower, focus and session frames.
+    /// So the wire shape changes in place: fields are added, moved and renumbered freely, and the
+    /// version is not bumped for it. The handshake below stays because it costs one comparison and
+    /// turns a stale process left running from an earlier build — the one mismatch that really does
+    /// happen during development — into a refusal that names both versions, rather than a decode
+    /// error mid-race.
+    /// </para>
+    /// <para>
+    /// The first release tag is what ends this. From <c>v1.0.0</c> onwards there are collectors in
+    /// the wild that a hub has to speak to, and this constant starts moving with the changelog to
+    /// match. See <c>CLAUDE.md</c> for the project-wide statement of the same rule.
     /// </para>
     /// </remarks>
-    public const int Current = 2;
+    public const int Current = 1;
 
     /// <summary>
     /// Returns <see langword="true"/> when <paramref name="schemaVersion"/> is a version this hub

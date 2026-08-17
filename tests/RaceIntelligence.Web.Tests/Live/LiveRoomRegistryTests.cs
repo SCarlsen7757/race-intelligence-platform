@@ -241,20 +241,86 @@ public sealed class LiveRoomRegistryTests
     }
 
     /// <summary>
-    /// With no identity from either source there is no tower row to attach the telemetry to, and
-    /// guessing one would show a race engineer another driver's pedal traces under the wrong name.
+    /// With nothing identifying the local car from any source there is no tower row to attach the
+    /// telemetry to, and guessing one would show a race engineer another driver's pedal traces
+    /// under the wrong name.
     /// </summary>
     [Fact]
     public void A_local_car_frame_with_no_identity_anywhere_is_dropped()
     {
         var hub = new LiveHubFixture();
         var identity = LiveDtoFactory.Identity();
-        var room = hub.AnnounceRoom(identity, localSimDriverId: null);
+        var room = hub.AnnounceRoom(
+            identity, localSimDriverId: null, localSlotId: null, playerName: null);
         var viewer = hub.AddViewer(room.RoomId, focusDriverKey: "id:4242");
 
         hub.Rooms.ApplySelf(identity.ClientId, LiveDtoFactory.SelfFrame(simDriverId: null));
 
         viewer.Queue.TryRead().ShouldBeNull();
+    }
+
+    /// <summary>
+    /// An offline session, where the simulator issues no account id at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// RaceRoom reports a user id only for an authenticated online session and writes 0 or -1
+    /// otherwise, so every offline and single-player race announces no local identity. The tower
+    /// row for that car is keyed on its slot, and the local car has to reach the same key or its
+    /// rich telemetry is dropped for want of a row to attach it to.
+    /// </para>
+    /// <para>
+    /// This is the regression that made a whole tier of the dashboard look broken: the timing tower
+    /// carried on updating — it had its own <c>slot:</c> fallback — while the focused car showed no
+    /// pedal inputs, no tyre data and no damage, none of which is obviously the same fault.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_local_car_with_no_identity_is_matched_by_slot_to_its_tower_row()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: null, localSlotId: 3);
+        var viewer = hub.AddViewer(room.RoomId, focusDriverKey: "slot:3");
+
+        hub.Rooms.ApplySelf(identity.ClientId, LiveDtoFactory.SelfFrame(simDriverId: null));
+
+        viewer.Queue.TryRead().ShouldBeOfType<FocusFrameMessage>().DriverKey.ShouldBe("slot:3");
+    }
+
+    /// <summary>Damage rides the same key resolution, so it comes back with the focus stream.</summary>
+    [Fact]
+    public void An_extras_document_from_a_car_with_no_identity_is_matched_by_slot()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: null, localSlotId: 3);
+        var viewer = hub.AddViewer(room.RoomId, focusDriverKey: "slot:3");
+
+        hub.Rooms.ApplyExtras(identity.ClientId, LiveDtoFactory.ExtrasFrame(simDriverId: null));
+
+        viewer.Queue.TryRead().ShouldBeOfType<ExtrasFrameMessage>().DriverKey.ShouldBe("slot:3");
+    }
+
+    /// <summary>
+    /// And the row is marked <see cref="LiveDataTier.Self"/>, so the dashboard offers the focus
+    /// panel at all rather than refusing with <c>noTelemetryForDriver</c>.
+    /// </summary>
+    [Fact]
+    public void A_driver_identified_only_by_slot_is_still_marked_self_in_the_tower()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: null, localSlotId: 2);
+        var viewer = hub.AddViewer(room.RoomId);
+
+        hub.Rooms.ApplyStandings(identity.ClientId, LiveDtoFactory.StandingsFrame(
+            driverCount: 3, useSlotIdsInsteadOfDriverIds: true));
+
+        var tower = viewer.Queue.TryRead().ShouldBeOfType<TowerSnapshotMessage>();
+        tower.Drivers.Single(row => row.DriverKey == "slot:2").Tier.ShouldBe(LiveDataTier.Self);
+        tower.Drivers.Where(row => row.DriverKey != "slot:2")
+            .ShouldAllBe(row => row.Tier == LiveDataTier.Observed);
     }
 
     [Fact]

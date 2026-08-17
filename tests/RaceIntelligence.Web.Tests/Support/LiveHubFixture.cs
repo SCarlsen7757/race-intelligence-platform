@@ -71,14 +71,18 @@ public sealed class LiveHubFixture
         string layout = "Grand Prix",
         int sessionType = 3,
         int sessionIteration = 1,
-        string? localSimDriverId = null)
+        string? localSimDriverId = null,
+        int? localSlotId = null,
+        string? playerName = "Mark")
     {
         Rooms.Announce(identity, LiveDtoFactory.SessionFrame(
             track: track,
             layout: layout,
             sessionType: sessionType,
             sessionIteration: sessionIteration,
-            localSimDriverId: localSimDriverId));
+            localSimDriverId: localSimDriverId,
+            localSlotId: localSlotId,
+            playerName: playerName));
 
         var summary = Rooms.BuildRoomList().Rooms
             .First(room => string.Equals(room.TrackName, track, StringComparison.Ordinal)
@@ -118,7 +122,9 @@ public static class LiveDtoFactory
         int sessionIteration = 1,
         string? localSimDriverId = null,
         string rosterFingerprint = "fingerprint",
-        int rosterSize = 2) =>
+        int rosterSize = 2,
+        int? localSlotId = null,
+        string? playerName = "Mark") =>
         new(
             sessionId ?? Guid.NewGuid(),
             "raceroom",
@@ -128,23 +134,33 @@ public static class LiveDtoFactory
             sessionType,
             sessionIteration,
             DateTimeOffset.Parse("2026-08-16T12:00:00Z", null),
-            PlayerName: "Mark",
+            playerName,
             localSimDriverId,
             rosterFingerprint,
-            rosterSize);
+            rosterSize,
+            localSlotId);
 
     /// <summary>A standings frame whose drivers are numbered 1..<paramref name="driverCount"/>.</summary>
+    /// <param name="useSlotIdsInsteadOfDriverIds">
+    /// Builds the roster the way an offline session arrives — every car identified by slot alone,
+    /// because the simulator issues no account ids outside an authenticated online session. The
+    /// rows then key on <c>slot:</c> rather than <c>id:</c>, which is what the local car has to
+    /// match to get a focus stream.
+    /// </param>
     public static LiveStandingsFrame StandingsFrame(
         Guid? sessionId = null,
         int driverCount = 3,
         string? localSimDriverId = null,
-        DateTimeOffset? capturedAtUtc = null) =>
+        DateTimeOffset? capturedAtUtc = null,
+        bool useSlotIdsInsteadOfDriverIds = false) =>
         new(
             sessionId ?? Guid.NewGuid(),
             capturedAtUtc ?? DateTimeOffset.Parse("2026-08-16T12:00:00Z", null),
             SimulationTime: 42.0,
             localSimDriverId,
-            [.. Enumerable.Range(1, driverCount).Select(i => Driver(simDriverId: i.ToString(), position: i))]);
+            [.. Enumerable.Range(1, driverCount).Select(i => useSlotIdsInsteadOfDriverIds
+                ? Driver(slotId: i, displayName: $"Driver {i}", position: i)
+                : Driver(simDriverId: i.ToString(), position: i))]);
 
     public static LiveDriverDto Driver(
         string? simDriverId = null,
@@ -164,6 +180,7 @@ public static class LiveDtoFactory
             PreviousLapTime = previousLapTime,
             PreviousSectorTimes = previousSectorTimes,
             CurrentLapValid = currentLapValid,
+            PitLaneState = (int)Core.Sessions.PitLaneState.Unavailable,
             PitStopStatus = (int)Core.Sessions.PitStopStatus.Unavailable,
             FinishStatus = (int)DriverFinishStatus.Unavailable,
         };

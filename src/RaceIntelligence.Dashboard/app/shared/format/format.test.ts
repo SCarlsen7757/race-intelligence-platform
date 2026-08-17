@@ -4,6 +4,9 @@ import {
   formatGap,
   formatGear,
   formatLapTime,
+  formatPitLaneState,
+  formatPitStopStatus,
+  isRaceSession,
   formatSector,
   formatSessionType,
   formatSpeed,
@@ -116,5 +119,62 @@ describe('formatAge', () => {
 
   it('does not render a clock skew as a negative age', () => {
     expect(formatAge('2026-08-16T12:00:05Z', now)).toBe('now');
+  });
+});
+
+describe('formatPitLaneState', () => {
+  it.each([
+    [1, 'PIT REQ'],
+    [2, 'PIT IN'],
+    [3, 'IN BOX'],
+    [4, 'PIT OUT'],
+    [5, 'PIT'],
+  ])('names rung %i as %s', (state, expected) => {
+    expect(formatPitLaneState(state)).toBe(expected);
+  });
+
+  /**
+   * A tower marks the exceptions. A car on track has nothing to report, and neither does one whose
+   * simulator declines to say — rendering either would put a pill on every row in the field.
+   */
+  it.each([-1, 0, 99])('says nothing for %i', (state) => {
+    expect(formatPitLaneState(state)).toBe('');
+  });
+
+  /** Ungraded is a weaker claim than entering, and must not be dressed up as one. */
+  it('does not describe an unknown stage as a direction of travel', () => {
+    expect(formatPitLaneState(5)).not.toBe(formatPitLaneState(2));
+  });
+});
+
+describe('formatPitStopStatus', () => {
+  it.each([
+    [0, '2T LEFT'],
+    [1, '4T LEFT'],
+    [2, 'SERVED'],
+  ])('names %i as %s', (status, expected) => {
+    expect(formatPitStopStatus(status)).toBe(expected);
+  });
+
+  it('says nothing for a status the simulator does not report', () => {
+    expect(formatPitStopStatus(-1)).toBe('');
+  });
+});
+
+describe('isRaceSession', () => {
+  it("recognises RaceRoom's race", () => {
+    expect(isRaceSession('raceroom', 2)).toBe(true);
+  });
+
+  it.each([0, 1, 3, -1])('does not mistake RaceRoom session type %i for a race', (sessionType) => {
+    expect(isRaceSession('raceroom', sessionType)).toBe(false);
+  });
+
+  /**
+   * The same trap `formatSessionType` documents: 2 is a race in RaceRoom's own numbering and
+   * something else in the canonical one, so a simulator this does not know gets no guess.
+   */
+  it("does not read another simulator's numbering as RaceRoom's", () => {
+    expect(isRaceSession('some-other-sim', 2)).toBe(false);
   });
 });

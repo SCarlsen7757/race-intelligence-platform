@@ -12,9 +12,15 @@ namespace RaceIntelligence.Live.Contracts.Publish;
 /// added without also being decodable, and there is no switch to forget to update.
 /// </para>
 /// <para>
-/// <b>Union keys are permanent.</b> Reusing one for a different type would make an old client's
-/// frames decode as the wrong message rather than failing cleanly. New message types take the next
-/// free key; retired ones leave their key vacant forever.
+/// <b>Union keys are not permanent yet.</b> Before the first release tag there is no deployed
+/// client for a renumbering to break — hub and collector are built from one commit — so a message
+/// type may be added, removed or renumbered as the shape demands, and
+/// <see cref="LiveSchemaVersion"/> stays at 1 through all of it.
+/// </para>
+/// <para>
+/// From <c>v1.0.0</c> that inverts and keys become permanent: reusing one for a different type
+/// would make a deployed client's frames decode as the wrong message rather than failing cleanly,
+/// so new types would take the next free key and retired ones would leave theirs vacant forever.
 /// </para>
 /// </remarks>
 [Union(0, typeof(LiveHello))]
@@ -91,6 +97,18 @@ public sealed record LiveHello(
 /// The local driver's simulator identity, when known. This is the key by which this client's rich
 /// telemetry is attached to the right row of a merged timing tower.
 /// </param>
+/// <param name="LocalSlotId">
+/// The local car's per-session slot, when known — the fallback for attaching this client's rich
+/// telemetry to a tower row when <paramref name="LocalSimDriverId"/> is absent.
+/// <para>
+/// It is absent for a whole class of session rather than rarely: RaceRoom issues account ids only
+/// to authenticated online sessions and reports 0 or -1 offline, so an offline or single-player
+/// race has no local identity at all. Without this the focus and extras channels resolve to no
+/// tower row and are dropped, and the driver's own car shows no pedals, no tyre data and no
+/// damage while the timing tower — which falls back to <c>slot:</c> keys of its own — carries on
+/// looking healthy.
+/// </para>
+/// </param>
 /// <param name="RosterFingerprint">
 /// A stable hash of the sorted driver identities this client can see. Two clients in the same
 /// server produce the same fingerprint; a key collision between different servers does not.
@@ -109,7 +127,8 @@ public sealed record LiveSessionFrame(
     [property: Key(8)] string? PlayerName,
     [property: Key(9)] string? LocalSimDriverId,
     [property: Key(10)] string RosterFingerprint,
-    [property: Key(11)] int RosterSize) : LivePublisherMessage;
+    [property: Key(11)] int RosterSize,
+    [property: Key(12)] int? LocalSlotId) : LivePublisherMessage;
 
 /// <summary>
 /// A snapshot of every car this client can see — the observed, scoring-granularity view.
@@ -165,9 +184,8 @@ public sealed record LiveStandingsFrame(
 /// <param name="Clutch">
 /// 0 (engaged) to 1 (fully disengaged), or <see langword="null"/> when unreported — the normal case
 /// for a car with an automatic clutch, where a dashboard must draw nothing rather than a bar at
-/// rest. Appended at the end rather than placed beside <paramref name="Brake"/> because union keys
-/// are permanent and the wire position is <c>Key(18)</c> either way; keeping the earlier keys where
-/// they are is what makes the addition readable in a diff.
+/// rest. Sits at the end rather than beside <paramref name="Brake"/> only because that is where it
+/// was added; nothing depends on the position while keys are still free to move.
 /// </param>
 [MessagePackObject]
 public sealed record LiveSelfFrame(

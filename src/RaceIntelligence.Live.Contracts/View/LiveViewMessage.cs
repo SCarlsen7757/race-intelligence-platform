@@ -148,6 +148,11 @@ public sealed record TowerSnapshotMessage(
 /// <param name="GapToCarAheadMs">Gap to the car ahead on track, in milliseconds.</param>
 /// <param name="GapToCarBehindMs">Gap to the car behind on track, in milliseconds.</param>
 /// <param name="InPitLane">Whether the car is in the pit lane.</param>
+/// <param name="PitLaneState">
+/// Where the car is in the act of pitting, as <see cref="RaceIntelligence.Core.Sessions.PitLaneState"/>.
+/// Graded for a car whose own machine is publishing; for everyone else it is what the publisher was
+/// able to infer, down to a bare "in the pit lane".
+/// </param>
 /// <param name="PitStopStatus">Pit stop progress, as <see cref="RaceIntelligence.Core.Sessions.PitStopStatus"/>.</param>
 /// <param name="PitStopCount">Pit stops completed.</param>
 /// <param name="FinishStatus">How the car's session ended, as <see cref="RaceIntelligence.Core.Sessions.DriverFinishStatus"/>.</param>
@@ -178,6 +183,7 @@ public sealed record TowerRow(
     double? GapToCarAheadMs,
     double? GapToCarBehindMs,
     bool? InPitLane,
+    int PitLaneState,
     int PitStopStatus,
     int? PitStopCount,
     int FinishStatus,

@@ -368,8 +368,10 @@ written raw and the sentinel is not translated anywhere upstream, so a panel ren
 undamaged says the car is fine when the truth is that nobody knows.
 
 Publishers declare a `LiveSchemaVersion` in their hello and the hub refuses a version it does not
-speak, naming both. **Version 2** added clutch to the self frame and the extras union member; a
-version 1 collector is refused at the handshake rather than failing to decode mid-race.
+speak, naming both. **It is pinned at 1 and does not move before the first release tag** — nothing
+is deployed, so the wire shape changes in place instead of climbing a version ladder. The handshake
+stays anyway, because it turns a stale process left over from an earlier build into a refusal that
+names both versions rather than a decode error mid-race. See the versioning rule in `CLAUDE.md`.
 
 ---
 

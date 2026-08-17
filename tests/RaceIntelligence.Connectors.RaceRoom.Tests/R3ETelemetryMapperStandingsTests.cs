@@ -132,6 +132,8 @@ public sealed class R3ETelemetryMapperStandingsTests
         standing.GapToCarAhead.ShouldBe(TimeSpan.FromSeconds(1.25f));
         standing.GapToCarBehind.ShouldBe(TimeSpan.FromSeconds(0.75f));
         standing.InPitLane.ShouldBe(true);
+        // No tracker was passed, so the stage is the ungraded reading rather than a guess at one.
+        standing.PitLaneState.ShouldBe(PitLaneState.InPitLane);
         standing.PitStopStatus.ShouldBe(PitStopStatus.FourTyresUnserved);
         standing.PitStopCount.ShouldBe(2);
         standing.FinishStatus.ShouldBe(DriverFinishStatus.None);
@@ -192,5 +194,44 @@ public sealed class R3ETelemetryMapperStandingsTests
         standings.Drivers.Count.ShouldBe(2);
         standings.Drivers[0].SimDriverId.ShouldBe(standings.LocalSimDriverId);
         standings.Drivers.Select(d => d.DisplayName).ShouldBe(["Kimi", "Rival"]);
+    }
+
+    /// <summary>
+    /// The local car's stage comes from the root block, which reports it; every other car's is
+    /// inferred from a flag and a speed. Both land on the same field, and the asymmetry is the
+    /// point — a rival's "entering" is a deduction, the local car's is the simulator's own word.
+    /// </summary>
+    [Fact]
+    public void The_local_car_gets_the_reported_pit_stage_while_rivals_get_an_inferred_one()
+    {
+        var raw = new R3ESharedRawBuilder()
+            .InRaceSession("Spa", "Grand Prix")
+            .Configure((ref R3ESharedRaw r) =>
+            {
+                r.VehicleInfo.UserId = 4242;
+                // 1 = requested stop: still on track, and a rung nothing in the driver array can say.
+                r.PitState = 1;
+            })
+            .Build();
+
+        R3EDriverData[] drivers =
+        [
+            new R3EDriverDataBuilder().WithName("Kimi").WithUserId(4242).WithSlotId(1).WithPlace(1, 1)
+                .WithPitState(inPitlane: 0, pitStopStatus: -1, numPitstops: 0)
+                .WithSpeed(70f)
+                .Build(),
+            new R3EDriverDataBuilder().WithName("Rival").WithUserId(99).WithSlotId(2).WithPlace(2, 2)
+                .WithPitState(inPitlane: 1, pitStopStatus: -1, numPitstops: 0)
+                .WithSpeed(20f)
+                .Build(),
+        ];
+
+        var standings = R3ETelemetryMapper.ToSessionStandings(
+            drivers, in raw, Guid.NewGuid(), DateTimeOffset.UnixEpoch,
+            R3ESectorTimeConvention.Cumulative, new R3EPitLaneTracker());
+
+        standings.Drivers[0].PitLaneState.ShouldBe(PitLaneState.Requested);
+        standings.Drivers[0].InPitLane.ShouldBe(false);
+        standings.Drivers[1].PitLaneState.ShouldBe(PitLaneState.Entering);
     }
 }

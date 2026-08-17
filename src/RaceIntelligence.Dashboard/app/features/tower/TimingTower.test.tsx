@@ -11,6 +11,7 @@ function row(overrides: Partial<TowerRow> = {}): TowerRow {
     currentSectorMs: [],
     previousSectorMs: [],
     bestSectorMs: [],
+    pitLaneState: -1,
     pitStopStatus: -1,
     finishStatus: 0,
     tier: 'Observed',
@@ -180,6 +181,59 @@ describe('TimingTower', () => {
     expect(screen.getByText('PIT')).toBeDefined();
     expect(screen.getByText('2P')).toBeDefined();
     expect(screen.getByText('DNF')).toBeDefined();
+  });
+
+  it('grades the pit lane in a race', () => {
+    renderTower(
+      [
+        row({ driverKey: 'id:1', position: 1, inPitLane: false, pitLaneState: 1 }),
+        row({ driverKey: 'id:2', position: 2, inPitLane: true, pitLaneState: 3, pitStopStatus: 0 }),
+        row({ driverKey: 'id:3', position: 3, inPitLane: true, pitLaneState: 4 }),
+      ],
+      { isRace: true },
+    );
+
+    expect(screen.getByText('PIT REQ')).toBeDefined();
+    expect(screen.getByText('IN BOX')).toBeDefined();
+    expect(screen.getByText('2T LEFT')).toBeDefined();
+    expect(screen.getByText('PIT OUT')).toBeDefined();
+  });
+
+  /**
+   * The rendering this whole column was rebuilt for. RaceRoom leaves `pit_stop_status` at 0 — "two
+   * tyres unserved" — for a full field of cars lapping in practice, and the tower used to put PIT 2T
+   * against every one of them. Nobody is pitting; there is nothing to say.
+   */
+  it('says nothing about pit stops in a session where nobody stops', () => {
+    renderTower([
+      row({ driverKey: 'id:1', position: 1, inPitLane: false, pitLaneState: 0, pitStopStatus: 0 }),
+    ]);
+
+    expect(screen.queryByText(/PIT|LEFT|SERVED/)).toBeNull();
+  });
+
+  /** A car in the garage during practice is still worth marking — just not with a stop's ladder. */
+  it('still says a car is in the pit lane outside a race, and no more than that', () => {
+    renderTower([
+      row({ driverKey: 'id:1', position: 1, inPitLane: true, pitLaneState: 3, pitStopStatus: 1 }),
+    ]);
+
+    expect(screen.getByText('PIT')).toBeDefined();
+    expect(screen.queryByText('IN BOX')).toBeNull();
+    expect(screen.queryByText('4T LEFT')).toBeNull();
+  });
+
+  /**
+   * The status column carries a `td` per row and a `th` above it, and nothing may lay it out as a
+   * flex container: a flex `td` stops generating a table cell, and the anonymous cell the browser
+   * substitutes does not line up with the column the header measured.
+   */
+  it('keeps the status pills inside a real table cell', () => {
+    const { container } = renderTower([row({ driverKey: 'id:1', position: 1, inPitLane: true })]);
+
+    const cell = container.querySelector('td.tower__state');
+    expect(cell).not.toBeNull();
+    expect(cell!.querySelector('.tower__pills')).not.toBeNull();
   });
 
   it('says it is waiting when no timing has arrived yet', () => {

@@ -1,3 +1,32 @@
+## Versioning: no backward compatibility before v1.0.0
+
+This project is pre-release. There are **no git tags**, nothing is deployed, and every process —
+collector, ingest API, live hub, dashboard — is built and started from the same commit. There is no
+older client in the world for a newer server to be compatible with.
+
+So: **do not write backward-compatibility code, and do not bump schema versions.** This holds while
+there are no tags at all, and it keeps holding at `v0.*.*`. Only a `v1.*.*` tag ends it.
+
+Rules:
+
+- `LiveSchemaVersion.Current` and `Ingest.Contracts.SchemaVersion.Current` both stay at **1**.
+  Changing a wire shape is not a reason to bump either one.
+- Change contracts **in place**. Add, remove, rename, reorder and renumber fields as the design
+  wants — including MessagePack `Key(n)` and `Union(n)` numbers. Nothing has to stay where it is.
+- Do not add migration shims, tolerant readers, defaulted "for older clients" parameters, or
+  `if (version < n)` branches. Do not keep a field alive only so an old payload still parses.
+- Do not write changelog-style version-history docs on these constants. The git history is the
+  history; a ladder of versions nobody can be running is documentation of a fiction.
+- The version **handshakes** themselves stay (`IsSupported`, the hello check, the HTTP 400). They
+  are one comparison each and they catch the mismatch that genuinely happens in development — a
+  stale process still running from an earlier build — turning it into a named refusal instead of a
+  decode error mid-race.
+- Databases follow the same rule: prefer editing an existing EF Core migration and recreating the
+  local database over stacking a corrective migration, unless there is data worth keeping.
+
+When the first `v1.0.0` tag exists, this section stops applying: from then on, deployed collectors
+have to keep talking to the hub, and both schema versions start stepping with real changelogs.
+
 ## graphify
 
 This project uses a graphify knowledge graph — god nodes, community structure, and cross-file

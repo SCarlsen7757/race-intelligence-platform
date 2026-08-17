@@ -150,12 +150,7 @@ public sealed class LiveRoom
 
             _lastUpdatedAtUtc = nowUtc;
 
-            // The frame's own id first, falling back to the one announced for the session: a self
-            // frame is captured from the local car every poll, whereas the announcement is the
-            // considered answer to "who am I" made once when the session started.
-            string? driverKey =
-                LiveTowerProjector.DriverKeyForSimDriverId(frame.SimDriverId)
-                ?? LiveTowerProjector.DriverKeyForSimDriverId(state.Session?.LocalSimDriverId);
+            string? driverKey = LocalDriverKeyFor(state, frame.SimDriverId);
 
             return driverKey is null ? null : ToFocusFrame(RoomId, driverKey, frame);
         }
@@ -187,9 +182,7 @@ public sealed class LiveRoom
             state.Extras = frame;
             _lastUpdatedAtUtc = nowUtc;
 
-            string? driverKey =
-                LiveTowerProjector.DriverKeyForSimDriverId(frame.SimDriverId)
-                ?? LiveTowerProjector.DriverKeyForSimDriverId(state.Session?.LocalSimDriverId);
+            string? driverKey = LocalDriverKeyFor(state, frame.SimDriverId);
 
             return driverKey is null
                 ? null
@@ -213,9 +206,7 @@ public sealed class LiveRoom
                     continue;
                 }
 
-                string? key =
-                    LiveTowerProjector.DriverKeyForSimDriverId(frame.SimDriverId)
-                    ?? LiveTowerProjector.DriverKeyForSimDriverId(state.Session?.LocalSimDriverId);
+                string? key = LocalDriverKeyFor(state, frame.SimDriverId);
 
                 if (string.Equals(key, driverKey, StringComparison.Ordinal))
                 {
@@ -441,13 +432,40 @@ public sealed class LiveRoom
         var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var state in _publishers.Values)
         {
-            if (LiveTowerProjector.DriverKeyForSimDriverId(state.Session?.LocalSimDriverId) is { } key)
+            if (LocalDriverKeyFor(state, frameSimDriverId: null) is { } key)
             {
                 keys.Add(key);
             }
         }
 
         return keys;
+    }
+
+    /// <summary>
+    /// The tower row one publisher's rich telemetry belongs to, or <see langword="null"/> when
+    /// nothing that publisher reports identifies its car.
+    /// </summary>
+    /// <param name="state">The publisher, whose session announcement carries the local identity.</param>
+    /// <param name="frameSimDriverId">
+    /// The identity on the frame being attached, where there is one. Preferred over the announced
+    /// identity because a self or extras frame is captured from the local car on every poll,
+    /// whereas the announcement is the considered answer to "who am I" made once at session start —
+    /// so a frame that names a driver is the more current of the two. Pass <see langword="null"/>
+    /// when asking about the publisher rather than about a particular frame.
+    /// </param>
+    /// <remarks>
+    /// The single place a publisher's local car becomes a driver key, so that the focus stream, the
+    /// extras channel and the <see cref="LiveDataTier.Self"/> marking cannot disagree about which
+    /// row a publisher owns — three answers to one question is three chances to be the odd one out.
+    /// </remarks>
+    private static string? LocalDriverKeyFor(LivePublisherState state, string? frameSimDriverId)
+    {
+        var session = state.Session;
+
+        return LiveTowerProjector.DriverKeyForLocalCar(
+            string.IsNullOrEmpty(frameSimDriverId) ? session?.LocalSimDriverId : frameSimDriverId,
+            session?.LocalSlotId,
+            session?.PlayerName);
     }
 
     private static FocusFrameMessage ToFocusFrame(string roomId, string driverKey, LiveSelfFrame frame) => new(

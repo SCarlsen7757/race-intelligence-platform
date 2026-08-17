@@ -66,18 +66,30 @@ public static class LiveTowerProjector
     public static string DriverKeyFor(DriverStanding driver) => LiveRosterFingerprint.KeyFor(driver);
 
     /// <summary>
-    /// The driver key a simulator driver id maps to, or <see langword="null"/> when the id is
-    /// absent.
+    /// The driver key a publisher's local car maps to, or <see langword="null"/> when nothing it
+    /// reports identifies that car.
     /// </summary>
     /// <remarks>
-    /// Mirrors the <c>id:</c> branch of <see cref="LiveRosterFingerprint.KeyFor"/>. This is how a
-    /// publisher's announced local driver, and the <c>SimDriverId</c> on its self frames, are
-    /// matched to a tower row. A publisher whose simulator reports no identity for the local car
-    /// cannot be matched to a row at all, and its rich telemetry goes unattached rather than being
-    /// guessed onto someone.
+    /// <para>
+    /// This is how a publisher's announced local driver, and the <c>SimDriverId</c> on its self and
+    /// extras frames, are matched to a tower row. It runs the <b>same</b> chain
+    /// <see cref="DriverKeyFor"/> puts a row through — identity, then slot, then display name —
+    /// because a key derived any other way is a key that resolves to no row.
+    /// </para>
+    /// <para>
+    /// It used to stop after the identity, which held for as long as every session had one. A
+    /// simulator that issues account ids only online — RaceRoom does — has none offline, and the
+    /// row it produced fell through to <c>slot:</c> while this returned null, so every focus and
+    /// extras frame was dropped for want of a row to attach it to. The dashboard showed a working
+    /// timing tower with no pedals, no tyre data and no damage on it.
+    /// </para>
+    /// <para>
+    /// Null still means "do not guess": a publisher that identifies its car no way at all leaves
+    /// its rich telemetry unattached rather than landing it on someone else's row.
+    /// </para>
     /// </remarks>
-    public static string? DriverKeyForSimDriverId(string? simDriverId) =>
-        string.IsNullOrEmpty(simDriverId) ? null : $"id:{simDriverId}";
+    public static string? DriverKeyForLocalCar(string? simDriverId, int? slotId, string? displayName) =>
+        LiveRosterFingerprint.KeyFor(simDriverId, slotId, displayName);
 
     private static TowerRow ToRow(DriverStanding driver, string driverKey, LiveDataTier tier) => new(
         driverKey,
@@ -101,6 +113,7 @@ public static class LiveTowerProjector
         ToMilliseconds(driver.GapToCarAhead),
         ToMilliseconds(driver.GapToCarBehind),
         driver.InPitLane,
+        (int)driver.PitLaneState,
         (int)driver.PitStopStatus,
         driver.PitStopCount,
         (int)driver.FinishStatus,

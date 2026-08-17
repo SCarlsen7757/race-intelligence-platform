@@ -106,6 +106,11 @@ web.WithEnvironment("Live__AllowedOrigins__0", dashboard.GetEndpoint("http"));
 // Live publishing is switched on here, unlike the shipped default: the whole point of running the
 // AppHost graph is to exercise the full pipeline, and a collector that archived but never published
 // would leave the dashboard permanently empty in the one environment built to demonstrate it.
+//
+// The trailing slash on the endpoint is not decoration. An endpoint reference resolves to a bare
+// origin with no trailing slash, and the collector combines this base with a relative publish path
+// via Uri(Uri, string) — which replaces the last segment of a base that does not end in one. The
+// same rule is what [ServiceUrl] enforces, so without the slash the collector refuses to start.
 builder.AddProject<Projects.RaceIntelligence_Collector>("collector")
     .WithReference(ingestApi)
     .WaitFor(ingestApi)
@@ -114,6 +119,8 @@ builder.AddProject<Projects.RaceIntelligence_Collector>("collector")
     .WithEnvironment("Collector__Ingest__BaseUrl", "https+http://ingest-api/")
     .WithEnvironment("Collector__Live__Enabled", "true")
     .WithEnvironment("Collector__Live__ApiKey", liveApiKey)
-    .WithEnvironment("Collector__Live__BaseUrl", web.GetEndpoint("http"));
+    .WithEnvironment(
+        "Collector__Live__BaseUrl",
+        ReferenceExpression.Create($"{web.GetEndpoint("http")}/"));
 
 builder.Build().Run();

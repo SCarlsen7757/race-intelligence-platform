@@ -1,7 +1,7 @@
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
 import { LapHistoryPanel } from '../laps/LapHistoryPanel';
-import { formatSessionType } from '../../shared/format/format';
+import { formatSessionType, isRaceSession } from '../../shared/format/format';
 import { useLive, useRooms, useTower } from '../../shared/live/useLive';
 import { TimingTower } from './TimingTower';
 
@@ -98,6 +98,9 @@ export function SessionView() {
           onFocus={focusDriver}
           expandedDriverKeys={expandedDriverKeys}
           onToggleExpand={toggleExpand}
+          // No room yet means no session type yet, and an unknown session is not a race. The tower
+          // then withholds pit state for the first message or two rather than guessing at it.
+          isRace={room !== null && isRaceSession(room.gameKey, room.sessionType)}
           renderDetail={(key, sessionBests) => (
             <LapHistoryPanel driverKey={key} sessionBests={sessionBests} />
           )}

@@ -44,6 +44,7 @@ public static class LiveStandingsContractMapper
         GapToCarAhead = standing.GapToCarAhead,
         GapToCarBehind = standing.GapToCarBehind,
         InPitLane = standing.InPitLane,
+        PitLaneState = (int)standing.PitLaneState,
         PitStopStatus = (int)standing.PitStopStatus,
         PitStopCount = standing.PitStopCount,
         FinishStatus = (int)standing.FinishStatus,
@@ -85,6 +86,9 @@ public static class LiveStandingsContractMapper
         GapToCarAhead = dto.GapToCarAhead,
         GapToCarBehind = dto.GapToCarBehind,
         InPitLane = dto.InPitLane,
+        PitLaneState = Enum.IsDefined((PitLaneState)dto.PitLaneState)
+            ? (PitLaneState)dto.PitLaneState
+            : Core.Sessions.PitLaneState.Unavailable,
         PitStopStatus = Enum.IsDefined((PitStopStatus)dto.PitStopStatus)
             ? (PitStopStatus)dto.PitStopStatus
             : Core.Sessions.PitStopStatus.Unavailable,

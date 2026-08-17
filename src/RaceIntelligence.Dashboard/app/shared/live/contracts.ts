@@ -67,6 +67,15 @@ export interface TowerRow {
   gapToCarAheadMs?: number | null;
   gapToCarBehindMs?: number | null;
   inPitLane?: boolean | null;
+  /**
+   * `PitLaneState`: -1 unavailable, 0 on track, 1 stop requested, 2 entering, 3 stopped in the box,
+   * 4 exiting, 5 in the pit lane at an unknown stage.
+   *
+   * 5 is a weaker claim than 2, not a synonym: the simulator reports the graded ladder only for the
+   * car being driven locally, and a publisher that could not work out which rung a rival is on says
+   * so rather than picking one.
+   */
+  pitLaneState: number;
   /** `PitStopStatus`: -1 unavailable, 0 two tyres unserved, 1 four unserved, 2 served. */
   pitStopStatus: number;
   pitStopCount?: number | null;

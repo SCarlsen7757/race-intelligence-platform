@@ -123,6 +123,13 @@ public sealed record LiveDriverDto
     [Key(22)]
     public bool? InPitLane { get; init; }
 
+    /// <summary>
+    /// Where the car is in the act of pitting, as
+    /// <see cref="RaceIntelligence.Core.Sessions.PitLaneState"/>.
+    /// </summary>
+    [Key(27)]
+    public required int PitLaneState { get; init; }
+
     /// <summary>Pit stop progress, as <see cref="RaceIntelligence.Core.Sessions.PitStopStatus"/>.</summary>
     [Key(23)]
     public required int PitStopStatus { get; init; }
