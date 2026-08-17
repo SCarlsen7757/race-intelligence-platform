@@ -316,6 +316,7 @@ public sealed class LiveRoom
         frame.Speed,
         frame.Throttle,
         frame.Brake,
+        frame.Clutch,
         frame.Steering,
         frame.Gear,
         frame.EngineRpm,

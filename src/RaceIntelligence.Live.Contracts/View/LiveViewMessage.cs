@@ -201,6 +201,11 @@ public sealed record TowerRow(
 /// <param name="SpeedMetersPerSecond">Speed.</param>
 /// <param name="Throttle">0..1.</param>
 /// <param name="Brake">0..1.</param>
+/// <param name="Clutch">
+/// 0 (engaged) to 1 (fully disengaged), and absent from the JSON entirely when the simulator does
+/// not report it — a car with an automatic clutch. The dashboard must distinguish "no clutch
+/// channel" from "clutch fully up", which is why this is nullable rather than defaulted to 0.
+/// </param>
 /// <param name="Steering">-1 (full left) to 1 (full right).</param>
 /// <param name="Gear">-1 reverse, 0 neutral, positive forward gear.</param>
 /// <param name="EngineRpm">Revolutions per minute.</param>
@@ -219,6 +224,7 @@ public sealed record FocusFrameMessage(
     float SpeedMetersPerSecond,
     float? Throttle,
     float? Brake,
+    float? Clutch,
     float Steering,
     int? Gear,
     float EngineRpm,

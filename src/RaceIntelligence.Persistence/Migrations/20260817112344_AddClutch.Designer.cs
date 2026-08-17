@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using RaceIntelligence.Persistence;
@@ -11,9 +12,11 @@ using RaceIntelligence.Persistence;
 namespace RaceIntelligence.Persistence.Migrations
 {
     [DbContext(typeof(RaceIntelligenceDbContext))]
-    partial class RaceIntelligenceDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260817112344_AddClutch")]
+    partial class AddClutch
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

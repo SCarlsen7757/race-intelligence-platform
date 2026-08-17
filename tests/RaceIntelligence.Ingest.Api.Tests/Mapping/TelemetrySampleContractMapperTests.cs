@@ -52,6 +52,21 @@ public sealed class TelemetrySampleContractMapperTests
         roundTripped.Throttle!.Value.ShouldBe(0f);
     }
 
+    /// <summary>
+    /// Clutch is the channel most likely to be absent — every car with an automatic clutch reports
+    /// nothing — so it is the one where collapsing null to 0 would be least noticed and most wrong.
+    /// </summary>
+    [Fact]
+    public void Null_clutch_stays_null_through_the_round_trip()
+    {
+        var dto = DtoFactory.TelemetrySample(Guid.CreateVersion7(), 1) with { Clutch = null };
+
+        var core = TelemetrySampleContractMapper.ToCore(dto);
+        core.Clutch.ShouldBeNull("a car with no clutch channel must not read as clutch fully engaged");
+
+        TelemetrySampleContractMapper.ToDto(core).Clutch.ShouldBeNull();
+    }
+
     [Fact]
     public void Null_per_wheel_tyre_pressure_and_wear_survive_the_round_trip()
     {

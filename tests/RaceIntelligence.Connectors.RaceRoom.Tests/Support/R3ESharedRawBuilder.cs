@@ -249,6 +249,12 @@ internal sealed class R3ESharedRawBuilder
         return this;
     }
 
+    public R3ESharedRawBuilder WithClutch(float value)
+    {
+        _raw.Clutch = value;
+        return this;
+    }
+
     public R3ESharedRawBuilder WithGear(int gear)
     {
         _raw.Gear = gear;

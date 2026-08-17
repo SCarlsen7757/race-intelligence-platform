@@ -186,6 +186,7 @@ public static class LiveStandingsContractMapper
                 sample.TyreTemperature.FrontLeft.Middle,
                 sample.TyreTemperature.FrontRight.Middle,
                 sample.TyreTemperature.RearLeft.Middle,
-                sample.TyreTemperature.RearRight.Middle));
+                sample.TyreTemperature.RearRight.Middle),
+            sample.Clutch);
     }
 }

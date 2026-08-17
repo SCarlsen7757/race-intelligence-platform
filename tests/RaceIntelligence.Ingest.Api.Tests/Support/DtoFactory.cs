@@ -40,6 +40,7 @@ internal static class DtoFactory
         Speed = 45.5f,
         Throttle = 0.8f,
         Brake = 0f,
+        Clutch = 0.25f,
         Steering = 0.1f,
         Gear = 4,
         EngineRpm = 6500f,

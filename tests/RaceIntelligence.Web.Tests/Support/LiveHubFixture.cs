@@ -162,7 +162,8 @@ public static class LiveDtoFactory
     public static LiveSelfFrame SelfFrame(
         Guid? sessionId = null,
         string? simDriverId = null,
-        long sequenceNumber = 1) =>
+        long sequenceNumber = 1,
+        float? clutch = null) =>
         new(
             sessionId ?? Guid.NewGuid(),
             simDriverId,
@@ -181,7 +182,8 @@ public static class LiveDtoFactory
             FuelLeft: 40f,
             new LiveWheelValues(180f, 181f, 175f, 176f),
             new LiveWheelValues(0.1f, 0.11f, 0.09f, 0.12f),
-            new LiveWheelValues(85f, 86f, 82f, 83f));
+            new LiveWheelValues(85f, 86f, 82f, 83f),
+            clutch);
 
     /// <summary>A canonical standing, for tests of the projection rather than of the wire.</summary>
     public static DriverStanding Standing(

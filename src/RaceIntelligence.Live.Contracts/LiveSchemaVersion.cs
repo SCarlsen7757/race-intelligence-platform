@@ -22,8 +22,23 @@ namespace RaceIntelligence.Live.Contracts;
 /// </remarks>
 public static class LiveSchemaVersion
 {
-    /// <summary>The current, and so far only, supported live schema version.</summary>
-    public const int Current = 1;
+    /// <summary>
+    /// The current supported live schema version.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>2</b> — adds <c>Clutch</c> to <c>LiveSelfFrame</c> (<c>Key(18)</c>) and the
+    /// <c>LiveExtrasFrame</c> union member. A new union member is not a backwards-compatible
+    /// addition: a hub built against version 1 has no entry for key 5 and fails deserialization
+    /// outright, taking the publishing connection down mid-race with a decode error rather than a
+    /// reason. Bumping here moves that failure into the handshake, where it is refused with a
+    /// message naming both versions.
+    /// </para>
+    /// <para>
+    /// <b>1</b> — the original tower, focus and session frames.
+    /// </para>
+    /// </remarks>
+    public const int Current = 2;
 
     /// <summary>
     /// Returns <see langword="true"/> when <paramref name="schemaVersion"/> is a version this hub

@@ -59,6 +59,21 @@ public sealed record TelemetrySampleDto
     [Key(7)]
     public required float Steering { get; init; }
 
+    /// <summary>
+    /// Clutch input, 0 (engaged) to 1 (fully disengaged). <see langword="null"/> if the source does
+    /// not report it.
+    /// </summary>
+    /// <remarks>
+    /// Added after the initial schema, and deliberately without bumping
+    /// <see cref="SchemaVersion.Current"/>. The version guard exists so a body the server cannot
+    /// unambiguously read is refused rather than misinterpreted; a new optional member changes the
+    /// meaning of nothing already on the wire. A v1 collector simply omits the key, MessagePack
+    /// leaves it <see langword="null"/>, and null already means exactly what it means for a
+    /// simulator that does not report clutch — unavailable, not zero.
+    /// </remarks>
+    [Key(36)]
+    public float? Clutch { get; init; }
+
     /// <summary>Current gear: -1 = reverse, 0 = neutral, greater than 0 = forward gear number. <see langword="null"/> if the source does not report it.</summary>
     [Key(8)]
     public int? Gear { get; init; }

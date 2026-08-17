@@ -44,6 +44,31 @@ public class R3ETelemetryMapperSentinelTests
         sample.Throttle.ShouldBe(0.73f);
     }
 
+    /// <summary>
+    /// The default state of <see cref="R3ESharedRawBuilder"/> is <c>-1</c>, matching a car with an
+    /// automatic clutch — the case this channel hits far more often than throttle or brake do.
+    /// </summary>
+    [Fact]
+    public void Clutch_NegativeSentinel_MapsToNull()
+    {
+        var sample = MapSample(b => b.WithClutch(-1f));
+        sample.Clutch.ShouldBeNull("a sim that reports no clutch must not read as clutch fully up");
+    }
+
+    [Fact]
+    public void Clutch_Zero_MapsToZero_NotNull()
+    {
+        var sample = MapSample(b => b.WithClutch(0f));
+        sample.Clutch.ShouldBe(0f);
+    }
+
+    [Fact]
+    public void Clutch_PositiveValue_PassesThrough()
+    {
+        var sample = MapSample(b => b.WithClutch(0.42f));
+        sample.Clutch.ShouldBe(0.42f);
+    }
+
     [Fact]
     public void Brake_NegativeSentinel_MapsToNull()
     {

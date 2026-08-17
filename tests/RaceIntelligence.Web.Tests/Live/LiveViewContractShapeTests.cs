@@ -175,7 +175,7 @@ public sealed class LiveViewContractShapeTests
     {
         var message = new FocusFrameMessage(
             "room-1", "id:1", DateTimeOffset.UnixEpoch, 1.0, 2, 1, 0.25f, 55f,
-            1f, 0f, 0.1f, 4, 7200f, 40f, [180f, 181f, 175f, 176f], [0.1f, 0.1f, 0.1f, 0.1f],
+            1f, 0f, 0.5f, 0.1f, 4, 7200f, 40f, [180f, 181f, 175f, 176f], [0.1f, 0.1f, 0.1f, 0.1f],
             [85f, 86f, 82f, 83f]);
 
         var json = Serialize(message);
@@ -185,8 +185,8 @@ public sealed class LiveViewContractShapeTests
             [
                 "type", "roomId", "driverKey", "capturedAtUtc", "simulationTime", "lapNumber",
                 "sector", "trackPositionFraction", "speedMetersPerSecond", "throttle", "brake",
-                "steering", "gear", "engineRpm", "fuelLeftLiters", "tyrePressureKpa", "tyreWear",
-                "tyreTemperatureCelsius",
+                "clutch", "steering", "gear", "engineRpm", "fuelLeftLiters", "tyrePressureKpa",
+                "tyreWear", "tyreTemperatureCelsius",
             ],
             ignoreOrder: true);
 
