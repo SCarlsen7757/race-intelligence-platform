@@ -27,6 +27,9 @@ namespace RaceIntelligence.Collector.Abstractions;
 /// </remarks>
 public interface IExtrasObserver
 {
+    /// <summary>How often this observer wants the extras document. See <see cref="IStandingsObserver.StandingsInterval"/>.</summary>
+    TimeSpan ExtrasInterval { get; }
+
     /// <summary>
     /// Simulator-specific channels for the local car.
     /// </summary>

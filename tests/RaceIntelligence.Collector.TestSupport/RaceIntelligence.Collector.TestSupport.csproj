@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Fixtures shared by the collector and plugin suites, not a suite of its own. The props file
+         in tests/ makes everything below it an Exe test assembly, which this is not — the test
+         platform would otherwise try to run it and find nothing. -->
+    <OutputType>Library</OutputType>
+    <TestingPlatformDotnetTestSupport>false</TestingPlatformDotnetTestSupport>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Inherited from tests/Directory.Build.props, which assumes everything below it runs tests.
+         xunit.v3 refuses to build into a library, and these fixtures assert nothing anyway. -->
+    <PackageReference Remove="xunit.v3.mtp-v2" />
+    <Using Remove="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -81,12 +81,65 @@ public sealed class CollectorCommandLineTests
 
     /// <summary>
     /// Keeps the documented flag list and the implemented one from drifting apart — the docs in
-    /// <c>docs/development.md</c> name exactly these four.
+    /// <c>docs/development.md</c> name exactly these.
     /// </summary>
     [Fact]
     public void The_documented_flags_are_the_implemented_ones()
     {
+        string[] documented = ["--ingest", "--live", "--no-ingest", "--no-live", "--plugin", "--no-plugin"];
+
         CollectorCommandLine.KnownFlags.Order(StringComparer.Ordinal)
-            .ShouldBe(["--ingest", "--live", "--no-ingest", "--no-live"]);
+            .ShouldBe(documented.Order(StringComparer.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("--plugin", "true")]
+    [InlineData("--no-plugin", "false")]
+    public void The_generic_plugin_flag_switches_any_plugin_by_id(string flag, string expected)
+    {
+        // The named shorthands only cover the two plugins that exist today. A plugin added later
+        // must be switchable without waiting for a word of its own.
+        var configuration = new ConfigurationBuilder()
+            .AddCommandLine(CollectorCommandLine.Expand([flag, "Live"]))
+            .Build();
+
+        configuration["Collector:Live:Enabled"].ShouldBe(expected);
+    }
+
+    [Fact]
+    public void The_generic_flag_is_case_insensitive_like_the_shorthands()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddCommandLine(CollectorCommandLine.Expand(["--PLUGIN", "Ingest"]))
+            .Build();
+
+        configuration["Collector:Ingest:Enabled"].ShouldBe("true");
+    }
+
+    [Theory]
+    [InlineData("--plugin")]
+    [InlineData("--no-plugin")]
+    public void A_plugin_flag_without_an_id_is_reported_rather_than_ignored(string flag)
+    {
+        // Dropping it silently would start the collector with the opposite set of plugins to the one
+        // asked for, which is only discoverable after the race.
+        var act = () => CollectorCommandLine.Expand([flag]);
+
+        act.ShouldThrow<ArgumentException>().Message.ShouldContain(flag);
+    }
+
+    [Fact]
+    public void A_plugin_flag_followed_by_another_flag_is_reported_rather_than_consuming_it()
+    {
+        var act = () => CollectorCommandLine.Expand(["--plugin", "--no-ingest"]);
+
+        act.ShouldThrow<ArgumentException>();
+    }
+
+    [Fact]
+    public void Unrecognised_arguments_still_pass_through_untouched()
+    {
+        CollectorCommandLine.Expand(["--Collector:PollInterval", "00:00:00.02"])
+            .ShouldBe(["--Collector:PollInterval", "00:00:00.02"]);
     }
 }

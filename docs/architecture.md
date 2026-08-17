@@ -442,18 +442,55 @@ Reasons:
 
 ## Collector Design
 
-Responsibilities:
+The collector reads the simulator and dispatches what it reads. Everything that *sends* data
+anywhere is a **plugin**:
+
+```
+   Simulator ──▶ Connector ──▶ Collect loop ──┬──▶ Ingest plugin ──▶ Ingest API ──▶ PostgreSQL
+                (ITelemetrySource)            │     buffered, ordered, retried
+                                              │
+                                              └──▶ Live plugin ────▶ Live hub ──▶ Dashboard
+                                                    conflating, newest-wins
+```
+
+Responsibilities of the collector itself:
 
 - Read simulator telemetry.
 - Convert to canonical model.
-- Buffer locally.
-- Upload continuously in the background.
-- Handle temporary network outages.
-- Resume uploads automatically.
+- Dispatch to whichever plugins consume each event.
+- Keep those plugins from being able to affect each other.
 
-The collector should perform **no analysis**.
+The collector should perform **no analysis**, and should not know where anything ends up. Adding a
+destination costs a plugin, not a change to the collect loop.
 
-Its only responsibility is collecting reliable data.
+### Why plugins share a lifecycle, not a sink interface
+
+There is deliberately no uniform `ITelemetrySink`. The two paths have opposite definitions of
+correct behaviour:
+
+| | Archive | Live |
+|---|---|---|
+| Under pressure | Buffers, applies backpressure | Drops the older frame |
+| A lost message | Data gone forever | Correct — a newer one exists |
+| After an outage | Resumes and uploads the backlog | Resumes with the current race |
+
+One interface spanning both would force one path to adopt the other's failure mode: either the live
+path starts buffering stale frames, or the archive path starts dropping telemetry. Plugins therefore
+share only a lifecycle, and implement whichever of the four observer interfaces they consume —
+sessions, samples, standings, extras — each bringing its own delivery semantics.
+
+The same argument sets the shape of those interfaces. Sessions and laps are rare enough that a plugin
+may do real work inline; samples at 60 Hz, standings at 10 Hz and extras at ~1 Hz run on the collect
+loop, where time spent is time the simulator is not being read — for every plugin, not just the one
+spending it.
+
+### Composition is config-driven, not dynamic
+
+The set of plugins the collector *can* run is fixed when it is built; configuration chooses which of
+them actually run. That keeps the build trimmable and AOT-safe, avoids a public plugin API to keep
+compatible across versions, and makes a misconfigured plugin a startup failure rather than a
+load-time surprise mid-race. A genuinely new destination needs a rebuild — which, for a platform
+deployed by the person developing it, is not a cost.
 
 ---
 
@@ -605,10 +642,18 @@ work can start before multi-simulator support is finished, and probably will.
 - PostgreSQL storage
 - Background upload and session storage
 
+### In progress — the platform
+
+- Collector plugin host: the collect loop dispatches, plugins deliver *(built)*
+- Per-sim storage images and the translator layer that restores cross-sim comparison
+
 ### In progress — the live dashboard
 
 - Whole-field standings from the connector, and the live wire contracts *(built)*
 - Collector live publishing, independently switchable from archiving *(built)*
+- Server-side lap history, so a race engineer sees a whole stint rather than the last lap
+- A low-rate channel for slow-moving sim-specific values such as car damage
+- Pedal and damage bars, and expandable timing-tower rows
 - Live hub: publisher and viewer sockets, room registry, timing tower *(built)*
 - React dashboard: active clients, timing tower, focus panel *(built)*
 - Merging several collectors in one session into one enriched view

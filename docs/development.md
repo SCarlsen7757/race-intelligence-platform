@@ -206,13 +206,24 @@ session.
 Collector settings bind from the `Collector` section. They're validated on startup, so a bad value
 fails immediately rather than silently dropping telemetry mid-race.
 
-The collector does two independent jobs and either can run without the other:
+The collector itself only reads the simulator. Everything that *sends* that data anywhere is a
+**plugin**, configured in its own block under `Collector` and switched on independently:
 
 - **Ingest** — archives telemetry to the ingest API for permanent storage. On by default.
 - **Live** — publishes a live view to the dashboard hub for a race engineer to watch. Off by
   default, because it sends this machine's session somewhere other people can see it.
 
 Enabling neither fails at startup: the collector would read the simulator and do nothing with it.
+
+Each plugin validates only its own block, and only when it is switched on — so a publish-only
+collector is never asked for an ingest API key it will never send. Plugins are also isolated from
+each other at run time: an ingest API outage cannot stop the live view, and an unreachable hub
+cannot stop archiving.
+
+The two are deliberately *not* built on a shared sink interface. The archive path is buffered,
+ordered and retried, and a sample it drops is gone for good; the live path is conflating and
+newest-wins, and a frame it keeps instead of dropping is a stale frame shown to a race engineer as
+current. One interface spanning both would force one path into the other's failure mode.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -246,11 +257,20 @@ dotnet run --project src/RaceIntelligence.Collector -- --live --no-ingest # publ
 ```
 
 `--live`, `--no-live`, `--ingest` and `--no-ingest` are shorthands for the corresponding
-`Collector:<Block>:Enabled` key. Anything without a shorthand still takes the long form —
+`Collector:<Plugin>:Enabled` key. `--plugin <id>` and `--no-plugin <id>` do the same for any plugin
+by name, including ones added later that never get a shorthand of their own:
+
+```powershell
+dotnet run --project src/RaceIntelligence.Collector -- --plugin Live --no-plugin Ingest
+```
+
+Anything without a shorthand still takes the long form —
 `--Collector:Live:StandingsInterval 00:00:00.2`.
 
-With `Live:Enabled` off, the connector doesn't read the simulator's driver array at all, so a
-collector that isn't publishing pays nothing for the feature.
+With `Live:Enabled` off, nothing consumes standings, and the connector is told not to read the
+simulator's driver array at all — so a collector that isn't publishing pays nothing for the feature.
+That decision is made from the registered plugins rather than by naming the live plugin, so a future
+plugin that wants standings gets them without a change to the collector.
 
 ### Live hub settings
 

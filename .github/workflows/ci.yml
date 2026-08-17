@@ -68,6 +68,8 @@ jobs:
         #     discovery report "No test projects were found" too. Rebuilding costs seconds.
         run: |
           dotnet test tests/RaceIntelligence.Analysis.Tests/RaceIntelligence.Analysis.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Collector.Plugins.Ingest.Tests/RaceIntelligence.Collector.Plugins.Ingest.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Collector.Plugins.Live.Tests/RaceIntelligence.Collector.Plugins.Live.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Collector.Tests/RaceIntelligence.Collector.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj --configuration Release
