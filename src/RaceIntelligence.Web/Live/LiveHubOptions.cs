@@ -55,4 +55,30 @@ public sealed class LiveHubOptions
     /// </remarks>
     [Range(4 * 1024, 4 * 1024 * 1024)]
     public int MaxPublisherMessageBytes { get; init; } = 512 * 1024;
+
+    /// <summary>
+    /// The browser origins allowed to read the room list and open a viewing socket.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Origins, not URLs: scheme, host and port with no trailing slash, exactly as a browser sends
+    /// them in <c>Origin</c> — <c>http://localhost:3000</c>.
+    /// </para>
+    /// <para>
+    /// <b>Required, and required to be non-empty, because the previous behaviour was to accept
+    /// everything.</b> <see cref="Microsoft.AspNetCore.Builder.WebSocketOptions.AllowedOrigins"/>
+    /// treats an empty list as "no origin check at all", so a hub that simply forgot to configure
+    /// this would look configured and be open to every page on the internet. Failing to boot is
+    /// the honest outcome, and it is the same call already made for <see cref="ApiKey"/>.
+    /// </para>
+    /// <para>
+    /// This constrains browsers only. A collector connects with a raw <c>ClientWebSocket</c> and
+    /// sends no <c>Origin</c> header, so it is unaffected — which is correct, because publishing is
+    /// guarded by the API key rather than by where the request claims to come from. An origin
+    /// check is a defence against a page in someone's browser, not against a program.
+    /// </para>
+    /// </remarks>
+    [Required(ErrorMessage = "Live:AllowedOrigins must list the dashboard's origin; an empty list would accept every origin.")]
+    [MinLength(1, ErrorMessage = "Live:AllowedOrigins must list the dashboard's origin; an empty list would accept every origin.")]
+    public string[] AllowedOrigins { get; init; } = [];
 }

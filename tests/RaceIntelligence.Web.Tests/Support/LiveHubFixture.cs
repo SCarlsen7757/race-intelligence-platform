@@ -22,6 +22,7 @@ public sealed class LiveHubFixture
         Options = Microsoft.Extensions.Options.Options.Create(new LiveHubOptions
         {
             ApiKey = "test-key",
+            AllowedOrigins = ["http://dashboard.test"],
             RoomExpiry = roomExpiry ?? TimeSpan.FromSeconds(30),
         });
 

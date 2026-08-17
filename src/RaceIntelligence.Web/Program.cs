@@ -20,32 +20,21 @@ var app = builder.Build();
 
 app.UseSerilogRequestLogging();
 
+app.UseCors();
 app.UseLiveWebSockets();
 
 app.MapDefaultEndpoints();
 app.MapLiveEndpoints();
 
-// The dashboard, built by Vite into wwwroot. Serving it from the same origin as the live socket is
-// what keeps the deployment to one tunnel and one hostname, and means the browser needs no CORS
-// preflight and no configured API address — it opens a socket back to wherever it was loaded from.
+// This host serves no UI. The dashboard is its own Node service on its own origin
+// (src/RaceIntelligence.Dashboard), and the browser opens its socket straight at this hub rather
+// than being proxied through it — a proxy would add a second connection and force that event loop
+// to re-emit every focus frame sixty times a second, which is latency and jitter bought for
+// nothing.
 //
-// In development the SPA is normally run from the Vite dev server instead, for hot reload; that
-// server proxies /live and /api here. Both work, and neither is required for the hub itself to run
-// — a wwwroot that was never built simply serves nothing, which is why this is not conditional.
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
-// An unmatched request under the API or socket prefixes is a 404, not the dashboard. Registered
-// ahead of the SPA fallback because it is the more specific pattern: without it a typo in a fetch
-// URL would come back as 200 with a page of HTML, which is a far worse thing to debug than a
-// status code.
-app.MapFallback("/api/{**rest}", () => Results.NotFound());
-app.MapFallback("/live/{**rest}", () => Results.NotFound());
-
-// Client-side routing: a deep link such as /room/abc123 is not a file on disk and must return
-// index.html rather than a 404.
-app.MapFallbackToFile("index.html");
-
+// So there is no static-file middleware and no SPA fallback here, and an unmatched request is a
+// plain 404. That is worth having on its own: with a fallback, a typo in a fetch URL came back as
+// 200 and a page of HTML, which is a far worse thing to debug than a status code.
 app.Run();
 
 /// <summary>Entry point partial, exposed so test hosts can reference this assembly's <c>Program</c>.</summary>

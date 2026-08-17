@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.WebSockets;
+using Microsoft.Extensions.Options;
 using RaceIntelligence.Live.Contracts.View;
 using RaceIntelligence.Web.Live;
 using RaceIntelligence.Web.Tests.Support;
@@ -72,15 +73,29 @@ public sealed class LiveEndpointsEndToEndTests
         await LiveHubServer.ReceiveUntilAsync<TowerSnapshotMessage>(viewer);
         await LiveHubServer.SendAsync(viewer, new FocusDriverCommand("id:2"));
 
-        // Published repeatedly: the focus command and this frame race, and only frames sent after
-        // the subscription lands are routed. A real collector publishes at 60 Hz, so the first one
-        // to miss costs 16 ms.
-        FocusFrameMessage? focus = null;
-        for (int i = 0; i < 20 && focus is null; i++)
-        {
-            await LiveHubServer.SendAsync(publisher, LiveDtoFactory.SelfFrame(simDriverId: "2"));
-            focus = await LiveHubServer.ReceiveUntilAsync<LiveViewMessage>(viewer) as FocusFrameMessage;
-        }
+        // Published continuously in the background, the way a collector does, because the focus
+        // command and the frames race: only frames sent after the subscription lands are routed,
+        // and a single frame sent at the wrong moment is simply dropped. At 60 Hz a real collector
+        // loses nothing but 16 ms to that; a test that published once would lose the whole run.
+        using var publishing = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+
+        var pump = Task.Run(
+            async () =>
+            {
+                while (!publishing.IsCancellationRequested)
+                {
+                    await LiveHubServer.SendAsync(publisher, LiveDtoFactory.SelfFrame(simDriverId: "2"));
+                    await Task.Delay(16, publishing.Token);
+                }
+            },
+            publishing.Token);
+
+        var focus = await LiveHubServer.ReceiveUntilAsync<FocusFrameMessage>(viewer);
+
+        await publishing.CancelAsync();
+        await pump.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)
+            .ContinueWith(_ => { }, TaskScheduler.Default);
 
         focus.ShouldNotBeNull();
         focus.DriverKey.ShouldBe("id:2");
@@ -160,5 +175,112 @@ public sealed class LiveEndpointsEndToEndTests
             LiveEndpoints.ViewPath.TrimStart('/'), TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>
+    /// The viewing socket is open — no key — so the origin check is the only thing standing between
+    /// a session's live timing and any page that cares to open a socket at it. Before the dashboard
+    /// moved to its own origin this was unset, which means every origin was accepted.
+    /// </summary>
+    [Fact]
+    public async Task A_browser_on_an_unlisted_origin_is_refused_the_upgrade()
+    {
+        await using var server = await LiveHubServer.StartAsync();
+
+        var refused = await Should.ThrowAsync<WebSocketException>(
+            () => server.ConnectViewerAsync("http://not-the-dashboard.test"));
+
+        refused.Message.ShouldContain("403");
+    }
+
+    /// <summary>
+    /// The configured origin still gets in, and a client that sends no <c>Origin</c> at all — a
+    /// collector, curl, a test harness — is unaffected. Origin is a browser's self-report about
+    /// which page opened the connection; it says nothing about a program, and treating its absence
+    /// as a rejection would break every non-browser client for no gain.
+    /// </summary>
+    [Fact]
+    public async Task The_configured_origin_and_clients_that_send_none_are_both_accepted()
+    {
+        await using var server = await LiveHubServer.StartAsync();
+
+        using var dashboard = await server.ConnectViewerAsync(LiveHubServer.AllowedOrigin);
+        dashboard.State.ShouldBe(WebSocketState.Open);
+
+        using var collector = await server.ConnectViewerAsync();
+        collector.State.ShouldBe(WebSocketState.Open);
+    }
+
+    /// <summary>
+    /// The room list is the dashboard's first paint, and it now happens across origins. Without the
+    /// header the browser discards a perfectly good 200 and the landing page stays empty.
+    /// </summary>
+    [Fact]
+    public async Task The_room_list_carries_a_cors_header_for_the_dashboard_origin()
+    {
+        await using var server = await LiveHubServer.StartAsync();
+
+        using var client = new HttpClient { BaseAddress = server.BaseAddress };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "api/v1/live/rooms");
+        request.Headers.Add("Origin", LiveHubServer.AllowedOrigin);
+
+        var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.GetValues("Access-Control-Allow-Origin")
+            .ShouldHaveSingleItem()
+            .ShouldBe(LiveHubServer.AllowedOrigin);
+    }
+
+    /// <summary>
+    /// And an unlisted origin gets no such header, so the browser refuses to hand the body to the
+    /// page. The response is still a 200 — CORS is enforced in the browser, not by the server — so
+    /// the absence of the header is the whole assertion.
+    /// </summary>
+    [Fact]
+    public async Task The_room_list_carries_no_cors_header_for_an_unlisted_origin()
+    {
+        await using var server = await LiveHubServer.StartAsync();
+
+        using var client = new HttpClient { BaseAddress = server.BaseAddress };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "api/v1/live/rooms");
+        request.Headers.Add("Origin", "http://not-the-dashboard.test");
+
+        var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        response.Headers.Contains("Access-Control-Allow-Origin").ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// An empty origin list means "accept every origin" as far as ASP.NET Core is concerned, so a
+    /// hub that forgot the setting would look configured and be open to every page on the internet.
+    /// Refusing to start is the honest outcome, and the same call already made for the API key.
+    /// </summary>
+    [Fact]
+    public async Task The_hub_refuses_to_start_with_no_allowed_origins()
+    {
+        var failure = await Should.ThrowAsync<OptionsValidationException>(
+            () => LiveHubServer.StartAsync(new Dictionary<string, string?>
+            {
+                ["Live:AllowedOrigins:0"] = null,
+            }));
+
+        failure.Message.ShouldContain("Live:AllowedOrigins");
+    }
+
+    /// <summary>
+    /// The hub serves no UI any more. A request for anything that is not an API or a socket used to
+    /// come back as 200 and a page of HTML — including a typo in a fetch URL, which is a far worse
+    /// thing to debug than a status code.
+    /// </summary>
+    [Fact]
+    public async Task An_unmatched_route_is_a_not_found_rather_than_an_spa_fallback()
+    {
+        await using var server = await LiveHubServer.StartAsync();
+
+        using var client = new HttpClient { BaseAddress = server.BaseAddress };
+        var response = await client.GetAsync("rooms/abc123", TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 }
