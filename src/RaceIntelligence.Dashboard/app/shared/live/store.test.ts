@@ -1,6 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { FocusFrameMessage, LapHistoryMessage, TowerSnapshotMessage } from './contracts';
-import { LiveStore, TraceBuffer } from './store';
+import { LiveStore, TraceBuffer, TYRE_SAMPLE_INTERVAL_MS, TYRE_TRACE_CAPACITY } from './store';
+
+/**
+ * A store already following the drivers a test is about to push frames for.
+ *
+ * The store refuses frames for anyone the connection has not subscribed to — that is what keeps a
+ * dropped driver's rings from being resurrected by a frame still in flight — so every test that
+ * feeds it has to say who is being followed first.
+ */
+function following(driverKeys: string[], now?: () => number): LiveStore {
+  const store = new LiveStore(now);
+  store.setFollowedDrivers(driverKeys);
+
+  return store;
+}
 
 function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessage {
   return {
@@ -98,7 +112,7 @@ describe('LiveStore', () => {
    * per frame, which is exactly what the focus stream is kept out of React state to avoid.
    */
   it('does not notify subscribers for focus frames', () => {
-    const store = new LiveStore();
+    const store = following(['id:2']);
     const listener = vi.fn();
     store.subscribe(listener);
 
@@ -106,12 +120,12 @@ describe('LiveStore', () => {
     store.apply(focusFrame({ lapNumber: 2 }));
 
     expect(listener).not.toHaveBeenCalled();
-    expect(store.focusFrame?.lapNumber).toBe(2);
+    expect(store.frameFor('id:2')?.lapNumber).toBe(2);
   });
 
-  /** Even the driver switch, which resets state mid-stream, must not reach React from here. */
-  it('does not notify subscribers when a focus frame switches driver', () => {
-    const store = new LiveStore();
+  /** Even a second driver joining the comparison mid-stream must not reach React from here. */
+  it('does not notify subscribers when a second driver starts streaming', () => {
+    const store = following(['id:2', 'id:9']);
     store.apply({
       type: 'extrasFrame',
       roomId: 'room',
@@ -142,12 +156,12 @@ describe('LiveStore', () => {
   });
 
   it('appends every focus frame to the traces', () => {
-    const store = new LiveStore();
+    const store = following(['id:2']);
 
     store.apply(focusFrame({ throttle: 0.5 }));
     store.apply(focusFrame({ throttle: 0.75 }));
 
-    expect([...store.traces.throttle.toArray()]).toEqual([0.5, 0.75]);
+    expect([...store.tracesFor('id:2').throttle.toArray()]).toEqual([0.5, 0.75]);
   });
 
   /**
@@ -155,46 +169,160 @@ describe('LiveStore', () => {
    * honest rendering; zero would draw a confident line saying the driver came off the throttle.
    */
   it('plots an unreported pedal as a gap rather than as zero', () => {
-    const store = new LiveStore();
+    const store = following(['id:2']);
 
     store.apply(focusFrame({ throttle: null }));
 
-    expect(Number.isNaN(store.traces.throttle.toArray()[0]!)).toBe(true);
+    expect(Number.isNaN(store.tracesFor('id:2').throttle.toArray()[0]!)).toBe(true);
   });
 
   /** Clutch arrives only from a collector new enough to send it, and absent is not released. */
   it('plots an absent clutch as a gap rather than as zero', () => {
-    const store = new LiveStore();
+    const store = following(['id:2']);
     const frame = focusFrame();
     delete frame.clutch;
 
     store.apply(frame);
 
-    expect(Number.isNaN(store.traces.clutch.toArray()[0]!)).toBe(true);
+    expect(Number.isNaN(store.tracesFor('id:2').clutch.toArray()[0]!)).toBe(true);
   });
 
-  /**
-   * A frame for the previous driver can still be in flight when the subscription changes.
-   * Mixing it into the new driver's traces would read as a glitch rather than as the switch it is.
-   */
-  it('clears the traces when the focused driver changes', () => {
-    const store = new LiveStore();
+  /** Two cars compared side by side are two sets of rings, and they must never mix. */
+  it('keeps a separate set of traces per followed driver', () => {
+    const store = following(['id:2', 'id:9']);
 
     store.apply(focusFrame({ driverKey: 'id:2', throttle: 1 }));
     store.apply(focusFrame({ driverKey: 'id:9', throttle: 0.25 }));
+    store.apply(focusFrame({ driverKey: 'id:2', throttle: 0.5 }));
 
-    expect([...store.traces.throttle.toArray()]).toEqual([0.25]);
-    expect(store.focusFrame?.driverKey).toBe('id:9');
+    expect([...store.tracesFor('id:2').throttle.toArray()]).toEqual([1, 0.5]);
+    expect([...store.tracesFor('id:9').throttle.toArray()]).toEqual([0.25]);
+    expect(store.frameFor('id:2')?.throttle).toBe(0.5);
+    expect(store.frameFor('id:9')?.throttle).toBe(0.25);
+  });
+
+  /**
+   * A frame for a driver just dropped can still be in flight when the subscription changes.
+   * Admitting it would leave a car on screen nobody asked for, with rings that never advance again.
+   */
+  it('refuses a frame for a driver nobody is following', () => {
+    const store = following(['id:2']);
+
+    store.apply(focusFrame({ driverKey: 'id:9', throttle: 1 }));
+
+    expect(store.frameFor('id:9')).toBeNull();
+    expect(store.tracesFor('id:9').throttle.length).toBe(0);
+  });
+
+  /** Dropping one half of a comparison must cost the other half nothing. */
+  it('drops only the driver that went away', () => {
+    const store = following(['id:2', 'id:9']);
+    store.apply(focusFrame({ driverKey: 'id:2', throttle: 1 }));
+    store.apply(focusFrame({ driverKey: 'id:9', throttle: 0.25 }));
+
+    store.setFollowedDrivers(['id:9']);
+
+    expect(store.frameFor('id:2')).toBeNull();
+    expect(store.frameFor('id:9')?.throttle).toBe(0.25);
+    expect([...store.tracesFor('id:9').throttle.toArray()]).toEqual([0.25]);
   });
 
   it('resetFocus empties the traces and the latest frame', () => {
-    const store = new LiveStore();
+    const store = following(['id:2']);
     store.apply(focusFrame());
 
     store.resetFocus();
 
-    expect(store.focusFrame).toBeNull();
-    expect(store.traces.throttle.length).toBe(0);
+    expect(store.frameFor('id:2')).toBeNull();
+    expect(store.tracesFor('id:2').throttle.length).toBe(0);
+  });
+
+  /**
+   * A tyre moves over a stint, not over a corner. Sampling the tyre rings at focus rate would fill
+   * the whole window with sixty seconds of a flat line and call it information.
+   */
+  it('decimates the tyre traces to one sample per interval', () => {
+    let now = 0;
+    const store = following(['id:2'], () => now);
+
+    // Ten frames inside one interval, then one after it.
+    for (let i = 0; i < 10; i++) {
+      now += TYRE_SAMPLE_INTERVAL_MS / 20;
+      store.apply(focusFrame({ tyreWear: [0.25, 0.25, 0.25, 0.25] }));
+    }
+
+    now += TYRE_SAMPLE_INTERVAL_MS;
+    store.apply(focusFrame({ tyreWear: [0.5, 0.5, 0.5, 0.5] }));
+
+    // Two: the first frame of the stint, and the first one past the interval.
+    expect([...store.tracesFor('id:2').tyres.wear[0].toArray()]).toEqual([0.25, 0.5]);
+    expect(store.tracesFor('id:2').throttle.length).toBe(11);
+  });
+
+  it('keeps every tyre channel per wheel, in wire order', () => {
+    const now = 0;
+    const store = following(['id:2'], () => now);
+
+    store.apply(
+      focusFrame({
+        tyrePressureKpa: [180, 181, 175, 176],
+        tyreTemperatureCelsius: [85, 86, 82, 83],
+      }),
+    );
+
+    const { pressureKpa, temperatureCelsius } = store.tracesFor('id:2').tyres;
+
+    expect(pressureKpa.map((buffer) => buffer.last())).toEqual([180, 181, 175, 176]);
+    expect(temperatureCelsius.map((buffer) => buffer.last())).toEqual([85, 86, 82, 83]);
+  });
+
+  /**
+   * The same discipline the pedals follow. Tyre arrays are nullable on the wire, and a wheel the
+   * simulator did not report must leave a hole — drawn at zero it would read as a flat tyre.
+   */
+  it('plots an unreported wheel as a gap rather than as zero', () => {
+    const now = 0;
+    const store = following(['id:2'], () => now);
+
+    store.apply(focusFrame({ tyrePressureKpa: [180, null, 175, 176] }));
+
+    expect(Number.isNaN(store.tracesFor('id:2').tyres.pressureKpa[1].last())).toBe(true);
+    expect(store.tracesFor('id:2').tyres.pressureKpa[0].last()).toBe(180);
+  });
+
+  /**
+   * Fixed-size rings, so an hour of stint costs the same memory as a minute of it. A growing array
+   * here would be a slow leak over a two-hour race.
+   */
+  it('keeps the tyre rings flat over a long stint', () => {
+    let now = 0;
+    const store = following(['id:2'], () => now);
+
+    for (let i = 0; i < TYRE_TRACE_CAPACITY + 500; i++) {
+      now += TYRE_SAMPLE_INTERVAL_MS;
+      store.apply(focusFrame({ tyreWear: [i / 10_000, 0, 0, 0] }));
+    }
+
+    expect(store.tracesFor('id:2').tyres.wear[0].length).toBe(TYRE_TRACE_CAPACITY);
+  });
+
+  /**
+   * Two damage panels can be on screen at once, so extras are keyed like lap history rather than
+   * held in a single slot both would read.
+   */
+  it('keeps a separate extras document per driver', () => {
+    const store = following(['id:2', 'id:9']);
+
+    store.apply({
+      type: 'extrasFrame',
+      roomId: 'room',
+      driverKey: 'id:2',
+      capturedAtUtc: '2026-08-16T12:00:00Z',
+      extras: '{"damage":{"engine":0.5}}',
+    });
+
+    expect(store.getExtras()['id:2']?.extras).toContain('0.5');
+    expect(store.getExtras()['id:9']).toBeUndefined();
   });
 
   it('reports connection changes once per transition', () => {

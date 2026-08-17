@@ -28,7 +28,7 @@ function renderTower(rows: TowerRow[], overrides: Partial<Parameters<typeof Timi
   return render(
     <TimingTower
       rows={rows}
-      focusedDriverKey={null}
+      focusedDriverKeys={[]}
       onFocus={vi.fn()}
       expandedDriverKeys={NONE}
       onToggleExpand={vi.fn()}
@@ -244,10 +244,27 @@ describe('TimingTower', () => {
 
   it('marks the focused row', () => {
     const { container } = renderTower([row({ driverKey: 'id:1', position: 1, tier: 'Self' })], {
-      focusedDriverKey: 'id:1',
+      focusedDriverKeys: ['id:1'],
     });
 
     expect(container.querySelector('.tower__row--focused')).not.toBeNull();
+  });
+
+  /** Two drivers can be compared, so both their rows have to read as open at once. */
+  it('marks both rows of a comparison', () => {
+    const { container } = renderTower(
+      [
+        row({ driverKey: 'id:1', position: 1, tier: 'Self' }),
+        row({ driverKey: 'id:2', position: 2, tier: 'Self' }),
+        row({ driverKey: 'id:3', position: 3, tier: 'Self' }),
+      ],
+      { focusedDriverKeys: ['id:1', 'id:3'] },
+    );
+
+    expect(container.querySelectorAll('.tower__row--focused')).toHaveLength(2);
+    expect(
+      screen.getAllByRole('button', { name: /Open telemetry/ }).map((b) => b.textContent),
+    ).toEqual(['Shown', 'Show', 'Shown']);
   });
 
   it('shows a car with no reported position last, not first', () => {

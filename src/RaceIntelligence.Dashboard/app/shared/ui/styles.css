@@ -28,6 +28,14 @@
   --trace-clutch: #ffc35c;
   --trace-steering: #5aa9ff;
 
+  /* The wheel colours, under the same constraint and mirrored in the same module: the tyre chart's
+     lines are canvas and the numbers beside them are DOM, and a wheel whose label and line
+     disagreed would be worse than no colour at all. */
+  --wheel-fl: #6fa8ff;
+  --wheel-fr: #ffb454;
+  --wheel-rl: #4fd1c5;
+  --wheel-rr: #f472b6;
+
   color-scheme: dark;
 }
 
@@ -51,7 +59,7 @@ body {
    horizontally as digits change width, which is maddening to watch. */
 .time,
 .metric__value,
-.wheel__value,
+.wheel-chart__number,
 .pedal-value__number,
 .damage__value,
 .laps__number,
@@ -69,7 +77,7 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 20px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-raised);
 }
@@ -85,7 +93,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .app__session {
@@ -94,7 +102,7 @@ body {
 
 .app__main {
   flex: 1;
-  padding: 20px;
+  padding: 16px 20px;
 }
 
 .status {
@@ -258,12 +266,133 @@ body {
 .session {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
+  gap: 16px;
   align-items: start;
+}
+
+/* Timing tower and track map side by side, wrapping to a stack when the window cannot hold both.
+   Wrap rather than a breakpoint, like everything else here. */
+.session__timing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+/* Takes the slack; the map is a fixed square. `min-width: 0` because a flex item defaults to
+   min-content, and a table's min-content is wide enough to stop this ever wrapping.
+
+   The table then scrolls inside this box rather than pushing the page sideways. Eleven columns have
+   a floor below which they cannot be squeezed, and without this the whole document gets a
+   horizontal scrollbar — which moves the focus panel and the map out from under the pointer too. */
+.session__tower {
+  flex: 1 1 520px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+/* Track map */
+
+.track-map {
+  margin: 0;
+  flex: 0 0 auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+/* Fluid, so the square fits inside the figure's padding rather than pushing 26px past it — and so
+   the map still fits a phone, where the figure itself is the narrower of the two. */
+.track-map svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Stroke widths on this figure are in pixels, not user units: the viewBox is 0..1, so a bare `2`
+   would be twice the width of the whole map. `vector-effect` on the elements is what makes the
+   pixel reading the right one. */
+.track-map__ring {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2;
+}
+
+.track-map__start {
+  stroke: var(--text-muted);
+  stroke-width: 2;
+}
+
+.track-map__car {
+  cursor: pointer;
+}
+
+.track-map__dot {
+  fill: var(--bg-hover);
+  stroke: var(--text-muted);
+  stroke-width: 0.004;
+}
+
+.track-map__number {
+  font-size: 0.038px;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* A car whose own machine is publishing — the only ones whose telemetry can be opened at all. */
+.track-map__car--self .track-map__dot {
+  fill: rgba(61, 220, 132, 0.2);
+  stroke: var(--live);
+}
+
+/* In the pit lane: hollow and dashed, on the inner ring. A car in the pits is not racing anyone,
+   and it should not read as though it were. */
+.track-map__car--pit .track-map__dot {
+  fill: none;
+  stroke: var(--pit);
+  stroke-dasharray: 0.02 0.012;
+}
+
+.track-map__car--pit .track-map__number {
+  fill: var(--pit);
+}
+
+.track-map__car--expanded .track-map__dot {
+  stroke: var(--text);
+}
+
+/* Open telemetry, matching `.tower__row--focused` so the two views say the same thing. */
+.track-map__car--focused .track-map__dot {
+  fill: rgba(90, 169, 255, 0.35);
+  stroke: var(--pit);
+  stroke-width: 0.008;
+}
+
+.track-map__car:focus-visible {
+  outline: none;
+}
+
+.track-map__car:focus-visible .track-map__dot,
+.track-map__car:hover .track-map__dot {
+  stroke: var(--text);
+  stroke-width: 0.008;
+}
+
+.track-map__caption {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 /* Timing tower */
 
+/*
+ * Rows are tight on purpose. A full field is twenty-odd cars and the focus panel sits underneath
+ * them, so four pixels of padding per row is eighty pixels of the window — the difference between
+ * reading the whole screen at a glance and scrolling down to find the traces.
+ */
 .tower {
   width: 100%;
   border-collapse: collapse;
@@ -275,7 +404,7 @@ body {
 
 .tower th {
   text-align: right;
-  padding: 8px 10px;
+  padding: 6px 10px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -285,7 +414,7 @@ body {
 }
 
 .tower td {
-  padding: 7px 10px;
+  padding: 5px 10px;
   text-align: right;
   border-bottom: 1px solid var(--border);
 }
@@ -464,24 +593,43 @@ th.tower__state {
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 16px;
+  padding: 12px 16px;
 }
 
 .focus__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+}
+
+.focus__drivers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  align-items: baseline;
 }
 
 .focus__driver {
+  display: inline-flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.focus__driver-name {
   margin: 0;
   font-size: 15px;
 }
 
-/* The strip itself. Panels flow left to right and wrap when they run out of room, so a narrow
-   window stacks them without a media query having to decide when. Each is allowed to grow into
-   spare width but never to shrink below the point where its numbers stop being glanceable. */
+/*
+ * The strip itself. Panels flow left to right and wrap when they run out of room, so a narrow
+ * window stacks them without a media query having to decide when.
+ *
+ * Each section states its shape rather than every one taking the same basis, which is what used to
+ * leave the strip mostly air: a trace wants width and a damage meter wants a short bar, and one
+ * rule cannot serve both. The bases below add up to a little under a 1920 window, so a full set
+ * fits on one row there and wraps rather than squashes on anything narrower.
+ */
 .focus__body {
   display: flex;
   flex-wrap: wrap;
@@ -489,49 +637,118 @@ th.tower__state {
   align-items: flex-start;
 }
 
+/*
+ * Every section is floored and capped.
+ *
+ * The floor is what makes this wrap rather than squash: a section that cannot reach its minimum
+ * moves to the next line instead of shrinking until its numbers stop being glanceable. The cap stops
+ * a wrapped row looking worse than no wrap at all — a lone chart on the second line would otherwise
+ * grow into the entire width, a 1100px box drawn to hold four lines that read fine in 240, which is
+ * precisely the wasted ink this layout exists to remove.
+ *
+ * Every floor is `min(Npx, 100%)` rather than a bare `Npx`, because **min-width beats max-width in
+ * CSS**, not the other way round: the used width is `max(min-width, min(max-width, width))`. A bare
+ * floor of 380px therefore holds even on a 390px phone, where it pushes the whole document into a
+ * horizontal scroll. Folding the percentage into the floor itself is what lets it give way.
+ */
 .focus__body > .focus__section {
-  flex: 1 1 220px;
-  min-width: 220px;
   margin-top: 0;
 }
 
-/* The two panels that are read continuously rather than glanced at, and that have the internal
-   structure to use the width. */
-.focus__body > .focus__section--primary {
-  flex-basis: 340px;
+.focus__body > .focus__section--car {
+  flex: 1 1 220px;
+  min-width: min(220px, 100%);
+  max-width: 320px;
 }
 
+/* Bars and three percentages. It has no use for extra width, so it does not grow into any. */
 .focus__body > .focus__section--inputs {
-  flex-basis: 320px;
+  flex: 0 1 150px;
+  min-width: min(150px, 100%);
+  max-width: 200px;
+}
+
+/* The thing a race engineer actually stares at, so it starts widest, takes most of the slack, and
+   is the one section with no cap on how far it may grow. */
+.focus__body > .focus__section--trace {
+  flex: 5 1 380px;
+  min-width: min(380px, 100%);
+}
+
+.focus__body > .focus__section--chart {
+  flex: 2 1 230px;
+  min-width: min(230px, 100%);
+  max-width: 360px;
+}
+
+/* A meter is a glanceable state, not a measurement. See `.damage__part`. */
+.focus__body > .focus__section--compact {
+  flex: 0 1 200px;
+  min-width: min(200px, 100%);
+  max-width: 240px;
+}
+
+/*
+ * Two drivers: one grid, not two strips.
+ *
+ * Every section is a row spanning both columns, so the same channel sits at the same height on both
+ * sides — a comparison whose tyre temperatures are at different heights on each side is not a
+ * comparison. Two independently wrapping strips would produce exactly that the moment one driver's
+ * collector reported a channel the other's did not.
+ */
+.focus__compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+  align-items: start;
+}
+
+.focus__compare > .focus__section {
+  margin-top: 0;
+  min-width: 0;
+}
+
+.focus__column-name {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
 }
 
 .focus__primary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* Speed across two columns, so five metrics fill three columns exactly rather than wrapping 4 + 1
+   and leaving three-quarters of a row empty under the lap number. */
+.metric--wide {
+  grid-column: span 2;
 }
 
 .metric {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   display: flex;
   flex-direction: column;
 }
 
 .metric__value {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
 }
 
 .metric--large .metric__value {
-  font-size: 24px;
+  font-size: 22px;
 }
 
 .metric__unit,
-.wheel__unit,
-.wheel__label,
+.wheel-chart__wheel,
+.wheel-chart__unit,
 .pedal-value__label,
 .damage__label {
   font-size: 10px;
@@ -545,7 +762,7 @@ th.tower__state {
 }
 
 .focus__section-title {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -573,7 +790,7 @@ th.tower__state {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  margin: 4px 0 12px;
+  margin: 4px 0 0;
   text-align: center;
 }
 
@@ -588,38 +805,72 @@ th.tower__state {
   font-weight: 600;
 }
 
-.wheels {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+/* Tyre charts */
+
+.wheel-chart__plot {
+  width: 100%;
 }
 
-.wheel {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 10px;
+/* The chart's current values, which is what the four-number grid this replaced used to be on its
+   own. Beside the line rather than in a panel of their own: the number says where a tyre is and the
+   line says where it is going, and they are the same reading. */
+.wheel-chart__values {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  margin-top: 4px;
 }
 
-.wheel__value {
-  font-size: 16px;
+.wheel-chart__value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+/* The line's colour, so a number and its line are never read as two different measurements. */
+.wheel-chart__key {
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  align-self: center;
+}
+
+.wheel-chart__number {
+  font-size: 12px;
   font-weight: 600;
+}
+
+.wheel-chart__unit {
+  margin-left: auto;
 }
 
 /* Damage */
 
+/*
+ * The bar is a fixed width rather than the panel's.
+ *
+ * The `1fr` that used to be here was sized for a 380px sidebar; in a full-width strip it stretched
+ * every bar across the whole window — about 1400px of green to say "100%". A damage meter is a
+ * glanceable state, not a measurement: it needs enough width to tell "fine" from "hurt" from "about
+ * to end your race", and no more.
+ *
+ * Four short rows rather than a 2x2, because two of these side by side is 340px and the strip has
+ * about 200 to spare once the trace and the three tyre charts have what they need. The vertical
+ * space costs nothing: every section on the line is as tall as the trace regardless, and four
+ * damage rows do not come close to filling that.
+ */
 .damage {
   display: grid;
-  gap: 6px;
+  gap: 4px;
+  justify-content: start;
 }
 
 .damage__part {
   display: grid;
-  grid-template-columns: 80px minmax(0, 1fr) 44px;
+  grid-template-columns: 62px 56px 34px;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .damage__track {

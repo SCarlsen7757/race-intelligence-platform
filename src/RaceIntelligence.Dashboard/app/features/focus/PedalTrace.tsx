@@ -6,6 +6,8 @@ import { TRACE_COLOURS } from './traceColours';
 
 interface PedalTraceProps {
   store: LiveStore;
+  /** Which driver's stream to plot. Two can be on screen at once. */
+  driverKey: string;
   height?: number;
 }
 
@@ -20,7 +22,7 @@ interface PedalTraceProps {
  * uPlot rather than an SVG chart library for the same reason: a thousand points per series in the
  * DOM is a layout cost per frame, whereas a canvas redraw is one.
  */
-export function PedalTrace({ store, height = 200 }: PedalTraceProps) {
+export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,6 +30,10 @@ export function PedalTrace({ store, height = 200 }: PedalTraceProps) {
     if (container === null) {
       return;
     }
+
+    // Resolved once, then read every frame. The rings for a driver outlive every paint, so looking
+    // them up per frame would be a map probe sixty times a second for an answer that never changes.
+    const traces = store.tracesFor(driverKey);
 
     const chart = new uPlot(
       {
@@ -102,7 +108,7 @@ export function PedalTrace({ store, height = 200 }: PedalTraceProps) {
     let frame = 0;
 
     const paint = () => {
-      const count = store.traces.throttle.length;
+      const count = traces.throttle.length;
 
       if (count !== xs.length) {
         xs = new Float64Array(count);
@@ -111,10 +117,10 @@ export function PedalTrace({ store, height = 200 }: PedalTraceProps) {
         }
       }
 
-      throttle = store.traces.throttle.toArray(throttle);
-      brake = store.traces.brake.toArray(brake);
-      clutch = store.traces.clutch.toArray(clutch);
-      steering = store.traces.steering.toArray(steering);
+      throttle = traces.throttle.toArray(throttle);
+      brake = traces.brake.toArray(brake);
+      clutch = traces.clutch.toArray(clutch);
+      steering = traces.steering.toArray(steering);
 
       chart.setData([xs, throttle, brake, clutch, steering], true);
       frame = requestAnimationFrame(paint);
@@ -130,7 +136,7 @@ export function PedalTrace({ store, height = 200 }: PedalTraceProps) {
       window.removeEventListener('resize', resize);
       chart.destroy();
     };
-  }, [store, height]);
+  }, [store, driverKey, height]);
 
   return <div ref={containerRef} className="trace" />;
 }

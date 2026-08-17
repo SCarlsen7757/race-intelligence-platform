@@ -69,13 +69,39 @@ public sealed class ViewerQueue
     private readonly ConcurrentDictionary<string, LapHistoryMessage> _lapHistories =
         new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The newest focus frame per driver, conflating within a driver but never across drivers.
+    /// </summary>
+    /// <remarks>
+    /// One slot per driver rather than one in total, because a viewer may be comparing two cars and
+    /// a single slot would interleave them into one stream of alternating samples — each car's
+    /// traces then showing every other frame of the other's. Conflation within a driver is the same
+    /// bargain the single slot always made: the newest frame is strictly more useful than the one it
+    /// replaced.
+    /// </remarks>
+    private readonly ConcurrentDictionary<string, FocusFrameMessage> _focusFrames =
+        new(StringComparer.Ordinal);
+
+    /// <summary>The newest extras document per driver, following the focus slots.</summary>
+    private readonly ConcurrentDictionary<string, ExtrasFrameMessage> _extras =
+        new(StringComparer.Ordinal);
+
     private RoomListMessage? _latestRoomList;
     private TowerSnapshotMessage? _latestTower;
-    private FocusFrameMessage? _latestFocus;
-    private ExtrasFrameMessage? _latestExtras;
 
     private long _droppedTower;
     private long _droppedFocus;
+
+    /// <summary>
+    /// Where the next scan of the focus slots begins, so two streams share the pump evenly.
+    /// </summary>
+    /// <remarks>
+    /// The lap-history loop needs no such thing — a history arrives about once a minute per driver,
+    /// so whichever the dictionary hands back first is always the only one waiting. Focus frames
+    /// arrive sixty times a second per driver, and always scanning from the same end would let the
+    /// first driver's slot refill before the second was ever reached, starving it completely.
+    /// </remarks>
+    private int _focusCursor;
 
     /// <summary>Frames superseded before this viewer could be sent them — how far behind it is running.</summary>
     public (long Tower, long Focus) DroppedFrames =>
@@ -103,25 +129,31 @@ public sealed class ViewerQueue
         Wake();
     }
 
-    /// <summary>Offers a focus frame, replacing any not yet sent.</summary>
+    /// <summary>Offers a focus frame, replacing any for the same driver not yet sent.</summary>
     public void OfferFocus(FocusFrameMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        if (Interlocked.Exchange(ref _latestFocus, message) is not null)
+        // TryAdd first rather than AddOrUpdate: the update factory would have to close over a local
+        // to report the replacement, and a closure allocated sixty times a second per focused driver
+        // is exactly the garbage the rest of this path avoids. A frame the reader took between the
+        // two calls is counted as dropped when it was not — the counter is a diagnostic, and
+        // understanding it as "roughly how far behind this viewer ran" survives being off by one.
+        if (!_focusFrames.TryAdd(message.DriverKey, message))
         {
+            _focusFrames[message.DriverKey] = message;
             Interlocked.Increment(ref _droppedFocus);
         }
 
         Wake();
     }
 
-    /// <summary>Offers the focused driver's extras document, replacing any not yet sent.</summary>
+    /// <summary>Offers a focused driver's extras document, replacing any of theirs not yet sent.</summary>
     public void OfferExtras(ExtrasFrameMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        Interlocked.Exchange(ref _latestExtras, message);
+        _extras[message.DriverKey] = message;
         Wake();
     }
 
@@ -168,20 +200,29 @@ public sealed class ViewerQueue
     }
 
     /// <summary>
-    /// Discards any focus frame not yet sent.
+    /// Discards anything not yet sent for one driver a viewer has stopped following.
     /// </summary>
     /// <remarks>
-    /// Called when a viewer changes or clears its focus. Without this, the frame already waiting
-    /// would still be delivered — one frame of the previous driver's telemetry arriving after the
-    /// switch, which reads as a glitch in the new driver's traces.
+    /// Without this, the frame already waiting would still be delivered — one sample of a car the
+    /// viewer has dropped, arriving after the drop and reading as a glitch. Named, so unfocusing one
+    /// of two compared drivers costs the other nothing.
     /// </remarks>
+    public void ClearFocus(string driverKey)
+    {
+        ArgumentNullException.ThrowIfNull(driverKey);
+
+        _focusFrames.TryRemove(driverKey, out _);
+
+        // The extras slot follows the focus for the same reason. A damage panel showing a dropped
+        // driver's car is worse than one showing nothing, because it looks current.
+        _extras.TryRemove(driverKey, out _);
+    }
+
+    /// <summary>Discards every focus frame and extras document not yet sent — a viewer leaving a room.</summary>
     public void ClearFocus()
     {
-        Interlocked.Exchange(ref _latestFocus, null);
-
-        // The extras slot follows the focus for the same reason. A damage panel showing the previous
-        // driver's car after a switch is worse than one showing nothing, because it looks current.
-        Interlocked.Exchange(ref _latestExtras, null);
+        _focusFrames.Clear();
+        _extras.Clear();
     }
 
     /// <summary>Takes the next message to send, waiting until one exists.</summary>
@@ -242,12 +283,86 @@ public sealed class ViewerQueue
             }
         }
 
-        if (Interlocked.Exchange(ref _latestFocus, null) is { } focus)
+        if (TakeNextFocus() is { } focus)
         {
             return focus;
         }
 
-        return Interlocked.Exchange(ref _latestExtras, null);
+        // Extras need no rotation: at roughly 1 Hz per driver there is never a backlog for a scan to
+        // be unfair about, and taking whichever is ready cannot starve the other.
+        foreach (var driverKey in _extras.Keys)
+        {
+            if (_extras.TryRemove(driverKey, out var extras))
+            {
+                return extras;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Takes one focus frame, starting the scan where the last one left off.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rotation is what keeps two 60 Hz streams sharing one pump. Scanning from a fixed end
+    /// would return the first driver every single time — their slot refills within a frame of being
+    /// drained — and the second driver's traces would never advance at all.
+    /// </para>
+    /// <para>
+    /// One pass, and no snapshot of the keys: this runs once per message sent, and a fresh array per
+    /// send is the kind of garbage the rest of this path is built to avoid. The cursor is a position
+    /// rather than a key so it stays meaningful when the focused set changes underneath it.
+    /// </para>
+    /// </remarks>
+    private FocusFrameMessage? TakeNextFocus()
+    {
+        var count = _focusFrames.Count;
+        if (count == 0)
+        {
+            return null;
+        }
+
+        var start = (int)((uint)_focusCursor % (uint)count);
+
+        string? chosen = null;
+        string? first = null;
+        var index = 0;
+
+        foreach (var slot in _focusFrames)
+        {
+            if (index >= start)
+            {
+                chosen = slot.Key;
+                break;
+            }
+
+            // Remembered so a cursor past the end of a shrunken set wraps rather than finding
+            // nothing.
+            first ??= slot.Key;
+            index++;
+        }
+
+        chosen ??= first;
+
+        if (chosen is not null && _focusFrames.TryRemove(chosen, out var message))
+        {
+            _focusCursor = start + 1;
+            return message;
+        }
+
+        // The chosen slot was emptied under us, which only a viewer dropping a focus can do. Falling
+        // back to any waiting frame keeps the pump from returning empty-handed while one is ready.
+        foreach (var driverKey in _focusFrames.Keys)
+        {
+            if (_focusFrames.TryRemove(driverKey, out var fallback))
+            {
+                return fallback;
+            }
+        }
+
+        return null;
     }
 
     private void Wake() => _wake.Writer.TryWrite(0);

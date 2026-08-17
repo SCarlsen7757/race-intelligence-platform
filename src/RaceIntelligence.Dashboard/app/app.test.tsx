@@ -1,6 +1,10 @@
 import { act, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LiveViewCommand, LiveViewMessage } from './shared/live/contracts';
+import type {
+  LiveViewCommand,
+  LiveViewMessage,
+  TowerSnapshotMessage,
+} from './shared/live/contracts';
 import { renderApp } from './testing/renderApp';
 
 /**
@@ -69,7 +73,7 @@ const roomList: LiveViewMessage = {
   ],
 };
 
-const tower: LiveViewMessage = {
+const tower: TowerSnapshotMessage = {
   type: 'towerSnapshot',
   roomId: 'room-1',
   capturedAtUtc: new Date().toISOString(),
@@ -103,6 +107,17 @@ const tower: LiveViewMessage = {
       tier: 'Observed',
     },
   ],
+};
+
+/**
+ * The same session with a collector on both cars, so there is something to compare.
+ *
+ * Only a `Self`-tier driver has full-rate channels at all, which is exactly why the single-collector
+ * tower above cannot produce a comparison.
+ */
+const twoCollectorTower: TowerSnapshotMessage = {
+  ...tower,
+  drivers: tower.drivers.map((driver) => ({ ...driver, tier: 'Self' as const })),
 };
 
 function socket(): FakeWebSocket {
@@ -207,7 +222,73 @@ describe('the dashboard', () => {
 
     expect(allSent()).toContainEqual({ type: 'watchRoom', roomId: 'room-1' });
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
-    expect(screen.getByText('4242')).toBeDefined();
+
+    // Named from the tower rather than from the key in the path, so a link opens on a person
+    // rather than on an id.
+    expect(screen.getByRole('button', { name: 'Stop watching Mark Carlsen' })).toBeDefined();
+  });
+
+  /**
+   * The comparison, end to end from the browser's side: two cars open at once, both streaming, and
+   * the pair written into the URL so it survives a refresh and pastes into a message.
+   */
+  it('compares two drivers and says so in the URL', async () => {
+    const app = await renderApp('/rooms/room-1');
+    await act(async () => {
+      socket().deliver(roomList);
+      socket().deliver(twoCollectorTower);
+    });
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Mark Carlsen' }).click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Rival' }).click();
+    });
+
+    expect(app.currentPath()).toBe('/rooms/room-1/id:4242,id:9');
+    expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
+    expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:9' });
+
+    // Both columns, and the same section titles in both — the alignment is the whole point.
+    expect(screen.getAllByText('Tyre wear')).toHaveLength(2);
+  });
+
+  /**
+   * Dropping one half of a comparison must leave the other half alone. The named `unfocusDriver` is
+   * what makes that true on the wire: clearing everything and re-stating the rest would leave a
+   * window at 60 Hz in which the driver still being watched sends nothing.
+   */
+  it('drops one driver of a comparison without disturbing the other', async () => {
+    const app = await renderApp('/rooms/room-1/id:4242,id:9');
+    await act(async () => {
+      socket().deliver(roomList);
+      socket().deliver(twoCollectorTower);
+    });
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Stop watching Mark Carlsen' }).click();
+    });
+
+    expect(app.currentPath()).toBe('/rooms/room-1/id:9');
+    expect(allSent()).toContainEqual({ type: 'unfocusDriver', driverKey: 'id:4242' });
+    expect(allSent()).not.toContainEqual({ type: 'unfocusDriver', driverKey: 'id:9' });
+    expect(allSent()).not.toContainEqual({ type: 'focusDriver', driverKey: null });
+  });
+
+  /**
+   * In a session where one person runs a collector there is genuinely nobody to compare against.
+   * Saying so beats an empty second column, and beats a viewer hunting for a second button that
+   * does not exist.
+   */
+  it('says why there is no second car when nobody else is publishing', async () => {
+    await renderApp('/rooms/room-1/id:4242');
+    await act(async () => {
+      socket().deliver(roomList);
+      socket().deliver(tower);
+    });
+
+    expect(screen.getByText(/no second car to compare against/)).toBeDefined();
   });
 
   /**

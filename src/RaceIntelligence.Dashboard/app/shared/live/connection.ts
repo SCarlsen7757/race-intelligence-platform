@@ -27,7 +27,10 @@ export class LiveConnection {
   private closed = false;
 
   private watchedRoomId: string | null = null;
-  private focusedDriverKey: string | null = null;
+
+  // A set, not a single key: two drivers can be compared side by side, and the hub conflates each
+  // one's 60 Hz stream separately. Capped on the hub rather than here — see `FocusDriverCommand`.
+  private focusedDriverKeys: ReadonlySet<string> = new Set();
 
   // A set, not a single key: several tower rows can be expanded at once, and each one is its own
   // subscription the hub conflates separately.
@@ -65,7 +68,7 @@ export class LiveConnection {
     // focus cannot survive a room switch. Clearing it here as well keeps the reconnect replay
     // below from re-sending a focus that belongs to the room we just left. The same argument
     // applies to every open lap-history subscription.
-    this.focusedDriverKey = null;
+    this.focusedDriverKeys = new Set();
     this.lapHistoryDriverKeys.clear();
     this.store.resetFocus();
     this.store.resetLapHistory();
@@ -73,15 +76,36 @@ export class LiveConnection {
     this.send({ type: 'watchRoom', roomId });
   }
 
-  /** Follows one driver at full rate, or stops following with `null`. */
-  focusDriver(driverKey: string | null): void {
-    if (this.focusedDriverKey === driverKey) {
+  /**
+   * Follows exactly these drivers at full rate, adding and dropping to match.
+   *
+   * Stated as the whole set rather than one driver at a time because that is what the URL says — the
+   * caller knows which cars should be on screen, not which changed. The diff is what keeps the
+   * promise that matters: dropping one half of a comparison sends a single `unfocusDriver` and
+   * leaves the other half's subscription, and therefore its rings, completely untouched.
+   */
+  focusDrivers(driverKeys: readonly string[]): void {
+    const next = new Set(driverKeys);
+    const added = [...next].filter((key) => !this.focusedDriverKeys.has(key));
+    const removed = [...this.focusedDriverKeys].filter((key) => !next.has(key));
+
+    if (added.length === 0 && removed.length === 0) {
       return;
     }
 
-    this.focusedDriverKey = driverKey;
-    this.store.resetFocus();
-    this.send({ type: 'focusDriver', driverKey });
+    this.focusedDriverKeys = next;
+
+    // Before the commands, so a frame already in flight for a dropped driver is refused rather than
+    // landing in rings the panel has stopped reading.
+    this.store.setFollowedDrivers(next);
+
+    for (const driverKey of removed) {
+      this.send({ type: 'unfocusDriver', driverKey });
+    }
+
+    for (const driverKey of added) {
+      this.send({ type: 'focusDriver', driverKey });
+    }
   }
 
   /** Asks for one driver's completed laps, and keeps receiving them until told otherwise. */
@@ -128,8 +152,13 @@ export class LiveConnection {
       if (this.watchedRoomId !== null) {
         this.send({ type: 'watchRoom', roomId: this.watchedRoomId });
 
-        if (this.focusedDriverKey !== null) {
-          this.send({ type: 'focusDriver', driverKey: this.focusedDriverKey });
+        // The drop cleared the store's followed set along with the traces, so it has to be told
+        // again before the replayed subscriptions start delivering — otherwise every frame after a
+        // reconnect is refused as belonging to a driver nobody is following.
+        this.store.setFollowedDrivers(this.focusedDriverKeys);
+
+        for (const driverKey of this.focusedDriverKeys) {
+          this.send({ type: 'focusDriver', driverKey });
         }
 
         for (const driverKey of this.lapHistoryDriverKeys) {
@@ -179,7 +208,7 @@ export class LiveConnection {
 
   private send(command: LiveViewCommand): void {
     // Silently dropped while disconnected, deliberately. The intent is already recorded in
-    // watchedRoomId/focusedDriverKey/lapHistoryDriverKeys and replayed on reconnect, so queueing
+    // watchedRoomId/focusedDriverKeys/lapHistoryDriverKeys and replayed on reconnect, so queueing
     // the command as well would send it twice.
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify(command));
