@@ -62,9 +62,42 @@ public sealed class ViewerSessionTests
         var socket = new FakeLiveSocket();
         socket.PushCommand(new WatchRoomCommand(room.RoomId));
 
-        var messages = await RunAsync(hub, socket, expectedMessages: 2);
+        // Room list, session state, tower.
+        var messages = await RunAsync(hub, socket, expectedMessages: 3);
 
         messages.OfType<TowerSnapshotMessage>().ShouldHaveSingleItem().Drivers.Count.ShouldBe(6);
+    }
+
+    /// <summary>
+    /// The session's own state comes with the room, and before the tower.
+    /// </summary>
+    /// <remarks>
+    /// Unconditionally, unlike the publisher-driven broadcast, which only fires on a change. A viewer
+    /// joining a race whose pit window opened ten minutes ago would otherwise never be told it is
+    /// open, and every average speed in the tower would stay blank until some publisher happened to
+    /// re-announce the session.
+    /// </remarks>
+    [Fact]
+    public async Task Watching_a_room_answers_with_its_session_state_before_the_tower()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity);
+        hub.Rooms.ApplyStandings(identity.ClientId, LiveDtoFactory.StandingsFrame());
+
+        var socket = new FakeLiveSocket();
+        socket.PushCommand(new WatchRoomCommand(room.RoomId));
+
+        var messages = await RunAsync(hub, socket, expectedMessages: 3);
+
+        var state = messages.OfType<SessionStateMessage>().ShouldHaveSingleItem();
+        state.RoomId.ShouldBe(room.RoomId);
+        state.LayoutLengthMeters.ShouldBe(7004f);
+
+        // Before the tower, so a tower never arrives ahead of the lap length its averages need.
+        var order = messages.Select(message => message.GetType()).ToList();
+        order.IndexOf(typeof(SessionStateMessage))
+            .ShouldBeLessThan(order.IndexOf(typeof(TowerSnapshotMessage)));
     }
 
     [Fact]

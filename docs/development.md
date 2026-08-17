@@ -357,9 +357,24 @@ rather than at the driver's next lap.
 The hub keeps no viewer memory across connections, so a reconnecting dashboard replays its
 `watchRoom`, `focusDriver` and `subscribeLapHistory` commands.
 
-Messages back carry the same discriminator: `roomList`, `towerSnapshot`, `focusFrame`, `lapHistory`,
-`extrasFrame`, `error`. Durations are **milliseconds as JSON numbers**, never `TimeSpan` strings, and
-nulls are omitted — a value the simulator did not report must never arrive as `0`.
+Messages back carry the same discriminator: `roomList`, `sessionState`, `towerSnapshot`,
+`focusFrame`, `lapHistory`, `extrasFrame`, `error`. Durations are **milliseconds as JSON numbers**,
+never `TimeSpan` strings, and nulls are omitted — a value the simulator did not report must never
+arrive as `0`.
+
+`sessionState` is what is true of the session rather than of any car in it: the layout's length in
+metres, from which the dashboard derives each lap's average speed, and the mandatory pit window. It
+is sent **once on watching a room, and again only when it changes** — standings arrive at 10 Hz and
+this moves perhaps twice in a race, so broadcasting it per frame would turn a low-rate message into
+the second-busiest one on the wire. The unprompted send on subscribing is the other half: a viewer
+joining a race whose window opened ten minutes ago has no change left to be told about.
+
+The window's `status` and `unit` cross as **names** (`"Open"`, `"Laps"`) where the per-car pit fields
+cross as ints, because this message is cheap enough to spell out and a name cannot drift out of step
+with the server the way a hand-maintained table of codes does. Its bounds are already
+sentinel-free — the connector turns RaceRoom's `-1` into null, so a banner cannot announce a window
+opening on lap −1 — and `unit` must be honoured rather than guessed: the same `25` is lap 25 in a lap
+race and the 25-minute mark in a timed one.
 
 `extrasFrame` carries the simulator's own document as an opaque JSON **string**; the hub never parses
 it. For RaceRoom that is where car damage lives (`damage.engine`, `damage.transmission`,

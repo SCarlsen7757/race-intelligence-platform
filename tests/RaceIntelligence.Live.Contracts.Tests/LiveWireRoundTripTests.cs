@@ -125,6 +125,7 @@ public sealed class LiveWireRoundTripTests
         restored.CapturedAtUtc.ShouldBe(original.CapturedAtUtc);
         restored.SimulationTime.ShouldBe(original.SimulationTime);
         restored.LocalSimDriverId.ShouldBe(original.LocalSimDriverId);
+        restored.PitWindow.ShouldBe(original.PitWindow);
         restored.Drivers.Count.ShouldBe(original.Drivers.Count);
 
         for (int i = 0; i < restored.Drivers.Count; i++)
@@ -199,6 +200,37 @@ public sealed class LiveWireRoundTripTests
 
         restored.PitStopStatus.ShouldBe(PitStopStatus.Unavailable);
         restored.FinishStatus.ShouldBe(DriverFinishStatus.Unavailable);
+    }
+
+    /// <summary>
+    /// The pit window's two codes travel as ints under the same rule, and the failure they have to
+    /// avoid is worse than a dangling enum: a status nobody recognises rendering as an open window
+    /// would tell a strategist to pit when the session says otherwise.
+    /// </summary>
+    [Fact]
+    public void An_unrecognised_pit_window_code_decodes_as_unavailable()
+    {
+        var restored = LiveStandingsContractMapper.ToCore(new LivePitWindowDto(97, 12, 20, 96));
+
+        restored.Status.ShouldBe(PitWindowStatus.Unavailable);
+        restored.Unit.ShouldBe(PitWindowUnit.Unknown);
+        restored.Exists.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A connector that does not report a window at all must produce no window, not an empty one:
+    /// <c>Exists</c> is what every consumer branches on, and a default-constructed record answers it
+    /// correctly only because <c>Unavailable</c> is its default.
+    /// </summary>
+    [Fact]
+    public void A_snapshot_without_a_pit_window_round_trips_as_none()
+    {
+        var original = LiveDtoFactory.FullyPopulatedStandings() with { PitWindow = null };
+
+        var restored = LiveStandingsContractMapper.ToCore(
+            RoundTrip(LiveStandingsContractMapper.ToFrame(original)));
+
+        restored.PitWindow.ShouldBeNull();
     }
 
     [Fact]

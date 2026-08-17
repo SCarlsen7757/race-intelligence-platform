@@ -13,6 +13,13 @@ public sealed class LiveTowerProjectorTests
 {
     private static IReadOnlySet<string> Self(params string[] keys) => keys.ToHashSet(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The lookup a room with no recorded laps supplies: nothing is known about anyone's previous
+    /// lap. Most tests here project a single snapshot, and one snapshot can never establish the
+    /// validity of a lap that finished before it.
+    /// </summary>
+    private static bool? NoRecordedLaps(string driverKey) => null;
+
     [Fact]
     public void Rows_are_ordered_by_position()
     {
@@ -21,7 +28,7 @@ public sealed class LiveTowerProjectorTests
             LiveDtoFactory.Standing(simDriverId: "a", position: 1),
             LiveDtoFactory.Standing(simDriverId: "b", position: 2));
 
-        var rows = LiveTowerProjector.Project(standings, Self());
+        var rows = LiveTowerProjector.Project(standings, Self(), NoRecordedLaps);
 
         rows.Select(row => row.DriverKey).ShouldBe(["id:a", "id:b", "id:c"]);
     }
@@ -38,7 +45,7 @@ public sealed class LiveTowerProjectorTests
             LiveDtoFactory.Standing(simDriverId: "unplaced", position: null),
             LiveDtoFactory.Standing(simDriverId: "leader", position: 1));
 
-        var rows = LiveTowerProjector.Project(standings, Self());
+        var rows = LiveTowerProjector.Project(standings, Self(), NoRecordedLaps);
 
         rows.Select(row => row.DriverKey).ShouldBe(["id:leader", "id:unplaced"]);
     }
@@ -54,7 +61,7 @@ public sealed class LiveTowerProjectorTests
             LiveDtoFactory.Standing(simDriverId: "publishing", position: 1),
             LiveDtoFactory.Standing(simDriverId: "watched", position: 2));
 
-        var rows = LiveTowerProjector.Project(standings, Self("id:publishing"));
+        var rows = LiveTowerProjector.Project(standings, Self("id:publishing"), NoRecordedLaps);
 
         rows.Single(row => row.DriverKey == "id:publishing").Tier.ShouldBe(LiveDataTier.Self);
         rows.Single(row => row.DriverKey == "id:watched").Tier.ShouldBe(LiveDataTier.Observed);
@@ -144,7 +151,8 @@ public sealed class LiveTowerProjectorTests
             .Project(
                 LiveDtoFactory.Standings(LiveDtoFactory.Standing(
                     simDriverId: "a", position: 1, bestLap: TimeSpan.FromSeconds(102.5))),
-                Self())
+                Self(),
+                NoRecordedLaps)
             .Single().BestLapMs.ShouldBe(102_500);
 
     /// <summary>
@@ -157,7 +165,8 @@ public sealed class LiveTowerProjectorTests
     {
         var rows = LiveTowerProjector.Project(
             LiveDtoFactory.Standings(LiveDtoFactory.Standing(simDriverId: "a", position: 1)),
-            Self());
+            Self(),
+            NoRecordedLaps);
 
         var row = rows.Single();
         row.BestLapMs.ShouldBeNull();
@@ -174,7 +183,7 @@ public sealed class LiveTowerProjectorTests
             PreviousSectorTimes = [TimeSpan.FromSeconds(30), null, TimeSpan.FromSeconds(95)],
         };
 
-        var row = LiveTowerProjector.Project(LiveDtoFactory.Standings(standing), Self()).Single();
+        var row = LiveTowerProjector.Project(LiveDtoFactory.Standings(standing), Self(), NoRecordedLaps).Single();
 
         row.PreviousSectorMs.ShouldBe([30_000, null, 95_000]);
     }
@@ -188,7 +197,7 @@ public sealed class LiveTowerProjectorTests
             FinishStatus = DriverFinishStatus.Finished,
         };
 
-        var row = LiveTowerProjector.Project(LiveDtoFactory.Standings(standing), Self()).Single();
+        var row = LiveTowerProjector.Project(LiveDtoFactory.Standings(standing), Self(), NoRecordedLaps).Single();
 
         row.PitStopStatus.ShouldBe((int)PitStopStatus.Served);
         row.FinishStatus.ShouldBe((int)DriverFinishStatus.Finished);
@@ -196,5 +205,5 @@ public sealed class LiveTowerProjectorTests
 
     [Fact]
     public void An_empty_field_projects_to_no_rows() =>
-        LiveTowerProjector.Project(LiveDtoFactory.Standings(), Self()).ShouldBeEmpty();
+        LiveTowerProjector.Project(LiveDtoFactory.Standings(), Self(), NoRecordedLaps).ShouldBeEmpty();
 }

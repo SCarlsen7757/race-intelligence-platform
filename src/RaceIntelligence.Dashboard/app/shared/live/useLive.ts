@@ -44,6 +44,18 @@ export function useTower() {
   return useStoreSlice(store, store.getTower);
 }
 
+/**
+ * What is true of the session itself — its lap length, and its pit window.
+ *
+ * Null before the hub has answered, and stale for exactly as long as it takes a room switch to be
+ * acknowledged, which is why every consumer checks `roomId` against the room it is rendering rather
+ * than trusting whatever arrived last.
+ */
+export function useSessionState() {
+  const { store } = useLive();
+  return useStoreSlice(store, store.getSessionState);
+}
+
 export function useLastError() {
   const { store } = useLive();
   return useStoreSlice(store, store.getLastError);

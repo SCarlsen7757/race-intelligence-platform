@@ -5,6 +5,7 @@ import type {
   LiveErrorMessage,
   LiveRoomSummary,
   LiveViewMessage,
+  SessionStateMessage,
   TowerSnapshotMessage,
 } from './contracts';
 
@@ -184,6 +185,7 @@ export class LiveStore {
 
   private rooms: LiveRoomSummary[] = [];
   private tower: TowerSnapshotMessage | null = null;
+  private sessionState: SessionStateMessage | null = null;
   private lastError: LiveErrorMessage | null = null;
   private connected = false;
 
@@ -216,6 +218,7 @@ export class LiveStore {
   // returns the same object until something actually replaces it.
   getRooms = (): LiveRoomSummary[] => this.rooms;
   getTower = (): TowerSnapshotMessage | null => this.tower;
+  getSessionState = (): SessionStateMessage | null => this.sessionState;
   getLastError = (): LiveErrorMessage | null => this.lastError;
   getLapHistories = (): Readonly<Record<string, LapHistoryMessage>> => this.lapHistories;
   getExtras = (): Readonly<Record<string, ExtrasFrameMessage>> => this.extras;
@@ -295,6 +298,11 @@ export class LiveStore {
     switch (message.type) {
       case 'roomList':
         this.rooms = message.rooms;
+        this.emit();
+        break;
+
+      case 'sessionState':
+        this.sessionState = message;
         this.emit();
         break;
 

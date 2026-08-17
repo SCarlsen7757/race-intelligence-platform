@@ -87,6 +87,7 @@ public sealed class ViewerQueue
         new(StringComparer.Ordinal);
 
     private RoomListMessage? _latestRoomList;
+    private SessionStateMessage? _latestSessionState;
     private TowerSnapshotMessage? _latestTower;
 
     private long _droppedTower;
@@ -115,6 +116,29 @@ public sealed class ViewerQueue
         Volatile.Write(ref _latestRoomList, message);
         Wake();
     }
+
+    /// <summary>
+    /// Offers the session's own state, replacing any not yet sent.
+    /// </summary>
+    /// <remarks>
+    /// One slot, and no drop counter. The message is a full statement of the session's state rather
+    /// than a change to it, so the one that survives conflation says everything the ones it replaced
+    /// said — the same bargain lap history makes, and the reason neither is counted as a frame missed.
+    /// </remarks>
+    public void OfferSessionState(SessionStateMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        Volatile.Write(ref _latestSessionState, message);
+        Wake();
+    }
+
+    /// <summary>Discards any session state not yet sent — a viewer leaving a room.</summary>
+    /// <remarks>
+    /// Without this, a viewer switching rooms could be handed the old room's pit window after the
+    /// switch, and a banner has no room id on screen to give the mistake away.
+    /// </remarks>
+    public void ClearSessionState() => Volatile.Write(ref _latestSessionState, null);
 
     /// <summary>Offers a timing tower snapshot, replacing any not yet sent.</summary>
     public void OfferTower(TowerSnapshotMessage message)
@@ -227,8 +251,9 @@ public sealed class ViewerQueue
 
     /// <summary>Takes the next message to send, waiting until one exists.</summary>
     /// <remarks>
-    /// Priority is errors, then the room list, then the tower, then lap histories, then the focus
-    /// stream, then extras. The ordering is by how replaceable each message is rather than by
+    /// Priority is errors, then the room list, then the session state, then the tower, then lap
+    /// histories, then the focus stream, then extras. The ordering is by how replaceable each
+    /// message is rather than by
     /// importance: a focus frame skipped now is replaced within milliseconds, a tower snapshot
     /// within a tenth of a second, and a lap history not until the driver finishes another lap — so
     /// preferring the fastest stream would let a slow viewer starve the slower ones indefinitely.
@@ -264,6 +289,15 @@ public sealed class ViewerQueue
         if (Interlocked.Exchange(ref _latestRoomList, null) is { } roomList)
         {
             return roomList;
+        }
+
+        // Above the tower because it is the tower's frame of reference: a lap length the average
+        // speed column needs, and a pit window every row is racing against. Sending it first costs
+        // one message once, and sending it second would render a tower whose speeds are blank until
+        // the following frame.
+        if (Interlocked.Exchange(ref _latestSessionState, null) is { } sessionState)
+        {
+            return sessionState;
         }
 
         if (Interlocked.Exchange(ref _latestTower, null) is { } tower)

@@ -59,7 +59,21 @@ export interface TowerRow {
   currentLapMs?: number | null;
   previousLapMs?: number | null;
   bestLapMs?: number | null;
+  /**
+   * Whether the lap **in progress** is still valid — the one timed by `currentLapMs`.
+   *
+   * It says nothing about `previousLapMs`. Reading it against the completed lap strikes a clean lap
+   * through the moment the driver goes off on the next one, and leaves the lap that was actually
+   * binned looking legitimate.
+   */
   currentLapValid?: boolean | null;
+  /**
+   * Whether the most recently **completed** lap was valid — the one timed by `previousLapMs`.
+   *
+   * Absent until the hub has watched this driver finish a lap, which includes the first lap after
+   * connecting mid-session. Absent is "not known" and must never render as invalid.
+   */
+  previousLapValid?: boolean | null;
   /** Cumulative splits. Entries are null for sectors not yet reached. */
   currentSectorMs: (number | null)[];
   previousSectorMs: (number | null)[];
@@ -95,6 +109,65 @@ export interface TowerSnapshotMessage {
   roomId: string;
   capturedAtUtc: string;
   drivers: TowerRow[];
+}
+
+/**
+ * Whether a session's mandatory pit window is accepting stops.
+ *
+ * Strings rather than the integer codes the per-car pit fields use. This message is low-rate, so the
+ * bytes cost nothing, and a name cannot silently drift out of step with the server the way a
+ * hand-maintained table of numbers does.
+ *
+ * `'Closed'` covers both "not open yet" and "already gone by" — the simulator does not distinguish
+ * them, so neither does this. `'Stopped'` and `'Completed'` describe the *publishing* car's stop
+ * rather than the session, since that is the only car whose box the simulator reports.
+ */
+export type PitWindowStatus =
+  'Unavailable' | 'Disabled' | 'Closed' | 'Open' | 'Stopped' | 'Completed';
+
+/**
+ * What a pit window's bounds are counted in.
+ *
+ * Never inferred from the session type. The same integer is lap 25 in a lap race and the 25-minute
+ * mark in a timed one, and guessing wrong puts a mandatory stop most of an hour from where it is.
+ */
+export type PitWindowUnit = 'Unknown' | 'Laps' | 'Minutes';
+
+/** The session's mandatory pit window. */
+export interface PitWindowState {
+  status: PitWindowStatus;
+  /**
+   * Where the window opens, in `unit`, or absent when the simulator does not report it.
+   *
+   * Never a sentinel: the connector turns RaceRoom's `-1` into null, so this cannot say lap −1.
+   */
+  start?: number | null;
+  /** Where the window closes, in `unit`. See `start`. */
+  end?: number | null;
+  unit: PitWindowUnit;
+}
+
+/**
+ * What is true of the session itself rather than of any car in it.
+ *
+ * Sent once on watching a room and again whenever it changes — which is roughly twice a race. A
+ * viewer joining mid-session is told the current state immediately rather than waiting for a change
+ * that, for a window which opened ten minutes ago, would never come.
+ */
+export interface SessionStateMessage {
+  type: 'sessionState';
+  roomId: string;
+  /**
+   * One lap of this layout, in meters, or absent when no publisher reported it.
+   *
+   * This is what makes a lap's average speed computable: lap length over lap time. It is sent once
+   * per session rather than as a speed on every `LapRecord` because it is constant — a derived
+   * number repeated on every lap of every driver would bloat the largest message on the wire to save
+   * one division.
+   */
+  layoutLengthMeters?: number | null;
+  /** Absent when the session has no mandatory window, or the simulator reports none. */
+  pitWindow?: PitWindowState | null;
 }
 
 /** The rich channels, for a driver whose own machine is publishing. Per-wheel arrays are FL, FR, RL, RR. */
@@ -186,6 +259,7 @@ export interface LiveErrorMessage {
 
 export type LiveViewMessage =
   | RoomListMessage
+  | SessionStateMessage
   | TowerSnapshotMessage
   | FocusFrameMessage
   | LapHistoryMessage

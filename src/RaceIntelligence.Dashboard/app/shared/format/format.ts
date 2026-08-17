@@ -46,6 +46,33 @@ export function formatSpeed(metersPerSecond: number | null | undefined): string 
   return isMissing(metersPerSecond) ? NOT_REPORTED : `${Math.round(metersPerSecond * 3.6)}`;
 }
 
+/**
+ * A lap's average speed in metres per second — lap length over lap time.
+ *
+ * Returned in m/s rather than km/h so it goes through {@link formatSpeed} like every other speed on
+ * screen, and a lap average cannot end up in different units from the live readout beside it.
+ *
+ * Null whenever either input is missing or nonsensical, which is the whole reason this is a function
+ * rather than a division at the call site. A lap the hub timed as null, a layout no publisher
+ * reported a length for, and RaceRoom's non-positive "unknown" length all have to produce no number
+ * at all — a speed is the kind of figure that reads as authoritative, so an invented one is worse
+ * here than a blank.
+ */
+export function averageLapSpeed(
+  layoutLengthMeters: number | null | undefined,
+  lapTimeMs: number | null | undefined,
+): number | null {
+  if (isMissing(layoutLengthMeters) || layoutLengthMeters <= 0) {
+    return null;
+  }
+
+  if (isMissing(lapTimeMs) || lapTimeMs <= 0) {
+    return null;
+  }
+
+  return layoutLengthMeters / (lapTimeMs / 1000);
+}
+
 /** A 0..1 fraction as a whole percentage. */
 export function formatPercent(fraction: number | null | undefined): string {
   return isMissing(fraction) ? NOT_REPORTED : `${Math.round(fraction * 100)}%`;

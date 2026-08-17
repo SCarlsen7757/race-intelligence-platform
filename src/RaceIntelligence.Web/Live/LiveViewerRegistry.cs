@@ -55,6 +55,17 @@ public sealed class LiveViewerRegistry
         }
     }
 
+    /// <summary>Offers the session's state to every viewer watching that room.</summary>
+    public void BroadcastSessionState(SessionStateMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        foreach (var viewer in _viewers.Keys)
+        {
+            viewer.OfferSessionState(message);
+        }
+    }
+
     /// <summary>Offers a focus frame to every viewer following that driver in that room.</summary>
     public void BroadcastFocus(FocusFrameMessage frame)
     {

@@ -234,4 +234,91 @@ public sealed class R3ETelemetryMapperStandingsTests
         standings.Drivers[0].InPitLane.ShouldBe(false);
         standings.Drivers[1].PitLaneState.ShouldBe(PitLaneState.Entering);
     }
+
+    /// <summary>
+    /// The pit window is session-wide, so it rides the snapshot rather than any car in it. Format 1
+    /// is a lap race, and the bounds are lap numbers.
+    /// </summary>
+    [Fact]
+    public void The_pit_window_is_mapped_from_the_session_block_with_its_unit()
+    {
+        var raw = new R3ESharedRawBuilder()
+            .InRaceSession("Spa", "Grand Prix")
+            .Configure((ref R3ESharedRaw r) =>
+            {
+                r.SessionLengthFormat = 1;
+                r.PitWindowStatus = 2;
+                r.PitWindowStart = 12;
+                r.PitWindowEnd = 20;
+            })
+            .Build();
+
+        var window = R3ETelemetryMapper
+            .ToSessionStandings([], in raw, Guid.NewGuid(), DateTimeOffset.UnixEpoch, R3ESectorTimeConvention.Cumulative)
+            .PitWindow.ShouldNotBeNull();
+
+        window.Status.ShouldBe(PitWindowStatus.Open);
+        window.Start.ShouldBe(12);
+        window.End.ShouldBe(20);
+        window.Unit.ShouldBe(PitWindowUnit.Laps);
+        window.Exists.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Format 0 is a timed session and format 2 is a timed one plus a lap; both express the window
+    /// in minutes. The same integer 25 is lap 25 in a lap race and the 25-minute mark here, which is
+    /// exactly the confusion the unit exists to settle.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void A_timed_session_reports_the_window_in_minutes(int sessionLengthFormat)
+    {
+        var raw = new R3ESharedRawBuilder()
+            .InRaceSession("Spa", "Grand Prix")
+            .Configure((ref R3ESharedRaw r) =>
+            {
+                r.SessionLengthFormat = sessionLengthFormat;
+                r.PitWindowStatus = 1;
+                r.PitWindowStart = 25;
+                r.PitWindowEnd = 40;
+            })
+            .Build();
+
+        var window = R3ETelemetryMapper
+            .ToSessionStandings([], in raw, Guid.NewGuid(), DateTimeOffset.UnixEpoch, R3ESectorTimeConvention.Cumulative)
+            .PitWindow.ShouldNotBeNull();
+
+        window.Unit.ShouldBe(PitWindowUnit.Minutes);
+        window.Status.ShouldBe(PitWindowStatus.Closed);
+    }
+
+    /// <summary>
+    /// The sentinel discipline, at the point where getting it wrong is most visible: a banner
+    /// announcing a pit window that opens on lap -1.
+    /// </summary>
+    [Fact]
+    public void A_session_with_no_pit_window_reports_no_bounds_and_does_not_exist()
+    {
+        var raw = new R3ESharedRawBuilder()
+            .InRaceSession("Spa", "Grand Prix")
+            .Configure((ref R3ESharedRaw r) =>
+            {
+                r.SessionLengthFormat = -1;
+                r.PitWindowStatus = -1;
+                r.PitWindowStart = -1;
+                r.PitWindowEnd = -1;
+            })
+            .Build();
+
+        var window = R3ETelemetryMapper
+            .ToSessionStandings([], in raw, Guid.NewGuid(), DateTimeOffset.UnixEpoch, R3ESectorTimeConvention.Cumulative)
+            .PitWindow.ShouldNotBeNull();
+
+        window.Status.ShouldBe(PitWindowStatus.Unavailable);
+        window.Start.ShouldBeNull();
+        window.End.ShouldBeNull();
+        window.Unit.ShouldBe(PitWindowUnit.Unknown);
+        window.Exists.ShouldBeFalse();
+    }
 }

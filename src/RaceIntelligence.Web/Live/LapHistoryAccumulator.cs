@@ -87,6 +87,26 @@ internal sealed class LapHistoryAccumulator
     public bool Knows(string driverKey) => _drivers.ContainsKey(driverKey);
 
     /// <summary>
+    /// Whether this driver's most recently completed lap was valid, for the tower's last-lap column.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The tower cannot answer this from a standings snapshot, and the reason is the same one this
+    /// class already carries <c>_lapInProgressValid</c> for: the simulator's flag describes the lap
+    /// <i>in progress</i>. Reading it against the previous lap's time — which the tower did until
+    /// this existed — strikes a clean lap through the moment the driver puts a wheel off on the next
+    /// one, and leaves the lap that was actually binned looking legitimate.
+    /// </para>
+    /// <para>
+    /// <see langword="null"/> for a driver with no recorded laps, and for a lap recorded while the
+    /// publisher was away and so never described by a snapshot. Both mean "not known", which is not
+    /// the same as invalid.
+    /// </para>
+    /// </remarks>
+    public bool? LastCompletedLapValidFor(string driverKey) =>
+        _drivers.TryGetValue(driverKey, out var history) ? history.LastCompletedLapValid : null;
+
+    /// <summary>
     /// The full history for one driver, as a copy safe to broadcast outside the room's lock.
     /// </summary>
     public (IReadOnlyList<LapRecord> Laps, bool Truncated) SnapshotFor(string driverKey) =>
@@ -164,6 +184,9 @@ internal sealed class LapHistoryAccumulator
             _lapInProgressValid = driver.CurrentLapValid;
             return true;
         }
+
+        /// <summary>The validity recorded against the newest lap, or null before there is one.</summary>
+        public bool? LastCompletedLapValid => _laps.Count > 0 ? _laps[^1].Valid : null;
 
         public (IReadOnlyList<LapRecord> Laps, bool Truncated) Snapshot() => ([.. _laps], _truncated);
 

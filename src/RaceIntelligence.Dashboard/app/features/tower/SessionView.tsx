@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatDriverKeys, parseDriverKeys, toggleDriverKey } from '../focus/focusDriverKeys';
 import { LapHistoryPanel } from '../laps/LapHistoryPanel';
 import { formatSessionType, isRaceSession } from '../../shared/format/format';
-import { useLive, useRooms, useTower } from '../../shared/live/useLive';
+import { useLive, useRooms, useSessionState, useTower } from '../../shared/live/useLive';
+import { PitWindowBanner } from './PitWindowBanner';
 import { TimingTower } from './TimingTower';
 import { TrackMap } from './TrackMap';
 
@@ -19,6 +20,7 @@ export function SessionView() {
   const { connection } = useLive();
   const rooms = useRooms();
   const tower = useTower();
+  const sessionState = useSessionState();
   const navigate = useNavigate();
 
   // Which rows are open. Kept here rather than in the URL: it is a reading aid, not a place — a
@@ -97,6 +99,12 @@ export function SessionView() {
   // to stop rendering a tower that is no longer being updated.
   const rows = tower !== null && tower.roomId === roomId ? tower.drivers : [];
 
+  // Room-checked for the same reason the tower is. A session state that outlived a room switch would
+  // put the previous race's pit window over this one's tower — and unlike a stale tower row, a banner
+  // carries nothing on screen that would give the mistake away.
+  const session = sessionState !== null && sessionState.roomId === roomId ? sessionState : null;
+  const layoutLengthMeters = session?.layoutLengthMeters ?? null;
+
   return (
     <>
       <nav className="app__breadcrumb">
@@ -110,6 +118,13 @@ export function SessionView() {
           </span>
         )}
       </nav>
+
+      {/*
+        Above the tower rather than inside it: the window applies to every row at once, and a
+        strategist looking for it should not have to find it among thirty cars. Renders nothing
+        at all when the session has no mandatory stop.
+      */}
+      <PitWindowBanner window={session?.pitWindow ?? null} />
 
       <div className="session">
         {/*
@@ -129,7 +144,11 @@ export function SessionView() {
               // tower then withholds pit state for the first message or two rather than guessing.
               isRace={room !== null && isRaceSession(room.gameKey, room.sessionType)}
               renderDetail={(key, sessionBests) => (
-                <LapHistoryPanel driverKey={key} sessionBests={sessionBests} />
+                <LapHistoryPanel
+                  driverKey={key}
+                  sessionBests={sessionBests}
+                  layoutLengthMeters={layoutLengthMeters}
+                />
               )}
             />
           </div>

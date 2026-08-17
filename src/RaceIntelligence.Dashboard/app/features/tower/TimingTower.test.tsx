@@ -159,12 +159,50 @@ describe('TimingTower', () => {
     expect(cells).not.toContain('0.000');
   });
 
-  it('strikes through a lap the simulator marked invalid', () => {
+  /**
+   * The last-lap column shows `previousLapMs`, so it has to be struck from `previousLapValid` — the
+   * validity of that same lap.
+   */
+  it('strikes through the completed lap the simulator marked invalid, and says so in words', () => {
     const { container } = renderTower([
-      row({ driverKey: 'id:1', position: 1, previousLapMs: 95_000, currentLapValid: false }),
+      row({ driverKey: 'id:1', position: 1, previousLapMs: 95_000, previousLapValid: false }),
     ]);
 
-    expect(container.querySelector('.time--invalid')?.textContent).toBe('1:35.000');
+    expect(container.querySelector('.time--invalid')?.textContent).toBe('1:35.000INV');
+    expect(screen.getByText('INV')).toBeDefined();
+  });
+
+  /**
+   * The bug this column had: `currentLapValid` describes the lap being driven right now, so reading
+   * it here struck a clean last lap through the instant the driver put a wheel off on the next one —
+   * while the lap that was actually binned went by unmarked.
+   */
+  it('does not strike a clean last lap because the lap in progress went invalid', () => {
+    const { container } = renderTower([
+      row({
+        driverKey: 'id:1',
+        position: 1,
+        previousLapMs: 95_000,
+        previousLapValid: true,
+        currentLapValid: false,
+      }),
+    ]);
+
+    expect(container.querySelector('.time--invalid')).toBeNull();
+    expect(screen.queryByText('INV')).toBeNull();
+  });
+
+  /**
+   * Unknown is not invalid. Every driver's first lap after the hub starts watching has no recorded
+   * validity, and marking those as binned would condemn a whole grid on connect.
+   */
+  it('leaves a lap of unknown validity unmarked', () => {
+    const { container } = renderTower([
+      row({ driverKey: 'id:1', position: 1, previousLapMs: 95_000 }),
+    ]);
+
+    expect(container.querySelector('.time--invalid')).toBeNull();
+    expect(screen.queryByText('INV')).toBeNull();
   });
 
   it('shows pit, penalty and finish state', () => {

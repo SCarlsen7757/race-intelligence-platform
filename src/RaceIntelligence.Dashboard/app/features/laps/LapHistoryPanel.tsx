@@ -6,6 +6,14 @@ import { LapHistory } from './LapHistory';
 interface LapHistoryPanelProps {
   driverKey: string;
   sessionBests: SessionBests;
+  /**
+   * One lap of this layout in metres, for the average speed column.
+   *
+   * Passed down rather than read from the store here, because only the view that owns the room id
+   * can tell this session's length from the previous one's — this panel knows a driver key and
+   * nothing else.
+   */
+  layoutLengthMeters: number | null;
 }
 
 /**
@@ -16,7 +24,11 @@ interface LapHistoryPanelProps {
  * for something nobody is looking at. Several of these can be mounted at once — the hub conflates
  * per driver — which is what makes comparing two stints side by side possible.
  */
-export function LapHistoryPanel({ driverKey, sessionBests }: LapHistoryPanelProps) {
+export function LapHistoryPanel({
+  driverKey,
+  sessionBests,
+  layoutLengthMeters,
+}: LapHistoryPanelProps) {
   const { connection } = useLive();
   const history = useLapHistory(driverKey);
 
@@ -30,6 +42,7 @@ export function LapHistoryPanel({ driverKey, sessionBests }: LapHistoryPanelProp
       laps={history?.laps ?? null}
       truncated={history?.truncated ?? false}
       sessionBests={sessionBests}
+      layoutLengthMeters={layoutLengthMeters}
     />
   );
 }

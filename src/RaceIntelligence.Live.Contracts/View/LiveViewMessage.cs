@@ -29,6 +29,7 @@ namespace RaceIntelligence.Live.Contracts.View;
 /// </remarks>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(RoomListMessage), "roomList")]
+[JsonDerivedType(typeof(SessionStateMessage), "sessionState")]
 [JsonDerivedType(typeof(TowerSnapshotMessage), "towerSnapshot")]
 [JsonDerivedType(typeof(FocusFrameMessage), "focusFrame")]
 [JsonDerivedType(typeof(LapHistoryMessage), "lapHistory")]
@@ -108,6 +109,100 @@ public sealed record LivePublisherSummary(
     DateTimeOffset ConnectedAtUtc,
     IReadOnlyList<string> Capabilities);
 
+/// <summary>
+/// What is true of the session itself rather than of any car in it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A message of its own because the alternatives are both worse. Putting these on
+/// <see cref="LiveRoomSummary"/> would tie a mid-race change to the room list, which is broadcast
+/// when publishers come and go rather than when a pit window opens; putting them on
+/// <see cref="TowerSnapshotMessage"/> would repeat a lap length ten times a second for the life of
+/// the session to carry a value that changes twice.
+/// </para>
+/// <para>
+/// <b>Sent when it changes, and once on subscribing.</b> A viewer joining mid-race gets the current
+/// state immediately rather than waiting for the next change, which for a pit window that has
+/// already opened would be never.
+/// </para>
+/// </remarks>
+/// <param name="RoomId">The room this describes.</param>
+/// <param name="LayoutLengthMeters">
+/// One lap of this layout, in meters, or <see langword="null"/> when no publisher reported it.
+/// <para>
+/// This is what makes a lap's average speed computable in the browser — lap length over lap time.
+/// It is sent once here rather than as a speed on every <see cref="LapRecord"/> precisely because it
+/// is constant for the session: a derived number repeated on every lap of every driver would
+/// multiply the largest message the hub sends to save one division.
+/// </para>
+/// </param>
+/// <param name="PitWindow">
+/// The session's mandatory pit window, or <see langword="null"/> when no publisher reports one.
+/// </param>
+public sealed record SessionStateMessage(
+    string RoomId,
+    float? LayoutLengthMeters,
+    PitWindowState? PitWindow) : LiveViewMessage;
+
+/// <summary>The session's mandatory pit window, as a browser sees it.</summary>
+/// <remarks>
+/// <see cref="Status"/> and <see cref="Unit"/> cross this boundary as <b>strings</b> where the
+/// publishing wire carries ints, following <see cref="LiveDataTier"/> rather than
+/// <c>TowerRow.PitLaneState</c>. Two reasons: this message is low-rate, so the extra bytes buy
+/// nothing back, and a browser matching on <c>"open"</c> cannot drift out of step with the server the
+/// way a hand-maintained table of integer codes silently does.
+/// </remarks>
+/// <param name="Status">Whether the window is accepting stops.</param>
+/// <param name="Start">
+/// Where the window opens, in <paramref name="Unit"/>, or <see langword="null"/> when the simulator
+/// does not report it. Never a sentinel — the connector turns RaceRoom's <c>-1</c> into null, so a
+/// banner cannot announce a window opening on lap −1.
+/// </param>
+/// <param name="End">Where the window closes, in <paramref name="Unit"/>. See <paramref name="Start"/>.</param>
+/// <param name="Unit">What the two bounds are counted in.</param>
+public sealed record PitWindowState(
+    PitWindowStatusView Status,
+    int? Start,
+    int? End,
+    PitWindowUnitView Unit);
+
+/// <summary>Whether a session's pit window is accepting stops. Mirrors <see cref="RaceIntelligence.Core.Sessions.PitWindowStatus"/>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<PitWindowStatusView>))]
+public enum PitWindowStatusView
+{
+    /// <summary>The simulator does not report a pit window for this session.</summary>
+    Unavailable,
+
+    /// <summary>This session has no mandatory pit window.</summary>
+    Disabled,
+
+    /// <summary>A window exists but is not currently open — either not yet, or no longer.</summary>
+    Closed,
+
+    /// <summary>The window is open and a stop taken now counts.</summary>
+    Open,
+
+    /// <summary>The local car is stopped in its box during the window.</summary>
+    Stopped,
+
+    /// <summary>The local car has served its mandatory stop.</summary>
+    Completed,
+}
+
+/// <summary>What a pit window's bounds are measured in. Mirrors <see cref="RaceIntelligence.Core.Sessions.PitWindowUnit"/>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<PitWindowUnitView>))]
+public enum PitWindowUnitView
+{
+    /// <summary>The simulator did not say, so neither bound can be labelled.</summary>
+    Unknown,
+
+    /// <summary>Lap numbers.</summary>
+    Laps,
+
+    /// <summary>Minutes of session time elapsed.</summary>
+    Minutes,
+}
+
 /// <summary>The merged timing tower for one room.</summary>
 /// <remarks>
 /// A whole snapshot rather than a delta. Positions and gaps are only internally consistent as a
@@ -141,7 +236,26 @@ public sealed record TowerSnapshotMessage(
 /// <param name="CurrentLapMs">Elapsed time on the lap in progress, in milliseconds.</param>
 /// <param name="PreviousLapMs">Most recently completed lap, in milliseconds.</param>
 /// <param name="BestLapMs">Best lap this session, in milliseconds.</param>
-/// <param name="CurrentLapValid">Whether the lap in progress is still valid.</param>
+/// <param name="CurrentLapValid">
+/// Whether the lap <b>in progress</b> is still valid — the lap the car is on right now, whose time
+/// is <paramref name="CurrentLapMs"/>. It says nothing about <paramref name="PreviousLapMs"/>; that
+/// is what <paramref name="PreviousLapValid"/> is for.
+/// </param>
+/// <param name="PreviousLapValid">
+/// Whether the most recently <b>completed</b> lap was valid — the one timed by
+/// <paramref name="PreviousLapMs"/>.
+/// <para>
+/// Supplied by the hub's lap accumulator rather than read off the standings snapshot, because no
+/// snapshot contains it: the simulator's validity flag describes the lap in progress, so by the time
+/// a snapshot reports the lap counter has advanced, the flag has already moved on to the new lap.
+/// The accumulator is the thing that holds the value observed a tick earlier.
+/// </para>
+/// <para>
+/// <see langword="null"/> until the hub has watched this driver finish a lap, which includes the
+/// first lap after a viewer or publisher connects mid-session. Unknown validity is
+/// <b>not</b> invalidity and must not be rendered as it.
+/// </para>
+/// </param>
 /// <param name="CurrentSectorMs">Cumulative splits for the lap in progress; null entries are sectors not yet reached.</param>
 /// <param name="PreviousSectorMs">Cumulative splits for the most recently completed lap.</param>
 /// <param name="BestSectorMs">Cumulative splits for the best lap.</param>
@@ -177,6 +291,7 @@ public sealed record TowerRow(
     double? PreviousLapMs,
     double? BestLapMs,
     bool? CurrentLapValid,
+    bool? PreviousLapValid,
     IReadOnlyList<double?> CurrentSectorMs,
     IReadOnlyList<double?> PreviousSectorMs,
     IReadOnlyList<double?> BestSectorMs,

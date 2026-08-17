@@ -33,18 +33,34 @@ public static class LiveTowerProjector
     /// <see cref="LiveRosterFingerprint.KeyFor"/>. Those rows are marked
     /// <see cref="LiveDataTier.Self"/>.
     /// </param>
+    /// <param name="previousLapValidFor">
+    /// Whether a driver's most recently completed lap was valid, keyed the same way.
+    /// <para>
+    /// Passed in rather than read off <paramref name="standings"/> because it is not in there to
+    /// read: a snapshot's validity flag describes the lap in progress, and the lap just completed was
+    /// described by the snapshot before it. Only <c>LapHistoryAccumulator</c> has watched both, which
+    /// is why this arrives as a lookup instead of a field — and why the projection stays a pure
+    /// function of its arguments, as the rest of this class depends on.
+    /// </para>
+    /// </param>
     public static IReadOnlyList<TowerRow> Project(
         SessionStandings standings,
-        IReadOnlySet<string> selfDriverKeys)
+        IReadOnlySet<string> selfDriverKeys,
+        Func<string, bool?> previousLapValidFor)
     {
         ArgumentNullException.ThrowIfNull(standings);
         ArgumentNullException.ThrowIfNull(selfDriverKeys);
+        ArgumentNullException.ThrowIfNull(previousLapValidFor);
 
         var rows = new List<TowerRow>(standings.Drivers.Count);
         foreach (var driver in standings.Drivers)
         {
             string key = LiveRosterFingerprint.KeyFor(driver);
-            rows.Add(ToRow(driver, key, selfDriverKeys.Contains(key) ? LiveDataTier.Self : LiveDataTier.Observed));
+            rows.Add(ToRow(
+                driver,
+                key,
+                selfDriverKeys.Contains(key) ? LiveDataTier.Self : LiveDataTier.Observed,
+                previousLapValidFor(key)));
         }
 
         // Sorted here rather than in the browser so every viewer of a room renders the same order,
@@ -91,7 +107,11 @@ public static class LiveTowerProjector
     public static string? DriverKeyForLocalCar(string? simDriverId, int? slotId, string? displayName) =>
         LiveRosterFingerprint.KeyFor(simDriverId, slotId, displayName);
 
-    private static TowerRow ToRow(DriverStanding driver, string driverKey, LiveDataTier tier) => new(
+    private static TowerRow ToRow(
+        DriverStanding driver,
+        string driverKey,
+        LiveDataTier tier,
+        bool? previousLapValid) => new(
         driverKey,
         driver.DisplayName,
         driver.CarNumber,
@@ -107,6 +127,7 @@ public static class LiveTowerProjector
         ToMilliseconds(driver.PreviousLapTime),
         ToMilliseconds(driver.BestLapTime),
         driver.CurrentLapValid,
+        previousLapValid,
         ToMilliseconds(driver.CurrentSectorTimes),
         ToMilliseconds(driver.PreviousSectorTimes),
         ToMilliseconds(driver.BestSectorTimes),
