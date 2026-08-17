@@ -195,6 +195,49 @@ public sealed class LiveViewContractShapeTests
     }
 
     [Fact]
+    public void A_lap_history_carries_the_names_the_dashboard_reads()
+    {
+        var message = new LapHistoryMessage(
+            "room-1",
+            "id:1",
+            [new LapRecord(7, 104_500, [30_000, 70_000, 104_500], Valid: false)],
+            Truncated: true);
+
+        var json = Serialize(message);
+        json.GetProperty("type").GetString().ShouldBe("lapHistory");
+
+        PropertyNames(json).ShouldBe(
+            ["type", "roomId", "driverKey", "laps", "truncated"],
+            ignoreOrder: true);
+
+        PropertyNames(json.GetProperty("laps")[0]).ShouldBe(
+            ["lapNumber", "lapTimeMs", "sectorMs", "valid"],
+            ignoreOrder: true);
+
+        // Milliseconds as a JSON number, never a TimeSpan string — the same rule as everywhere else
+        // on this wire.
+        json.GetProperty("laps")[0].GetProperty("lapTimeMs").GetDouble().ShouldBe(104_500);
+    }
+
+    /// <summary>
+    /// A lap whose time the hub never saw must not arrive as <c>0</c>. Nulls are dropped from this
+    /// wire, so the property is simply absent and the dashboard reads it as unknown — where a zero
+    /// would render as an impossibly quick lap at the top of the sheet.
+    /// </summary>
+    [Fact]
+    public void A_lap_with_no_recorded_time_omits_it_rather_than_sending_zero()
+    {
+        var message = new LapHistoryMessage(
+            "room-1", "id:1", [new LapRecord(7, LapTimeMs: null, SectorMs: [], Valid: null)], Truncated: false);
+
+        var names = PropertyNames(Serialize(message).GetProperty("laps")[0]).ToList();
+
+        names.ShouldContain("lapNumber");
+        names.ShouldNotContain("lapTimeMs");
+        names.ShouldNotContain("valid");
+    }
+
+    [Fact]
     public void An_error_carries_a_code_the_dashboard_can_branch_on()
     {
         var json = Serialize(new LiveErrorMessage(

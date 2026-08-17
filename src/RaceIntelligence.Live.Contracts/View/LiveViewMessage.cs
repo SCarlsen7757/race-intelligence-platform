@@ -31,6 +31,7 @@ namespace RaceIntelligence.Live.Contracts.View;
 [JsonDerivedType(typeof(RoomListMessage), "roomList")]
 [JsonDerivedType(typeof(TowerSnapshotMessage), "towerSnapshot")]
 [JsonDerivedType(typeof(FocusFrameMessage), "focusFrame")]
+[JsonDerivedType(typeof(LapHistoryMessage), "lapHistory")]
 [JsonDerivedType(typeof(LiveErrorMessage), "error")]
 public abstract record LiveViewMessage;
 
@@ -232,6 +233,62 @@ public sealed record FocusFrameMessage(
     IReadOnlyList<float?> TyrePressureKpa,
     IReadOnlyList<float?> TyreWear,
     IReadOnlyList<float?> TyreTemperatureCelsius) : LiveViewMessage;
+
+/// <summary>
+/// Every completed lap the hub has watched one driver finish.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Always a full snapshot for one driver, never a delta.</b> That shape is what lets this share
+/// the same conflating treatment as the tower and the focus stream: a viewer too slow to keep up
+/// has older snapshots collapsed into the newest, and because each one restates the whole history,
+/// a collapsed message can never leave a hole where a lap used to be. An incremental
+/// "lap N completed" event would be strictly smaller and would develop exactly that hole the first
+/// time a viewer fell behind — the failure a race engineer would least notice and least forgive.
+/// </para>
+/// <para>
+/// Sent for any driver a viewer has subscribed to, whatever their <see cref="LiveDataTier"/>. Lap
+/// history is read out of the standings snapshot, which describes every car in the session, so it
+/// does not depend on the driver running a collector the way a focus stream does.
+/// </para>
+/// </remarks>
+/// <param name="RoomId">The room this belongs to.</param>
+/// <param name="DriverKey">Which driver, matching <see cref="TowerRow.DriverKey"/>.</param>
+/// <param name="Laps">Completed laps in ascending lap order. Empty until the driver finishes one.</param>
+/// <param name="Truncated">
+/// <see langword="true"/> when the oldest laps have been dropped to stay within the hub's per-driver
+/// cap, so the list starts partway through the session. A dashboard must not present a truncated
+/// history as a whole stint.
+/// </param>
+public sealed record LapHistoryMessage(
+    string RoomId,
+    string DriverKey,
+    IReadOnlyList<LapRecord> Laps,
+    bool Truncated) : LiveViewMessage;
+
+/// <summary>One completed lap.</summary>
+/// <param name="LapNumber">1-based, and contiguous within a history.</param>
+/// <param name="LapTimeMs">
+/// The lap's time in milliseconds, or <see langword="null"/> when the hub watched the lap count go
+/// up without seeing a snapshot that described the lap — a publisher that was away for longer than
+/// a lap. Null is "this lap happened and its time is unknown", which is why the lap is listed at all
+/// rather than silently skipped.
+/// </param>
+/// <param name="SectorMs">
+/// Cumulative sector splits in milliseconds. Entries are <see langword="null"/> for sectors the
+/// simulator did not report, and empty when the lap itself was not described.
+/// </param>
+/// <param name="Valid">
+/// Whether the lap counted, or <see langword="null"/> when unknown. This is the flag observed one
+/// tick <i>before</i> the lap count advanced: the simulator's validity flag describes the lap in
+/// progress, so the value carried on the snapshot that reports the completion already belongs to
+/// the next lap.
+/// </param>
+public sealed record LapRecord(
+    int LapNumber,
+    double? LapTimeMs,
+    IReadOnlyList<double?> SectorMs,
+    bool? Valid);
 
 /// <summary>Reports a problem with a viewer's request — an unknown room, or a malformed subscription.</summary>
 /// <param name="Code">A short stable code the browser can branch on, e.g. <c>unknownRoom</c>.</param>

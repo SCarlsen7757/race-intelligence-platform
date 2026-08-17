@@ -146,6 +146,87 @@ public sealed class ViewerSessionTests
         messages.OfType<LiveErrorMessage>().ShouldHaveSingleItem().Code.ShouldBe(LiveErrorCodes.UnknownDriver);
     }
 
+    /// <summary>
+    /// Answered from what the hub already holds rather than at the driver's next lap, which on a long
+    /// circuit is minutes of an empty panel — and never at all for a driver who has finished.
+    /// </summary>
+    [Fact]
+    public async Task Subscribing_to_lap_history_answers_immediately()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: "2");
+        hub.Rooms.ApplyStandings(identity.ClientId, LiveDtoFactory.StandingsFrame(driverCount: 3));
+
+        var socket = new FakeLiveSocket();
+        socket.PushCommand(new WatchRoomCommand(room.RoomId));
+        socket.PushCommand(new SubscribeLapHistoryCommand("id:2"));
+
+        var messages = await RunAsync(hub, socket, expectedMessages: 3);
+
+        messages.OfType<LapHistoryMessage>().ShouldHaveSingleItem().DriverKey.ShouldBe("id:2");
+    }
+
+    /// <summary>
+    /// The difference between lap history and a focus stream. Lap history is read out of the
+    /// standings snapshot, which describes every car in the session, so a driver who is not running
+    /// a collector — the tier that gets <c>noTelemetryForDriver</c> when focused — has a full
+    /// history like anyone else.
+    /// </summary>
+    [Fact]
+    public async Task Lap_history_works_for_an_observed_tier_driver_too()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: "2");
+        hub.Rooms.ApplyStandings(identity.ClientId, LiveDtoFactory.StandingsFrame(driverCount: 3));
+
+        var socket = new FakeLiveSocket();
+        socket.PushCommand(new WatchRoomCommand(room.RoomId));
+
+        // "id:3" is in the field but nobody publishes their machine, so focusing them is refused.
+        socket.PushCommand(new SubscribeLapHistoryCommand("id:3"));
+
+        var messages = await RunAsync(hub, socket, expectedMessages: 3);
+
+        messages.OfType<LiveErrorMessage>().ShouldBeEmpty();
+        messages.OfType<LapHistoryMessage>().ShouldHaveSingleItem().DriverKey.ShouldBe("id:3");
+    }
+
+    [Fact]
+    public async Task Subscribing_to_lap_history_for_an_unknown_driver_is_answered_with_an_error()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: "2");
+        hub.Rooms.ApplyStandings(identity.ClientId, LiveDtoFactory.StandingsFrame(driverCount: 3));
+
+        var socket = new FakeLiveSocket();
+        socket.PushCommand(new WatchRoomCommand(room.RoomId));
+        socket.PushCommand(new SubscribeLapHistoryCommand("id:nobody"));
+
+        // The connection stays open: one bad subscription costs that subscription and nothing else,
+        // which is why a later command is still answered.
+        socket.PushCommand(new SubscribeLapHistoryCommand("id:2"));
+
+        var messages = await RunAsync(hub, socket, expectedMessages: 4);
+
+        messages.OfType<LiveErrorMessage>().ShouldHaveSingleItem().Code.ShouldBe(LiveErrorCodes.UnknownDriver);
+        messages.OfType<LapHistoryMessage>().ShouldHaveSingleItem().DriverKey.ShouldBe("id:2");
+    }
+
+    [Fact]
+    public async Task Subscribing_to_lap_history_before_watching_a_room_is_answered_with_an_error()
+    {
+        var hub = new LiveHubFixture();
+        var socket = new FakeLiveSocket();
+        socket.PushCommand(new SubscribeLapHistoryCommand("id:2"));
+
+        var messages = await RunAsync(hub, socket, expectedMessages: 2);
+
+        messages.OfType<LiveErrorMessage>().ShouldHaveSingleItem().Code.ShouldBe(LiveErrorCodes.NotWatchingRoom);
+    }
+
     [Fact]
     public async Task Focusing_before_watching_a_room_is_answered_with_an_error()
     {

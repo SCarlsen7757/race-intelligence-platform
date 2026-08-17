@@ -1,5 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <!-- LapHistoryAccumulator is internal because it is not thread-safe on its own — it is only ever
+       touched under LiveRoom's lock — and a public type carrying that condition would be a trap.
+       Its per-driver cap still needs asserting, so the test project sees it directly. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="RaceIntelligence.Web.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Live.Contracts\RaceIntelligence.Live.Contracts.csproj" />
     <ProjectReference Include="..\RaceIntelligence.ServiceDefaults\RaceIntelligence.ServiceDefaults.csproj" />

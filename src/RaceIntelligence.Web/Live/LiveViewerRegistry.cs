@@ -66,6 +66,17 @@ public sealed class LiveViewerRegistry
         }
     }
 
+    /// <summary>Offers a driver's completed laps to every viewer subscribed to them in that room.</summary>
+    public void BroadcastLapHistory(LapHistoryMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        foreach (var viewer in _viewers.Keys)
+        {
+            viewer.OfferLapHistory(message);
+        }
+    }
+
     /// <summary>
     /// Offers the room list to every viewer, whatever they are watching.
     /// </summary>

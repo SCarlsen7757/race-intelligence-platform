@@ -20,6 +20,12 @@ public sealed class ViewerQueueTests
     private static FocusFrameMessage Focus(int lap) => new(
         "room", "id:1", DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, null, 0, null, 0, 0, [], [], []);
 
+    private static LapHistoryMessage History(string driverKey, int laps) => new(
+        "room",
+        driverKey,
+        [.. Enumerable.Range(1, laps).Select(number => new LapRecord(number, 90_000, [], true))],
+        Truncated: false);
+
     /// <summary>
     /// The reason each stream keeps a single slot: a viewer that stalls for two seconds must be
     /// shown the current race when it recovers, not two seconds of where the cars used to be.
@@ -93,6 +99,77 @@ public sealed class ViewerQueueTests
 
         queue.TryRead().ShouldBeOfType<TowerSnapshotMessage>();
         queue.TryRead().ShouldBeOfType<FocusFrameMessage>();
+    }
+
+    /// <summary>
+    /// Below the tower and above the focus stream. Lap history is the least replaceable of the three
+    /// — the next one does not arrive until the driver finishes another lap — so putting it under
+    /// the 60 Hz stream would let a slow viewer starve it for a whole lap at a time.
+    /// </summary>
+    [Fact]
+    public void Lap_history_sits_between_the_tower_and_the_focus_stream()
+    {
+        var queue = new ViewerQueue();
+
+        queue.OfferFocus(Focus(lap: 1));
+        queue.OfferLapHistory(History("id:1", laps: 1));
+        queue.OfferTower(Tower(driverCount: 1));
+
+        queue.TryRead().ShouldBeOfType<TowerSnapshotMessage>();
+        queue.TryRead().ShouldBeOfType<LapHistoryMessage>();
+        queue.TryRead().ShouldBeOfType<FocusFrameMessage>();
+    }
+
+    /// <summary>
+    /// Conflating within a driver is safe precisely because each message is a full history: the one
+    /// that survives says everything the ones it replaced did.
+    /// </summary>
+    [Fact]
+    public void Only_the_newest_lap_history_per_driver_survives()
+    {
+        var queue = new ViewerQueue();
+
+        queue.OfferLapHistory(History("id:1", laps: 1));
+        queue.OfferLapHistory(History("id:1", laps: 2));
+        queue.OfferLapHistory(History("id:1", laps: 3));
+
+        queue.TryRead().ShouldBeOfType<LapHistoryMessage>().Laps.Count.ShouldBe(3);
+        queue.TryRead().ShouldBeNull();
+    }
+
+    /// <summary>
+    /// One slot per driver, not one in total: several rows can be expanded at once, and a single slot
+    /// would let a busy driver's history evict another driver's indefinitely.
+    /// </summary>
+    [Fact]
+    public void Lap_histories_for_different_drivers_do_not_evict_each_other()
+    {
+        var queue = new ViewerQueue();
+
+        queue.OfferLapHistory(History("id:1", laps: 1));
+        queue.OfferLapHistory(History("id:2", laps: 1));
+
+        var delivered = new[]
+        {
+            queue.TryRead().ShouldBeOfType<LapHistoryMessage>().DriverKey,
+            queue.TryRead().ShouldBeOfType<LapHistoryMessage>().DriverKey,
+        };
+
+        delivered.ShouldBe(["id:1", "id:2"], ignoreOrder: true);
+        queue.TryRead().ShouldBeNull();
+    }
+
+    [Fact]
+    public void Clearing_one_driver_leaves_the_others_alone()
+    {
+        var queue = new ViewerQueue();
+
+        queue.OfferLapHistory(History("id:1", laps: 1));
+        queue.OfferLapHistory(History("id:2", laps: 1));
+        queue.ClearLapHistory("id:1");
+
+        queue.TryRead().ShouldBeOfType<LapHistoryMessage>().DriverKey.ShouldBe("id:2");
+        queue.TryRead().ShouldBeNull();
     }
 
     /// <summary>

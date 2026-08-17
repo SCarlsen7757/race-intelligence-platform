@@ -115,9 +115,9 @@ public static class LiveTowerProjector
     /// a race engineer as <c>0.0s</c> — that is not a smaller version of "unknown", it is a
     /// different and confident claim, and it is the one someone would make a pit call on.
     /// </remarks>
-    private static double? ToMilliseconds(TimeSpan? value) => value?.TotalMilliseconds;
+    internal static double? ToMilliseconds(TimeSpan? value) => value?.TotalMilliseconds;
 
-    private static IReadOnlyList<double?> ToMilliseconds(IReadOnlyList<TimeSpan?> values)
+    internal static IReadOnlyList<double?> ToMilliseconds(IReadOnlyList<TimeSpan?> values)
     {
         if (values.Count == 0)
         {

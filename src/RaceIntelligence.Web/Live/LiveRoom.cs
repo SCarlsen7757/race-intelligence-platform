@@ -26,6 +26,7 @@ public sealed class LiveRoom
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<Guid, LivePublisherState> _publishers = [];
+    private readonly LapHistoryAccumulator _lapHistory = new();
 
     private DateTimeOffset _lastUpdatedAtUtc;
 
@@ -83,8 +84,8 @@ public sealed class LiveRoom
     /// <summary>
     /// Adds or updates a publisher's session announcement.
     /// </summary>
-    /// <returns>The tower as it now stands, or <see langword="null"/> if no standings have arrived yet.</returns>
-    public TowerSnapshotMessage? Announce(LivePublisherIdentity identity, LiveSessionFrame frame, DateTimeOffset nowUtc)
+    /// <returns>What viewers should now be sent. Empty if no standings have arrived yet.</returns>
+    public LiveRoomUpdate Announce(LivePublisherIdentity identity, LiveSessionFrame frame, DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(frame);
@@ -100,15 +101,15 @@ public sealed class LiveRoom
             state.Session = frame;
             _lastUpdatedAtUtc = nowUtc;
 
-            return ProjectLocked(nowUtc);
+            return ObserveAndProjectLocked(nowUtc);
         }
     }
 
     /// <summary>
     /// Applies a standings snapshot from a publisher.
     /// </summary>
-    /// <returns>The tower as it now stands, or <see langword="null"/> if the publisher is unknown here.</returns>
-    public TowerSnapshotMessage? ApplyStandings(Guid clientId, LiveStandingsFrame frame, DateTimeOffset nowUtc)
+    /// <returns>What viewers should now be sent. Empty if the publisher is unknown here.</returns>
+    public LiveRoomUpdate ApplyStandings(Guid clientId, LiveStandingsFrame frame, DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(frame);
 
@@ -116,14 +117,14 @@ public sealed class LiveRoom
         {
             if (!_publishers.TryGetValue(clientId, out var state))
             {
-                return null;
+                return LiveRoomUpdate.None;
             }
 
             state.Standings = LiveStandingsContractMapper.ToCore(frame);
             state.StandingsReceivedAtUtc = nowUtc;
             _lastUpdatedAtUtc = nowUtc;
 
-            return ProjectLocked(nowUtc);
+            return ObserveAndProjectLocked(nowUtc);
         }
     }
 
@@ -167,11 +168,11 @@ public sealed class LiveRoom
     /// socket dropped mid-race rejoin the room it was already in, keeping the room id — and so
     /// every viewer's subscription — intact across a reconnect.
     /// </remarks>
-    public TowerSnapshotMessage? RemovePublisher(Guid clientId, DateTimeOffset nowUtc)
+    public LiveRoomUpdate RemovePublisher(Guid clientId, DateTimeOffset nowUtc)
     {
         lock (_gate)
         {
-            return _publishers.Remove(clientId) ? ProjectLocked(nowUtc) : null;
+            return _publishers.Remove(clientId) ? ObserveAndProjectLocked(nowUtc) : LiveRoomUpdate.None;
         }
     }
 
@@ -223,12 +224,90 @@ public sealed class LiveRoom
     }
 
     /// <summary>Builds the current tower, for a viewer that has just subscribed.</summary>
+    /// <remarks>
+    /// Read-only, unlike the publisher-driven paths: a viewer's command must not be what advances
+    /// lap history. If it were, the lap a viewer's subscription happened to observe would be
+    /// recorded without ever being broadcast, and every other viewer would wait for the following
+    /// lap to learn about it.
+    /// </remarks>
     public TowerSnapshotMessage? Snapshot(DateTimeOffset nowUtc)
     {
         lock (_gate)
         {
             return ProjectLocked(nowUtc);
         }
+    }
+
+    /// <summary>
+    /// The completed laps this room has recorded for one driver, or <see langword="null"/> when it
+    /// has never heard of them.
+    /// </summary>
+    /// <remarks>
+    /// Answers a subscription immediately rather than leaving the viewer to wait for the next lap,
+    /// which on a long circuit is minutes of an empty panel. A driver the room knows but who has
+    /// completed nothing yields an empty history — that is a real answer, and distinct from the null
+    /// that means "no such driver here".
+    /// </remarks>
+    public LapHistoryMessage? LapHistoryFor(string driverKey)
+    {
+        ArgumentNullException.ThrowIfNull(driverKey);
+
+        lock (_gate)
+        {
+            // Either source is enough. The accumulator remembers a driver who has since dropped out
+            // of the snapshot, and the snapshot names a driver who has not completed a lap yet.
+            bool known = _lapHistory.Knows(driverKey)
+                || (SelectSnapshotLocked() is { } standings
+                    && standings.Drivers.Any(driver => LiveTowerProjector.DriverKeyFor(driver) == driverKey));
+
+            if (!known)
+            {
+                return null;
+            }
+
+            var (laps, truncated) = _lapHistory.SnapshotFor(driverKey);
+            return new LapHistoryMessage(RoomId, driverKey, laps, truncated);
+        }
+    }
+
+    /// <summary>
+    /// Feeds the lap accumulator from the selected snapshot, then projects the tower.
+    /// </summary>
+    /// <remarks>
+    /// The selected snapshot rather than the frame that just arrived, deliberately: that is what
+    /// makes the accumulator correct when <see cref="SelectSnapshotLocked"/> switches publishers
+    /// mid-race, since both publishers describe the same drivers and recording is idempotent by lap
+    /// number. Everything is built here, under the lock, and returned for the caller to broadcast
+    /// outside it.
+    /// </remarks>
+    private LiveRoomUpdate ObserveAndProjectLocked(DateTimeOffset nowUtc)
+    {
+        var standings = SelectSnapshotLocked();
+        if (standings is null)
+        {
+            return LiveRoomUpdate.None;
+        }
+
+        var changedDrivers = _lapHistory.Observe(standings);
+
+        LapHistoryMessage[] histories;
+        if (changedDrivers.Count == 0)
+        {
+            histories = [];
+        }
+        else
+        {
+            histories = new LapHistoryMessage[changedDrivers.Count];
+            for (int i = 0; i < changedDrivers.Count; i++)
+            {
+                var (laps, truncated) = _lapHistory.SnapshotFor(changedDrivers[i]);
+                histories[i] = new LapHistoryMessage(RoomId, changedDrivers[i], laps, truncated);
+            }
+        }
+
+        return new LiveRoomUpdate(
+            new TowerSnapshotMessage(RoomId, nowUtc, LiveTowerProjector.Project(standings, SelfDriverKeysLocked())),
+            histories);
     }
 
     private TowerSnapshotMessage? ProjectLocked(DateTimeOffset nowUtc)
@@ -335,6 +414,28 @@ public sealed class LiveRoom
     /// </remarks>
     private static IReadOnlyList<float?> ToWheelArray(LiveWheelValues values) =>
         [values.FrontLeft, values.FrontRight, values.RearLeft, values.RearRight];
+}
+
+/// <summary>
+/// Everything one applied publisher frame produces for viewers.
+/// </summary>
+/// <remarks>
+/// A single return value rather than a room that pushes to viewers itself, because the room's whole
+/// discipline is that nothing is sent from inside its lock. Both halves are built under the lock and
+/// handed back for the registry to fan out afterwards, so a viewer's queue is never touched while a
+/// publisher's frame is being applied.
+/// </remarks>
+/// <param name="Tower">The tower as it now stands, or <see langword="null"/> when no standings have arrived.</param>
+/// <param name="LapHistories">
+/// A full history for each driver whose lap count moved. Usually empty: standings arrive ten times a
+/// second and a lap finishes about once a minute.
+/// </param>
+public readonly record struct LiveRoomUpdate(
+    TowerSnapshotMessage? Tower,
+    IReadOnlyList<LapHistoryMessage> LapHistories)
+{
+    /// <summary>Nothing to send — an unknown publisher, or a room with no standings yet.</summary>
+    public static LiveRoomUpdate None => new(null, []);
 }
 
 /// <summary>Whether a driver can be focused, and if not, why.</summary>

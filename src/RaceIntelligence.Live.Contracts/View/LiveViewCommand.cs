@@ -14,6 +14,8 @@ namespace RaceIntelligence.Live.Contracts.View;
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(WatchRoomCommand), "watchRoom")]
 [JsonDerivedType(typeof(FocusDriverCommand), "focusDriver")]
+[JsonDerivedType(typeof(SubscribeLapHistoryCommand), "subscribeLapHistory")]
+[JsonDerivedType(typeof(UnsubscribeLapHistoryCommand), "unsubscribeLapHistory")]
 public abstract record LiveViewCommand;
 
 /// <summary>Subscribes this viewer to a room's timing tower, replacing any previous subscription.</summary>
@@ -37,3 +39,45 @@ public sealed record WatchRoomCommand(string? RoomId) : LiveViewCommand;
 /// to send, and the hub answers with a <see cref="LiveErrorMessage"/> rather than silence.
 /// </param>
 public sealed record FocusDriverCommand(string? DriverKey) : LiveViewCommand;
+
+/// <summary>
+/// Adds a driver to the set whose completed laps this viewer receives, and answers immediately with
+/// what the hub has so far.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Additive, unlike <see cref="FocusDriverCommand"/>.</b> A viewer may hold several of these at
+/// once, because comparing two drivers' stints side by side is the whole point of expanding rows —
+/// where comparing two drivers' 60 Hz pedal traces is a second socket. The cost scale is what makes
+/// the two answers different: a lap history is sent when a lap finishes, roughly once a minute per
+/// driver, so a dozen subscriptions is still less traffic than one focus stream.
+/// </para>
+/// <para>
+/// Works for a driver of any <see cref="LiveDataTier"/>. Lap history comes from the standings
+/// snapshot, which sees every car, so a driver who is not running a collector still has one.
+/// </para>
+/// <para>
+/// The hub keeps no viewer memory across connections, so a reconnecting dashboard resends these
+/// alongside its <see cref="WatchRoomCommand"/> and <see cref="FocusDriverCommand"/>.
+/// </para>
+/// </remarks>
+/// <param name="DriverKey">
+/// The driver to follow, matching <see cref="TowerRow.DriverKey"/>, or <see langword="null"/> to
+/// drop every lap-history subscription at once. A key the hub cannot find in the room is answered
+/// with a <see cref="LiveErrorMessage"/> carrying <c>unknownDriver</c>, and the connection stays
+/// open.
+/// </param>
+public sealed record SubscribeLapHistoryCommand(string? DriverKey) : LiveViewCommand;
+
+/// <summary>
+/// Removes one driver from the lap-history set — a collapsed row.
+/// </summary>
+/// <remarks>
+/// A command of its own rather than a null <see cref="SubscribeLapHistoryCommand.DriverKey"/>,
+/// because the subscription is a set: null there already has to mean "drop all", and a dashboard
+/// collapsing one of five expanded rows needs to say which one. Unsubscribing from a driver that was
+/// never subscribed is a no-op rather than an error — the browser and the hub can disagree about
+/// what is open after a reconnect, and that disagreement is not worth an error message.
+/// </remarks>
+/// <param name="DriverKey">The driver to stop following.</param>
+public sealed record UnsubscribeLapHistoryCommand(string DriverKey) : LiveViewCommand;
