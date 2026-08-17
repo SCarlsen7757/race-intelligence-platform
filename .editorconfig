@@ -26,6 +26,18 @@ indent_size = 2
 [*.{csproj,props,targets,slnx,xml}]
 indent_size = 2
 
+# The dashboard. The .NET side of this repo indents by four; the JavaScript ecosystem indents by
+# two, and so does every tool that formats it. Prettier reads this file, so without this section
+# it would reformat the whole dashboard to four spaces on the first `npm run format` and then
+# disagree with every other TypeScript project anyone has ever opened.
+#
+# LF rather than the CRLF above for the same reason the shell scripts are: these files are read by
+# Node, and the dashboard is the one part of this repo expected to build on a Linux CI runner and
+# in a container as readily as on Windows.
+[src/RaceIntelligence.Dashboard/**.{ts,tsx,js,mjs,css,html}]
+indent_size = 2
+end_of_line = lf
+
 [*.md]
 # Two trailing spaces are a hard line break in Markdown.
 trim_trailing_whitespace = false
