@@ -178,7 +178,7 @@ CREATE UNIQUE INDEX "IX_track_layouts_track_id_name" ON track_layouts (track_id,
 CREATE UNIQUE INDEX "IX_tracks_game_id_name" ON tracks (game_id, name);
 
 INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20260806232140_InitialCreate', '10.0.10');
+VALUES ('20260806232140_InitialCreate', '10.0.11');
 
 COMMIT;
 
