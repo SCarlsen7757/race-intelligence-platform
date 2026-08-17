@@ -653,9 +653,10 @@ work can start before multi-simulator support is finished, and probably will.
 - Collector live publishing, independently switchable from archiving *(built)*
 - Server-side lap history, so a race engineer sees a whole stint rather than the last lap
 - A low-rate channel for slow-moving sim-specific values such as car damage
-- Pedal and damage bars, and expandable timing-tower rows
 - Live hub: publisher and viewer sockets, room registry, timing tower *(built)*
-- React dashboard: active clients, timing tower, focus panel *(built)*
+- Dashboard: TanStack Start on its own origin, room and driver in the URL, timing tower with
+  expandable per-lap rows, focus panel with pedal bars and a capability-gated damage panel *(built;
+  the lap-history, damage and clutch channels it reads are the two items above)*
 - Merging several collectors in one session into one enriched view
 - Head-to-head comparison and a historical read API
 - RaceRoom-specific channels on the live wire: push-to-pass, DRS, virtual energy, cut-track

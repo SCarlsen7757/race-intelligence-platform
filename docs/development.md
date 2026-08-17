@@ -12,6 +12,7 @@ reads a Windows named shared-memory block that only exists while the game is run
 | Windows | the RaceRoom connector — it is marked `[SupportedOSPlatform("windows")]` |
 | RaceRoom, running | actual telemetry. The collector starts fine without it and waits |
 | Docker Desktop | Options A and C below, and the full test suite. Not needed for Option B |
+| Node 24 | the dashboard — its own service now, so also Option A, which launches it |
 
 ---
 
@@ -36,10 +37,17 @@ dotnet user-secrets set "Parameters:postgres-password" "dev-local-only-password"
 dotnet run --project src/RaceIntelligence.AppHost
 ```
 
-The Aspire dashboard opens in a browser with all four resources. The collector publishes live as
-well as archiving here — AppHost sets `Collector__Live__Enabled`, unlike the shipped default —
-because the point of the full graph is to exercise the whole pipeline. The hub's own room list is
-readable at `<web>/api/v1/live/rooms`; the dashboard that renders it arrives in step 5.
+The Aspire dashboard opens in a browser with every resource, the race-engineer dashboard among
+them. The collector publishes live as well as archiving here — AppHost sets
+`Collector__Live__Enabled`, unlike the shipped default — because the point of the full graph is to
+exercise the whole pipeline.
+
+AppHost also wires the two halves of the two-origin split, so neither needs configuring by hand: the
+dashboard is given the hub's endpoint as `HUB_URL`, and the hub is given the dashboard's origin as
+`Live__AllowedOrigins__0`. Node must be on `PATH`; Aspire runs `npm install` and `npm run dev` for
+the dashboard resource.
+
+The hub's own room list is readable at `<web>/api/v1/live/rooms` for a curl-level check.
 
 PostgreSQL runs in a container
 with a persistent data volume, so telemetry survives restarts — deliberately, since losing a test
@@ -279,21 +287,43 @@ The hub (`RaceIntelligence.Web`) binds its own settings from the `Live` section.
 | Setting | Default | Notes |
 |---|---|---|
 | `ApiKey` | *(empty)* | **Required.** The key a collector must present to publish. Startup fails without it |
+| `AllowedOrigins` | *(empty)* | **Required, and must list at least one origin.** The browser origins allowed to read the room list and open a viewing socket. Startup fails without it |
 | `RoomExpiry` | `00:00:30` | How long a session survives with no frames before the hub forgets it |
 | `RoomSweepInterval` | `00:00:05` | How often expired rooms are swept |
 | `MaxPublisherMessageBytes` | `524288` | Largest frame accepted from a collector |
+
+`AllowedOrigins` takes origins, not URLs — scheme, host and port with no trailing slash, exactly as
+a browser sends them:
+
+```json
+{ "Live": { "AllowedOrigins": [ "http://localhost:3000" ] } }
+```
+
+It drives two mechanisms that a browser applies at different moments: a CORS policy on
+`GET /api/v1/live/rooms`, and `WebSocketOptions.AllowedOrigins` on the two sockets. **The hub
+refuses to start when the list is empty, because an empty list means "accept every origin"** — the
+behaviour before the dashboard moved off this host, and one that looks configured while being open
+to any page on the internet.
+
+Only browsers are constrained by it. A collector connects with a raw `ClientWebSocket` and sends no
+`Origin` header, which is still accepted: origin is a browser's self-report about which page opened
+the connection, and it means nothing coming from a program. Publishing is guarded by the API key
+instead.
 
 Two endpoints, with deliberately opposite auth:
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /live/publish` (WebSocket) | `X-Api-Key` | A collector publishes its session |
-| `GET /live/view` (WebSocket) | **none** | A race engineer watches |
-| `GET /api/v1/live/rooms` | **none** | The room list as JSON, identical to what the socket sends |
+| `GET /live/view` (WebSocket) | **none**, origin-checked | A race engineer watches |
+| `GET /api/v1/live/rooms` | **none**, CORS | The room list as JSON, identical to what the socket sends |
 
 Publishing is gated and viewing is not because the risks are opposite: a viewer can only read what
 someone chose to publish, while a publisher injects the data every race engineer is making decisions
 from — and a fabricated timing tower looks exactly like a real one.
+
+Anything that is neither an API route nor a socket is a plain 404. **The hub serves no UI** — see
+below.
 
 `RoomExpiry` is measured from the **last frame**, not from the last publisher disconnecting. That
 gap is what lets a collector whose socket drops mid-race rejoin the room it was already in, keeping
@@ -303,44 +333,80 @@ its room id and every viewer's subscription intact across the reconnect.
 
 ## The dashboard
 
-The React dashboard lives in `src/RaceIntelligence.Web/ClientApp/` and is served by the hub itself,
-so there is one origin, one tunnel, and no API address to configure — the page opens its socket
-back to wherever it was loaded from.
+The dashboard lives in `src/RaceIntelligence.Dashboard/` — a [TanStack Start](https://tanstack.com/start)
+app on Node, **its own service on its own origin**. The hub no longer serves it, and the browser
+opens its WebSocket straight at the hub rather than being proxied through Node.
+
+Direct rather than proxied because it is both the more modular arrangement and the lower-latency
+one: a proxy adds a second connection and forces Node's event loop to re-emit every focus frame
+sixty times a second, which is jitter as well as delay.
+
+That costs two things, and both are settings rather than assumptions:
+
+- the dashboard has to be told where the hub is — **`HUB_URL`**;
+- the hub has to be told which origin to accept — **`Live:AllowedOrigins`**, above.
+
+Room and driver are in the URL (`/`, `/rooms/$roomId`, `/rooms/$roomId/$driverKey`), so a refresh
+or a link restores the view.
 
 ### Working on it
 
+Under AppHost (Option A) neither setting needs touching: it launches the dashboard as a resource
+and wires both directions itself. Standalone, it is two terminals:
+
 ```powershell
-# Terminal 1 — the hub.
+# Terminal 1 — the hub. Its development settings already allow http://localhost:3000.
 dotnet run --project src/RaceIntelligence.Web --launch-profile http
 
-# Terminal 2 — Vite, with hot reload. Proxies /api and /live to the hub above.
-cd src/RaceIntelligence.Web/ClientApp
+# Terminal 2 — the dashboard, with hot reload.
+cd src/RaceIntelligence.Dashboard
 npm install
-npm run dev      # http://localhost:5173
+npm run dev      # http://localhost:3000
 ```
 
-Open `http://localhost:5173` while developing the UI. `dotnet run` alone serves `wwwroot`, which is
-whatever `npm run build` last produced — fine for checking the real bundle, no use for iterating.
+Both defaults line up on purpose: the dashboard falls back to `http://localhost:5044`, which is the
+hub's `http` launch profile, and the hub's `appsettings.Development.json` allows
+`http://localhost:3000`, which is the dashboard's default port. Point it elsewhere with `HUB_URL`:
+
+```powershell
+$env:HUB_URL = "https://home-server:5444"
+npm run dev
+```
+
+**`HUB_URL` is read at build time, not per request**, because the browser has no environment to
+read and the live routes are client-only — there is no server render to ship the value down with.
+So a deployed dashboard is repointed by rebuilding, not by restarting. See
+`app/shared/live/hubUrlBuild.ts` for the full argument.
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Vite dev server with hot reload, proxying to the hub |
-| `npm run build` | Typecheck, then build into `../wwwroot` |
+| `npm run dev` | Vite dev server with hot reload |
+| `npm run build` | Typecheck, then build the client and server bundles into `dist/` |
+| `npm start` | Run the built server |
 | `npm run typecheck` | Types only |
+| `npm run lint` | ESLint, then a Prettier formatting check |
+| `npm run format` | Rewrite files to Prettier's formatting |
 | `npm test` | Vitest |
 
-`wwwroot/` and `node_modules/` are generated and gitignored. **`dotnet publish` builds the
-dashboard automatically** (`npm ci && npm run build`) and includes it in the output; a plain
-`dotnet build` does not, because a `dotnet test` run has no use for a bundle and would pay seconds
-for it every time. Set `-p:SkipClientAppBuild=true` to publish the hub without Node installed.
+`dist/` and `node_modules/` are generated and gitignored. **`dotnet publish` no longer builds the
+dashboard** — it is deployed as a Node service of its own, so `npm ci && npm run build && npm start`
+on the host that serves it, or a container built from the same three commands.
+
+`app/routeTree.gen.ts` is generated from `app/routes/` by the Vite plugin and **is** tracked, so
+`npm run typecheck` works without building first. Adding or renaming a route means committing the
+regenerated file; CI checks that it is current.
 
 ### How it stays fast
 
 The focus stream runs at the collector's full poll rate, and **that data never goes through React
-state**. The socket writes into a plain store; the focus panel reads it from one
-`requestAnimationFrame` loop and paints to canvas via uPlot. React state holds only the
-slow-changing half — the room list, the tower, errors. A `setState` per focus frame would mean a
-render cycle 60 times a second, which drops frames on a laptop well before it does on a desktop.
+state**. The socket writes into a plain store — plain fields and `Float32Array` ring buffers — and
+the focus panel reads it from `requestAnimationFrame` loops that paint the pedal bars to canvas and
+the trace through uPlot. React state holds only the slow-changing half: the room list, the tower,
+lap history, extras, errors. A `setState` per focus frame would mean a render cycle 60 times a
+second, which drops frames on a laptop well before it does on a desktop.
+
+Damage has its own channel at roughly 1 Hz precisely so it can go through React like the rest: it
+changes on contact, not per frame, and parsing its JSON sixty times a second would be pure waste.
 
 ### Testing without RaceRoom
 
