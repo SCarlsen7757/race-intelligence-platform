@@ -96,12 +96,22 @@ while the race happens.
      |  60 Hz local car ---> Buffer ---> Upload --HTTP+key--> Ingest.Api --> PostgreSQL
      |
      |  10 Hz whole field
-     +--------------------> LiveOutbox --WS+key--> +-----------------+
-                            (conflating)           | Web (live hub)  |
-                                                   |  room registry  |--WS (open)--> Dashboard
-   Second gaming PC ------------WS+key------------>|  tower + focus  |
-                                                   +-----------------+
+     |   1 Hz extras (damage)
+     +--------------------> LiveOutbox --WS+key--> +----------------------+
+                            (conflating)           | Web (live hub)       |
+                                                   |  room registry       |--WS (open)--> Dashboard
+   Second gaming PC ------------WS+key------------>|  tower + focus       |
+                                                   |  lap accumulator     |
+                                                   |  latest extras       |
+                                                   +----------------------+
 ```
+
+The collector publishes three rates, each sized for what it carries. The tower runs at a tenth of
+the focus stream's rate because positions and gaps do not change between two 60 Hz frames. Extras —
+the simulator's own JSON document, which is where car damage lives — run slower again, because their
+contents move on the scale of a race and every consumer of them parses JSON. In both the collector's
+outbox and each viewer's queue, extras sit at the *bottom* of the priority ladder: a once-a-second
+document must never interrupt the traces a race engineer is reading.
 
 The two paths share only the connector that feeds them, and neither can stall the other. Three
 properties define the live one, and each is the opposite of what the archive path does:
@@ -109,8 +119,12 @@ properties define the live one, and each is the opposite of what the archive pat
 - **Conflating, not buffered.** Every hop keeps the newest frame and drops the rest. A live value
   is worthless the moment a fresher one exists, so a recovering socket must deliver the current
   race rather than a replay of where the cars used to be.
-- **In memory, not stored.** No tables, no migrations. The archive path already keeps what is worth
-  keeping forever; a hub restart mid-race costs a reconnect.
+- **In memory, and mostly momentary.** No tables, no migrations, and a hub restart mid-race costs a
+  reconnect rather than data — the archive path already keeps what is worth keeping forever. One
+  thing does accumulate: `LapHistoryAccumulator` retains every completed lap per driver for the life
+  of the room, because a stint only means anything as a sequence and a race engineer reading tyre
+  degradation off five laps needs all five. It is bounded (512 laps per driver, drop-oldest, with a
+  `truncated` flag on the wire) and forgotten when the room expires, so it is retention, not storage.
 - **Open to read, keyed to write.** Anyone with the link can watch. Publishing needs a key, because
   a fabricated timing tower is indistinguishable from a real one to the person making a pit call
   from it.
@@ -119,8 +133,16 @@ Two hosts on the server rather than one: the auth postures are opposites, and bu
 should not share a process with a latency-sensitive fan-out loop.
 
 Opponent data is scoring-granularity only — position, gaps, lap and sector times, pit state. Pedals,
-tyre pressure and tyre wear exist solely for the car a machine is driving. That asymmetry is why
-several collectors in one session merge into one enriched view rather than competing.
+tyre pressure, tyre wear and the extras document exist solely for the car a machine is driving. That
+asymmetry is why several collectors in one session merge into one enriched view rather than
+competing.
+
+Lap history is the exception to that asymmetry, and deliberately so: it is accumulated from the
+standings snapshot, which describes every car in the session, so a viewer can expand any driver's
+row — not only one whose own machine is publishing. The accumulator is fed from the snapshot the
+hub *selected*, not from whichever frame arrived, and records idempotently by lap number. That is
+what keeps it correct when the selection switches between two publishers mid-race: a snapshot from a
+client a lap behind reports a lap already recorded and produces nothing.
 
 ---
 
