@@ -202,6 +202,16 @@ public static class LiveDtoFactory
             new LiveWheelValues(85f, 86f, 82f, 83f),
             clutch);
 
+    public static LiveExtrasFrame ExtrasFrame(
+        Guid? sessionId = null,
+        string? simDriverId = null,
+        string extrasJson = """{"damage":{"engine":0.5,"transmission":-1.0}}""") =>
+        new(
+            sessionId ?? Guid.NewGuid(),
+            simDriverId,
+            DateTimeOffset.Parse("2026-08-16T12:00:00Z", null),
+            extrasJson);
+
     /// <summary>A canonical standing, for tests of the projection rather than of the wire.</summary>
     public static DriverStanding Standing(
         string? simDriverId = null,

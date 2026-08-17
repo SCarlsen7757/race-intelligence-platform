@@ -181,6 +181,49 @@ public sealed class LiveRoomRegistryTests
     }
 
     /// <summary>
+    /// The channel that finally makes <c>SimCapabilities.Damage</c> mean something: it has always
+    /// been advertised in the hello while no damage value ever crossed the wire.
+    /// </summary>
+    [Fact]
+    public void An_extras_document_reaches_a_viewer_focused_on_that_driver()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: "4242");
+        var focused = hub.AddViewer(room.RoomId, focusDriverKey: "id:4242");
+        var elsewhere = hub.AddViewer(room.RoomId, focusDriverKey: "id:9999");
+
+        hub.Rooms.ApplyExtras(identity.ClientId, LiveDtoFactory.ExtrasFrame(simDriverId: "4242"));
+
+        var message = focused.Queue.TryRead().ShouldBeOfType<ExtrasFrameMessage>();
+        message.DriverKey.ShouldBe("id:4242");
+
+        // Carried through as the string the connector wrote — the hub never parses it, and the -1
+        // sentinel for an unreported channel arrives intact.
+        message.Extras.ShouldContain("\"transmission\":-1.0");
+
+        elsewhere.Queue.TryRead().ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Extras arrive about once a second, so a viewer focusing a driver between two of them would
+    /// otherwise sit in front of an empty damage panel — which reads as "no damage" rather than
+    /// "not known yet".
+    /// </summary>
+    [Fact]
+    public void The_latest_extras_are_retained_for_a_viewer_that_focuses_later()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: "4242");
+
+        hub.Rooms.ApplyExtras(identity.ClientId, LiveDtoFactory.ExtrasFrame(simDriverId: "4242"));
+
+        room.LatestExtrasFor("id:4242").ShouldNotBeNull().Extras.ShouldContain("engine");
+        room.LatestExtrasFor("id:9999").ShouldBeNull();
+    }
+
+    /// <summary>
     /// The self frame's own id is preferred, but the session announcement answers the same question
     /// and is available when a frame omits it.
     /// </summary>

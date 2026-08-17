@@ -13,8 +13,11 @@ namespace RaceIntelligence.Collector.Tests.Support;
 /// plugins are isolated from one another, so most tests here need two of these: one behaving badly
 /// and one to prove it was unaffected.
 /// </remarks>
-internal sealed class RecordingObserver(string name, TimeSpan? standingsInterval = null)
-    : ISessionObserver, ISampleObserver, IStandingsObserver
+internal sealed class RecordingObserver(
+    string name,
+    TimeSpan? standingsInterval = null,
+    TimeSpan? extrasInterval = null)
+    : ISessionObserver, ISampleObserver, IStandingsObserver, IExtrasObserver
 {
     private readonly ConcurrentQueue<string> _calls = new();
     private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -34,6 +37,8 @@ internal sealed class RecordingObserver(string name, TimeSpan? standingsInterval
     public bool StreamCompleted { get; private set; }
 
     public TimeSpan StandingsInterval { get; } = standingsInterval ?? TimeSpan.FromMilliseconds(100);
+
+    public TimeSpan ExtrasInterval { get; } = extrasInterval ?? TimeSpan.FromSeconds(1);
 
     public ValueTask OnSessionStartedAsync(SessionInfo session, CancellationToken cancellationToken)
     {
@@ -76,6 +81,11 @@ internal sealed class RecordingObserver(string name, TimeSpan? standingsInterval
     public void OnStandings(SessionStandings standings)
     {
         Record("standings", standings.Drivers.Count.ToString());
+    }
+
+    public void OnExtras(Guid sessionId, string extrasJson)
+    {
+        Record("extras", extrasJson);
     }
 
     private void Record(string operation, string? detail = null)

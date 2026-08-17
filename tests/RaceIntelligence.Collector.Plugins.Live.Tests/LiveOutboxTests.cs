@@ -158,6 +158,63 @@ public sealed class LiveOutboxTests
         outbox.TryRead().ShouldBeOfType<LiveSelfFrame>();
     }
 
+    [Fact]
+    public void Extras_conflate_into_one_slot_like_the_other_data_frames()
+    {
+        var outbox = CreateOutbox();
+        var sessionId = Guid.NewGuid();
+
+        outbox.PublishExtras(sessionId, """{"damage":{"engine":1.0}}""", DateTimeOffset.UnixEpoch, "4242");
+        outbox.PublishExtras(sessionId, """{"damage":{"engine":0.5}}""", DateTimeOffset.UnixEpoch, "4242");
+
+        outbox.TryRead().ShouldBeOfType<LiveExtrasFrame>().ExtrasJson.ShouldContain("0.5");
+        outbox.TryRead().ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The acceptance criterion for the extras channel: switching it on must not cost the focus
+    /// stream anything. Extras sit below self in the ladder, so a self frame is never held back
+    /// behind a once-a-second document — and because both are single slots, an extras frame cannot
+    /// displace a self frame either.
+    /// </summary>
+    [Fact]
+    public void Extras_are_delivered_last_so_the_focus_stream_keeps_its_rate()
+    {
+        var outbox = CreateOutbox();
+        var sessionId = Guid.NewGuid();
+
+        outbox.PublishExtras(sessionId, """{"damage":{"engine":1.0}}""", DateTimeOffset.UnixEpoch, "4242");
+        outbox.PublishSelf(TelemetrySampleFactory.Create(sessionId, sequenceNumber: 1), "4242");
+        outbox.PublishStandings(Standings(sessionId, driverCount: 2));
+
+        outbox.TryRead().ShouldBeOfType<LiveStandingsFrame>();
+        outbox.TryRead().ShouldBeOfType<LiveSelfFrame>();
+        outbox.TryRead().ShouldBeOfType<LiveExtrasFrame>();
+    }
+
+    /// <summary>
+    /// Every self frame published between two reads still arrives — one per read — with an extras
+    /// frame outstanding the whole time. Extras being outstanding must not cost the focus stream a
+    /// single frame, which is what "the rate is unaffected" means concretely.
+    /// </summary>
+    [Fact]
+    public void An_outstanding_extras_frame_never_displaces_a_self_frame()
+    {
+        var outbox = CreateOutbox();
+        var sessionId = Guid.NewGuid();
+
+        outbox.PublishExtras(sessionId, """{"damage":{"engine":1.0}}""", DateTimeOffset.UnixEpoch, "4242");
+
+        for (long sequence = 1; sequence <= 5; sequence++)
+        {
+            outbox.PublishSelf(TelemetrySampleFactory.Create(sessionId, sequence), "4242");
+            outbox.TryRead().ShouldBeOfType<LiveSelfFrame>().SequenceNumber.ShouldBe(sequence);
+        }
+
+        outbox.DroppedFrames.Self.ShouldBe(0, "nothing about extras causes a self frame to be superseded");
+        outbox.TryRead().ShouldBeOfType<LiveExtrasFrame>();
+    }
+
     /// <summary>
     /// The session is over, so a snapshot still waiting describes a race that is no longer running.
     /// Letting it overtake the goodbye would show a finished session still unfolding.
@@ -173,6 +230,7 @@ public sealed class LiveOutboxTests
 
         outbox.PublishStandings(Standings(sessionId, driverCount: 2));
         outbox.PublishSelf(TelemetrySampleFactory.Create(Guid.NewGuid(), sequenceNumber: 1), "4242");
+        outbox.PublishExtras(sessionId, """{"damage":{"engine":1.0}}""", DateTimeOffset.UnixEpoch, "4242");
         outbox.PublishSessionEnded(sessionId, "session ended");
 
         outbox.TryRead().ShouldBeOfType<LiveGoodbye>();

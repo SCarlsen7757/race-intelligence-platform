@@ -20,6 +20,9 @@ public sealed class ViewerQueueTests
     private static FocusFrameMessage Focus(int lap) => new(
         "room", "id:1", DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, null, 0, null, 0, 0, [], [], []);
 
+    private static ExtrasFrameMessage Extras() => new(
+        "room", "id:1", DateTimeOffset.UnixEpoch, """{"damage":{"engine":0.5}}""");
+
     private static LapHistoryMessage History(string driverKey, int laps) => new(
         "room",
         driverKey,
@@ -173,6 +176,25 @@ public sealed class ViewerQueueTests
     }
 
     /// <summary>
+    /// Extras go at the very bottom, below even the 60 Hz stream. A once-a-second document
+    /// interrupting the trace a race engineer is reading, to deliver a number that will look the
+    /// same next second, is the one trade this ladder is not worth making.
+    /// </summary>
+    [Fact]
+    public void Extras_are_delivered_last_so_the_focus_stream_keeps_its_rate()
+    {
+        var queue = new ViewerQueue();
+
+        queue.OfferExtras(Extras());
+        queue.OfferFocus(Focus(lap: 1));
+        queue.OfferTower(Tower(driverCount: 1));
+
+        queue.TryRead().ShouldBeOfType<TowerSnapshotMessage>();
+        queue.TryRead().ShouldBeOfType<FocusFrameMessage>();
+        queue.TryRead().ShouldBeOfType<ExtrasFrameMessage>();
+    }
+
+    /// <summary>
     /// A frame for the previous driver delivered after a switch reads as a glitch in the new
     /// driver's traces — one sample from a different car, at a different point on track.
     /// </summary>
@@ -182,6 +204,11 @@ public sealed class ViewerQueueTests
         var queue = new ViewerQueue();
 
         queue.OfferFocus(Focus(lap: 1));
+
+        // The extras slot follows the focus, for the same reason: a damage panel still showing the
+        // previous driver's car after a switch is worse than one showing nothing, because it looks
+        // current.
+        queue.OfferExtras(Extras());
         queue.ClearFocus();
 
         queue.TryRead().ShouldBeNull();

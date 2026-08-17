@@ -63,6 +63,7 @@ public sealed class LivePlugin : ITelemetryPlugin
         builder.Services.AddSingleton<ISessionObserver>(sp => sp.GetRequiredService<LiveObserver>());
         builder.Services.AddSingleton<ISampleObserver>(sp => sp.GetRequiredService<LiveObserver>());
         builder.Services.AddSingleton<IStandingsObserver>(sp => sp.GetRequiredService<LiveObserver>());
+        builder.Services.AddSingleton<IExtrasObserver>(sp => sp.GetRequiredService<LiveObserver>());
 
         builder.Services.AddHostedService<LivePublishService>();
     }

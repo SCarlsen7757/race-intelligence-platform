@@ -72,6 +72,7 @@ public sealed class ViewerQueue
     private RoomListMessage? _latestRoomList;
     private TowerSnapshotMessage? _latestTower;
     private FocusFrameMessage? _latestFocus;
+    private ExtrasFrameMessage? _latestExtras;
 
     private long _droppedTower;
     private long _droppedFocus;
@@ -112,6 +113,15 @@ public sealed class ViewerQueue
             Interlocked.Increment(ref _droppedFocus);
         }
 
+        Wake();
+    }
+
+    /// <summary>Offers the focused driver's extras document, replacing any not yet sent.</summary>
+    public void OfferExtras(ExtrasFrameMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        Interlocked.Exchange(ref _latestExtras, message);
         Wake();
     }
 
@@ -165,16 +175,29 @@ public sealed class ViewerQueue
     /// would still be delivered — one frame of the previous driver's telemetry arriving after the
     /// switch, which reads as a glitch in the new driver's traces.
     /// </remarks>
-    public void ClearFocus() => Interlocked.Exchange(ref _latestFocus, null);
+    public void ClearFocus()
+    {
+        Interlocked.Exchange(ref _latestFocus, null);
+
+        // The extras slot follows the focus for the same reason. A damage panel showing the previous
+        // driver's car after a switch is worse than one showing nothing, because it looks current.
+        Interlocked.Exchange(ref _latestExtras, null);
+    }
 
     /// <summary>Takes the next message to send, waiting until one exists.</summary>
     /// <remarks>
     /// Priority is errors, then the room list, then the tower, then lap histories, then the focus
-    /// stream. The ordering is by how replaceable each message is rather than by importance: a focus
-    /// frame skipped now is replaced within milliseconds, a tower snapshot within a tenth of a
-    /// second, and a lap history not until the driver finishes another lap — so preferring the
-    /// fastest stream would let a slow viewer starve the slower ones indefinitely. Lap history sits
-    /// below the tower only because the tower is what makes a session legible at all.
+    /// stream, then extras. The ordering is by how replaceable each message is rather than by
+    /// importance: a focus frame skipped now is replaced within milliseconds, a tower snapshot
+    /// within a tenth of a second, and a lap history not until the driver finishes another lap — so
+    /// preferring the fastest stream would let a slow viewer starve the slower ones indefinitely.
+    /// Lap history sits below the tower only because the tower is what makes a session legible at
+    /// all.
+    /// <para>
+    /// Extras sit at the bottom, below even the 60 Hz stream, mirroring the collector's outbox.
+    /// A once-a-second document interrupting the trace a race engineer is reading, to deliver a
+    /// number that will look the same next second, is the one trade this ladder is not worth making.
+    /// </para>
     /// </remarks>
     public async ValueTask<LiveViewMessage> ReadAsync(CancellationToken cancellationToken)
     {
@@ -219,7 +242,12 @@ public sealed class ViewerQueue
             }
         }
 
-        return Interlocked.Exchange(ref _latestFocus, null);
+        if (Interlocked.Exchange(ref _latestFocus, null) is { } focus)
+        {
+            return focus;
+        }
+
+        return Interlocked.Exchange(ref _latestExtras, null);
     }
 
     private void Wake() => _wake.Writer.TryWrite(0);

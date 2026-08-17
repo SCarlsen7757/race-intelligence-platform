@@ -75,6 +75,35 @@ public sealed record StandingsUpdated : TelemetryEvent
     public required SessionStandings Standings { get; init; }
 }
 
+/// <summary>
+/// Raised when the local car's simulator-specific channels are re-published, at their own slow
+/// cadence.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The same document a <see cref="TelemetrySample"/> already carries on
+/// <see cref="TelemetrySample.Extras"/>, emitted separately so a consumer that wants damage or
+/// push-to-pass can have it without being handed sixty JSON documents a second to find it in. The
+/// archive path reads it off the sample, where it belongs to a row; anything watching it live reads
+/// it here, where it arrives about once a second.
+/// </para>
+/// <para>
+/// Not emitted while <see cref="ConnectionState.SessionSuspended"/>, for the same reason samples and
+/// standings are not: a paused simulator republishes the same frame indefinitely.
+/// </para>
+/// </remarks>
+public sealed record ExtrasUpdated : TelemetryEvent
+{
+    /// <summary>The session the values were captured in.</summary>
+    public required Guid SessionId { get; init; }
+
+    /// <summary>
+    /// The connector's raw JSON document, sentinels untranslated. See <c>IExtrasObserver</c> — a
+    /// consumer rendering RaceRoom's <c>-1</c> as zero reports the opposite of the truth.
+    /// </summary>
+    public required string ExtrasJson { get; init; }
+}
+
 /// <summary>Raised when a lap completes.</summary>
 public sealed record LapCompleted : TelemetryEvent
 {

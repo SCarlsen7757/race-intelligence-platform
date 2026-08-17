@@ -56,6 +56,18 @@ public interface ILiveOutbox
     /// </param>
     void PublishSelf(TelemetrySample sample, string? simDriverId);
 
+    /// <summary>
+    /// Publishes the local car's simulator-specific document. Conflated: only the newest survives.
+    /// </summary>
+    /// <param name="sessionId">The session the values were captured in.</param>
+    /// <param name="extrasJson">The connector's raw JSON, sentinels untranslated.</param>
+    /// <param name="capturedAtUtc">Capture time on this machine.</param>
+    /// <param name="simDriverId">
+    /// The local driver's simulator identity, carried for the same reason it is on
+    /// <see cref="PublishSelf"/>: the document describes a car, and only the session knows whose.
+    /// </param>
+    void PublishExtras(Guid sessionId, string extrasJson, DateTimeOffset capturedAtUtc, string? simDriverId);
+
     /// <summary>Announces that this collector has stopped publishing a session, so the hub need not wait for a timeout.</summary>
     void PublishSessionEnded(Guid sessionId, string? reason);
 }

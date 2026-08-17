@@ -139,6 +139,22 @@ public sealed class LiveRoomRegistry(
         }
     }
 
+    /// <summary>Applies a publisher's extras document and fans it out to viewers focused on that driver.</summary>
+    public void ApplyExtras(Guid clientId, LiveExtrasFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        if (!_publisherRooms.TryGetValue(clientId, out var room))
+        {
+            return;
+        }
+
+        if (room.ApplyExtras(clientId, frame, timeProvider.GetUtcNow()) is { } extras)
+        {
+            viewers.BroadcastExtras(extras);
+        }
+    }
+
     /// <summary>
     /// Removes a publisher from whichever room it is in — a clean goodbye, or a dropped connection.
     /// </summary>

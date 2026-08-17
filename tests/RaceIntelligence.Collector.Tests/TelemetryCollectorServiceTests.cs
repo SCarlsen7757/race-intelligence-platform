@@ -26,6 +26,7 @@ public class TelemetryCollectorServiceTests
             observers,
             observers,
             observers,
+            observers,
             NullLogger<TelemetryCollectorService>.Instance);
 
     [Fact]

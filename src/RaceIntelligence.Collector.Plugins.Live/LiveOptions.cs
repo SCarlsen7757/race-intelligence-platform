@@ -71,6 +71,20 @@ public sealed class LiveOptions
     [Range(typeof(TimeSpan), "00:00:00.020", "00:00:05")]
     public TimeSpan StandingsInterval { get; init; } = TimeSpan.FromMilliseconds(100);
 
+    /// <summary>
+    /// How often to publish the local car's simulator-specific document — car damage and the rest.
+    /// Default: 1 Hz.
+    /// </summary>
+    /// <remarks>
+    /// Slower again than <see cref="StandingsInterval"/>. The document costs nothing extra to
+    /// produce, since the sample already carries it, but the dashboard parses JSON to read it and
+    /// the values inside move on the scale of a race — damage after contact, push-to-pass once a
+    /// lap. With this plugin switched off nothing implements <see cref="IExtrasObserver"/> and the
+    /// connector is told not to publish extras at all.
+    /// </remarks>
+    [Range(typeof(TimeSpan), "00:00:00.020", "00:01:00")]
+    public TimeSpan ExtrasInterval { get; init; } = TimeSpan.FromSeconds(1);
+
     /// <summary>How long to wait before the first reconnect attempt after the socket drops.</summary>
     [Range(typeof(TimeSpan), "00:00:00.100", "00:01:00")]
     public TimeSpan ReconnectDelay { get; init; } = TimeSpan.FromSeconds(1);
@@ -118,6 +132,14 @@ public sealed class LiveOptionsValidator(IOptions<CollectorOptions> collectorOpt
             failures.Add(
                 $"'Collector:Live:StandingsInterval' ({options.StandingsInterval}) is shorter than "
                 + $"'Collector:PollInterval' ({pollInterval}), which cannot produce standings any faster "
+                + "than the poll rate. Lower the poll interval instead.");
+        }
+
+        if (options.ExtrasInterval < pollInterval)
+        {
+            failures.Add(
+                $"'Collector:Live:ExtrasInterval' ({options.ExtrasInterval}) is shorter than "
+                + $"'Collector:PollInterval' ({pollInterval}), which cannot produce extras any faster "
                 + "than the poll rate. Lower the poll interval instead.");
         }
 
