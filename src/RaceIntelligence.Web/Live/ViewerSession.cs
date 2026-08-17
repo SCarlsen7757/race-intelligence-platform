@@ -147,6 +147,18 @@ public sealed class ViewerSession(
                 FocusDriver(viewer, focus.DriverKey!);
                 break;
 
+            case SubscribeLapHistoryCommand { DriverKey: null }:
+                viewer.UnsubscribeAllLapHistory();
+                break;
+
+            case SubscribeLapHistoryCommand subscribe:
+                SubscribeLapHistory(viewer, subscribe.DriverKey!);
+                break;
+
+            case UnsubscribeLapHistoryCommand unsubscribe:
+                viewer.UnsubscribeLapHistory(unsubscribe.DriverKey);
+                break;
+
             default:
                 viewer.Queue.OfferError(new LiveErrorMessage(
                     LiveErrorCodes.MalformedCommand, "Unsupported command."));
@@ -210,6 +222,45 @@ public sealed class ViewerSession(
                     LiveErrorCodes.UnknownDriver, "That driver is not in this session."));
                 break;
         }
+    }
+
+    /// <summary>
+    /// Subscribes a viewer to one driver's completed laps and answers with what the hub already has.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not gated on <see cref="DriverFocusAvailability"/> the way focus is. Lap history
+    /// is read out of the standings snapshot, which describes every car in the session, so an
+    /// <see cref="LiveDataTier.Observed"/> driver — one whose machine is not publishing — has a full
+    /// history like anyone else. The only refusal is a driver the room has never seen.
+    /// </remarks>
+    private void SubscribeLapHistory(LiveViewer viewer, string driverKey)
+    {
+        if (viewer.RoomId is not { } roomId)
+        {
+            viewer.Queue.OfferError(new LiveErrorMessage(
+                LiveErrorCodes.NotWatchingRoom, "Pick a session before following a driver's laps in it."));
+            return;
+        }
+
+        if (rooms.FindByRoomId(roomId) is not { } room)
+        {
+            viewer.Queue.OfferError(new LiveErrorMessage(
+                LiveErrorCodes.UnknownRoom, "That session is no longer live."));
+            return;
+        }
+
+        if (room.LapHistoryFor(driverKey) is not { } history)
+        {
+            viewer.Queue.OfferError(new LiveErrorMessage(
+                LiveErrorCodes.UnknownDriver, "That driver is not in this session."));
+            return;
+        }
+
+        viewer.SubscribeLapHistory(driverKey);
+
+        // Sent straight away rather than waiting for the driver's next lap, which on a long circuit
+        // is minutes of an empty panel — and would be forever for a driver who has finished.
+        viewer.Queue.OfferLapHistory(history);
     }
 
     /// <summary>

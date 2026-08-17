@@ -91,12 +91,12 @@ public sealed class LiveRoomRegistry(
         if (_publisherRooms.TryGetValue(identity.ClientId, out var previous)
             && !ReferenceEquals(previous, room))
         {
-            BroadcastTower(previous.RemovePublisher(identity.ClientId, now));
+            Broadcast(previous.RemovePublisher(identity.ClientId, now));
         }
 
         _publisherRooms[identity.ClientId] = room;
 
-        BroadcastTower(room.Announce(identity, frame, now));
+        Broadcast(room.Announce(identity, frame, now));
         viewers.BroadcastRoomList(BuildRoomList());
 
         logger.LogInformation(
@@ -120,7 +120,7 @@ public sealed class LiveRoomRegistry(
             return;
         }
 
-        BroadcastTower(room.ApplyStandings(clientId, frame, timeProvider.GetUtcNow()));
+        Broadcast(room.ApplyStandings(clientId, frame, timeProvider.GetUtcNow()));
     }
 
     /// <summary>Applies a publisher's local-car frame and fans it out to viewers focused on that driver.</summary>
@@ -149,7 +149,7 @@ public sealed class LiveRoomRegistry(
             return;
         }
 
-        BroadcastTower(room.RemovePublisher(clientId, timeProvider.GetUtcNow()));
+        Broadcast(room.RemovePublisher(clientId, timeProvider.GetUtcNow()));
         viewers.BroadcastRoomList(BuildRoomList());
     }
 
@@ -196,11 +196,22 @@ public sealed class LiveRoomRegistry(
         return removed;
     }
 
-    private void BroadcastTower(TowerSnapshotMessage? snapshot)
+    /// <summary>Fans one applied frame's results out: the tower, then any lap that just completed.</summary>
+    /// <remarks>
+    /// The tower first, so a row appears before the history that expands it. Nothing here can block:
+    /// every offer lands in a per-viewer conflating queue, and this runs on a publisher's receive
+    /// loop.
+    /// </remarks>
+    private void Broadcast(LiveRoomUpdate update)
     {
-        if (snapshot is not null)
+        if (update.Tower is { } tower)
         {
-            viewers.BroadcastTower(snapshot);
+            viewers.BroadcastTower(tower);
+        }
+
+        foreach (var history in update.LapHistories)
+        {
+            viewers.BroadcastLapHistory(history);
         }
     }
 

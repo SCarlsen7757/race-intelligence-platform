@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using RaceIntelligence.Live.Contracts.View;
 
@@ -56,6 +57,18 @@ public sealed class ViewerQueue
             SingleReader = true,
         });
 
+    /// <summary>
+    /// The newest lap history per driver, conflating within a driver but never across drivers.
+    /// </summary>
+    /// <remarks>
+    /// One slot per driver rather than one slot in total, because a viewer may have several rows
+    /// expanded and a single slot would let a busy driver's history evict another's indefinitely.
+    /// Conflation within a driver is free of consequence: each message is a full history, so the one
+    /// that survives contains everything the ones it replaced said.
+    /// </remarks>
+    private readonly ConcurrentDictionary<string, LapHistoryMessage> _lapHistories =
+        new(StringComparer.Ordinal);
+
     private RoomListMessage? _latestRoomList;
     private TowerSnapshotMessage? _latestTower;
     private FocusFrameMessage? _latestFocus;
@@ -103,6 +116,34 @@ public sealed class ViewerQueue
     }
 
     /// <summary>
+    /// Offers a driver's lap history, replacing any for the same driver not yet sent.
+    /// </summary>
+    /// <remarks>
+    /// No drop counter, deliberately, where the tower and focus streams have one. Those count
+    /// frames a viewer never saw; a replaced lap history is not a frame missed, because the message
+    /// that replaced it restates every lap the old one carried. Counting it would report a viewer as
+    /// falling behind when it has lost nothing.
+    /// </remarks>
+    public void OfferLapHistory(LapHistoryMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        _lapHistories[message.DriverKey] = message;
+        Wake();
+    }
+
+    /// <summary>Discards any lap history for a driver this viewer has stopped following.</summary>
+    public void ClearLapHistory(string driverKey)
+    {
+        ArgumentNullException.ThrowIfNull(driverKey);
+
+        _lapHistories.TryRemove(driverKey, out _);
+    }
+
+    /// <summary>Discards every lap history not yet sent — a viewer leaving a room, or collapsing everything.</summary>
+    public void ClearLapHistory() => _lapHistories.Clear();
+
+    /// <summary>
     /// Queues an error. Unlike the data streams these accumulate, because each one answers a
     /// different command and a later error does not restate an earlier one.
     /// </summary>
@@ -128,10 +169,12 @@ public sealed class ViewerQueue
 
     /// <summary>Takes the next message to send, waiting until one exists.</summary>
     /// <remarks>
-    /// Priority is errors, then the room list, then the tower, then the focus stream. The tower
-    /// outranks focus because it arrives at a tenth of the rate: preferring the 60 Hz stream would
-    /// let a slow viewer starve its timing tower completely, while a focus frame skipped now is
-    /// replaced within milliseconds.
+    /// Priority is errors, then the room list, then the tower, then lap histories, then the focus
+    /// stream. The ordering is by how replaceable each message is rather than by importance: a focus
+    /// frame skipped now is replaced within milliseconds, a tower snapshot within a tenth of a
+    /// second, and a lap history not until the driver finishes another lap — so preferring the
+    /// fastest stream would let a slow viewer starve the slower ones indefinitely. Lap history sits
+    /// below the tower only because the tower is what makes a session legible at all.
     /// </remarks>
     public async ValueTask<LiveViewMessage> ReadAsync(CancellationToken cancellationToken)
     {
@@ -162,6 +205,18 @@ public sealed class ViewerQueue
         if (Interlocked.Exchange(ref _latestTower, null) is { } tower)
         {
             return tower;
+        }
+
+        // No ordering between drivers: each message is independent and complete, so whichever the
+        // dictionary hands back first is as good an answer as any. TryRemove is what makes taking
+        // one safe against another thread offering a newer history for the same driver — the loser
+        // of that race is the one this viewer never needed.
+        foreach (var driverKey in _lapHistories.Keys)
+        {
+            if (_lapHistories.TryRemove(driverKey, out var lapHistory))
+            {
+                return lapHistory;
+            }
         }
 
         return Interlocked.Exchange(ref _latestFocus, null);

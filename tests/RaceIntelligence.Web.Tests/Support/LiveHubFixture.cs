@@ -149,15 +149,32 @@ public static class LiveDtoFactory
         string? simDriverId = null,
         int? slotId = null,
         string displayName = "Driver",
-        int? position = null) => new()
+        int? position = null,
+        int? completedLaps = null,
+        TimeSpan? previousLapTime = null,
+        IReadOnlyList<TimeSpan?>? previousSectorTimes = null,
+        bool? currentLapValid = null) => new()
         {
             SimDriverId = simDriverId,
             SlotId = slotId,
             DisplayName = displayName,
             Position = position,
+            CompletedLaps = completedLaps,
+            PreviousLapTime = previousLapTime,
+            PreviousSectorTimes = previousSectorTimes,
+            CurrentLapValid = currentLapValid,
             PitStopStatus = (int)Core.Sessions.PitStopStatus.Unavailable,
             FinishStatus = (int)DriverFinishStatus.Unavailable,
         };
+
+    /// <summary>A standings frame carrying exactly the drivers given, for lap-history tests.</summary>
+    public static LiveStandingsFrame StandingsFrameOf(Guid sessionId, params LiveDriverDto[] drivers) =>
+        new(
+            sessionId,
+            DateTimeOffset.Parse("2026-08-16T12:00:00Z", null),
+            SimulationTime: 42.0,
+            LocalSimDriverId: null,
+            drivers);
 
     public static LiveSelfFrame SelfFrame(
         Guid? sessionId = null,
