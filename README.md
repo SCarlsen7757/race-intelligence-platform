@@ -70,14 +70,18 @@ asks a capability system what the data supports rather than branching on the gam
 
 ## Getting started
 
-You need the .NET 10 SDK (see `global.json`), Windows for the RaceRoom connector, and Docker Desktop
-if you want the full local stack.
+You need the .NET 10 SDK (see `global.json`), Node for the dashboard, Windows for the RaceRoom
+connector, and Docker Desktop if you want the full local stack.
 
 ```powershell
-# Everything locally — PostgreSQL, ingest API and collector
+# Everything locally — PostgreSQL, ingest API, live hub, dashboard and collector
 dotnet user-secrets set "Parameters:ingest-api-key" "dev-local-only-key" --project src/RaceIntelligence.AppHost
 dotnet run --project src/RaceIntelligence.AppHost
 ```
+
+That one command brings up the whole stack, the dashboard included — AppHost runs it as its own Vite
+process and tells it where the hub is, so there is nothing to wire up by hand. Open the Aspire
+dashboard it prints, and follow the `dashboard` resource's endpoint to the race engineer's view.
 
 See **[docs/development.md](docs/development.md)** for the other ways to run it — collector only
 against a home server, or each service standalone — plus configuration reference and troubleshooting.
@@ -128,7 +132,13 @@ xUnit v3 · Testcontainers · TanStack Start · React · Vite · Vitest
 
 Every simulator needs only a connector. Implement `ITelemetrySource`, translate the game's telemetry
 into the canonical model, and declare what the game exposes through `SimCapabilities`. No backend
-changes should be required — see [docs/architecture.md](docs/architecture.md).
+changes should be required: the collector, the wire and the live hub are simulator-agnostic, and the
+dashboard's standard views — timing tower, lap history, driver focus, track map — come from the
+canonical model, so an accurate capability set is enough to light them up.
+
+What a new simulator *may* want is its own focus panels, for readouts that are genuinely specific in
+presentation rather than in data. Those register in `app/sims/registry.ts`, keyed by game, and each
+declares the capabilities it needs — see [docs/architecture.md](docs/architecture.md).
 
 ---
 
