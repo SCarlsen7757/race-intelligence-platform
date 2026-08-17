@@ -126,8 +126,12 @@ export interface LapRecord {
    *
    * The hub captures this a tick before the lap counter increments, because the flag it comes from
    * describes the lap *in progress*.
+   *
+   * Absent when the simulator never reported it, which is **not** the same as invalid. Only an
+   * explicit `false` means the lap was refused; unknown validity must not strike a lap through or
+   * bar it from setting a personal best.
    */
-  valid: boolean;
+  valid?: boolean | null;
 }
 
 /**
@@ -150,7 +154,7 @@ export interface LapHistoryMessage {
  * The low-rate channel, carrying whatever the connector wrote into `Extras` for the focused driver.
  *
  * Roughly 1 Hz by design, and on its own channel precisely so parsing it never happens at focus
- * rate — `extrasJson` is a JSON string and parsing it sixty times a second would be pure waste.
+ * rate — `extras` is a JSON string and parsing it sixty times a second would be pure waste.
  *
  * **The values inside are raw.** Nothing upstream translates a simulator's sentinels, so a
  * consumer must know them: RaceRoom writes `-1` for "not available", which is emphatically not the
@@ -161,7 +165,8 @@ export interface ExtrasFrameMessage {
   roomId: string;
   driverKey: string;
   capturedAtUtc: string;
-  extrasJson: string;
+  /** The connector's raw document, still a string. Named to match the hub's `Extras` property. */
+  extras: string;
 }
 
 export interface LiveErrorMessage {
@@ -200,22 +205,31 @@ export interface FocusDriverCommand {
 }
 
 /**
- * Asks for one driver's lap history, or stops asking with `driverKey: null`.
+ * Asks for one driver's lap history, or drops **all** of them with `driverKey: null`.
  *
  * Several drivers can be subscribed at once — the hub conflates per driver — because a race
- * engineer comparing stints has more than one row open.
+ * engineer comparing stints has more than one row open. That is also why `null` means "drop them
+ * all" rather than "drop the one": with a set rather than a single slot, dropping one has to name
+ * it, which is what `unsubscribeLapHistory` is for.
  */
 export interface SubscribeLapHistoryCommand {
   type: 'subscribeLapHistory';
   driverKey: string | null;
 }
 
-export type LiveViewCommand = WatchRoomCommand | FocusDriverCommand | SubscribeLapHistoryCommand;
+/** Drops one driver's lap history, leaving every other subscription untouched. */
+export interface UnsubscribeLapHistoryCommand {
+  type: 'unsubscribeLapHistory';
+  driverKey: string;
+}
+
+export type LiveViewCommand =
+  WatchRoomCommand | FocusDriverCommand | SubscribeLapHistoryCommand | UnsubscribeLapHistoryCommand;
 
 /** Wheel order on every per-wheel array crossing the wire. */
 export const WHEELS = ['FL', 'FR', 'RL', 'RR'] as const;
 
-/** RaceRoom's car damage, as it appears under `damage` in `extrasJson`. */
+/** RaceRoom's car damage, as it appears under `damage` in the extras document. */
 export interface RaceRoomDamage {
   engine?: number;
   transmission?: number;
@@ -223,7 +237,7 @@ export interface RaceRoomDamage {
   suspension?: number;
 }
 
-/** The shape this dashboard reads out of RaceRoom's `extrasJson`. Every field is optional. */
+/** The shape this dashboard reads out of RaceRoom's extras document. Every field is optional. */
 export interface RaceRoomExtras {
   damage?: RaceRoomDamage;
 }

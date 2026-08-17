@@ -100,23 +100,17 @@ export class LiveConnection {
    * Sent rather than merely forgotten locally: a collapsed row that kept receiving history would
    * have the hub building and queueing a snapshot per lap for something nobody is looking at.
    *
-   * The command carries one driver key or `null`, and `null` is the hub's "stop sending history"
-   * — it cannot name *which* of several subscriptions to drop. So a collapse clears the lot and
-   * immediately re-states the rows still open. That is one click's worth of traffic, and it keeps
-   * the viewer vocabulary to the three commands the hub actually defines rather than inventing a
-   * fourth here.
+   * Names the driver rather than clearing and re-stating the rest. Subscriptions are a set, so
+   * `subscribeLapHistory: null` drops all of them — emulating a single unsubscribe that way leaves
+   * a window in which the other rows are unsubscribed, and a lap completed inside that window is
+   * simply missed.
    */
   unsubscribeLapHistory(driverKey: string): void {
     if (!this.lapHistoryDriverKeys.delete(driverKey)) {
       return;
     }
 
-    this.send({ type: 'subscribeLapHistory', driverKey: null });
-
-    for (const remaining of this.lapHistoryDriverKeys) {
-      this.send({ type: 'subscribeLapHistory', driverKey: remaining });
-    }
-
+    this.send({ type: 'unsubscribeLapHistory', driverKey });
     this.store.dropLapHistory(driverKey);
   }
 
