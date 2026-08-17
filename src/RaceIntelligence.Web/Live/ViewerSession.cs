@@ -181,6 +181,12 @@ public sealed class ViewerSession(
 
         viewer.WatchRoom(roomId);
 
+        // Before the tower, and unconditionally. The change-detecting broadcast only fires when
+        // something moves, so a viewer joining a race whose pit window opened ten minutes ago would
+        // otherwise never be told it is open — and every average speed in the tower would stay blank
+        // until some publisher happened to re-announce the session.
+        viewer.Queue.OfferSessionState(room.SessionState());
+
         // Sent immediately rather than waiting for the next publisher frame. At the tower's rate
         // that wait is only ~100 ms, but a viewer switching rooms would see an empty table for it,
         // and a room whose publisher has gone quiet would show nothing at all.

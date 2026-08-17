@@ -443,8 +443,40 @@ internal static class R3ETelemetryMapper
             // Drivers by the same key every other machine will use for it.
             LocalSimDriverId = (NullIfNotPositive(raw.VehicleInfo.UserId) ?? NullIfNotPositive(raw.Player.UserId))?.ToString(),
             Drivers = standings,
+            PitWindow = ToPitWindow(in raw),
         };
     }
+
+    /// <summary>
+    /// Maps RaceRoom's pit window fields into the canonical form.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one place RaceRoom's <c>-1</c> sentinels are turned into nulls. Everywhere the connector
+    /// writes extras it leaves them raw and says so; this is a canonical field, and a canonical field
+    /// carrying a sim-specific "not available" code is the bug every consumer would then have to know
+    /// about individually.
+    /// </para>
+    /// <para>
+    /// The unit is read off <c>SessionLengthFormat</c> rather than guessed, because the same integer
+    /// bound is a lap number in one session format and a minute mark in another. Format <c>2</c> is
+    /// "time plus an extra lap", which is time-based for the purposes of reading the window.
+    /// </para>
+    /// </remarks>
+    internal static PitWindow ToPitWindow(in R3ESharedRaw raw) => new()
+    {
+        Status = Enum.IsDefined((PitWindowStatus)raw.PitWindowStatus)
+            ? (PitWindowStatus)raw.PitWindowStatus
+            : PitWindowStatus.Unavailable,
+        Start = NullIfNegative(raw.PitWindowStart),
+        End = NullIfNegative(raw.PitWindowEnd),
+        Unit = raw.SessionLengthFormat switch
+        {
+            0 or 2 => PitWindowUnit.Minutes,
+            1 => PitWindowUnit.Laps,
+            _ => PitWindowUnit.Unknown,
+        },
+    };
 
     /// <summary>Builds the canonical lap record for a lap that just completed.</summary>
     /// <param name="raw">The snapshot in which the lap counter was observed to have advanced.</param>

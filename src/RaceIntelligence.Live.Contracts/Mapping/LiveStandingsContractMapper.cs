@@ -115,7 +115,38 @@ public static class LiveStandingsContractMapper
             standings.CapturedAtUtc,
             standings.SimulationTime,
             standings.LocalSimDriverId,
-            drivers);
+            drivers,
+            standings.PitWindow is { } window ? ToDto(window) : null);
+    }
+
+    /// <summary>Converts a canonical pit window into its wire form.</summary>
+    public static LivePitWindowDto ToDto(PitWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+
+        return new LivePitWindowDto((int)window.Status, window.Start, window.End, (int)window.Unit);
+    }
+
+    /// <summary>Converts a wire pit window back into its canonical form.</summary>
+    /// <remarks>
+    /// Both codes are validated rather than cast, exactly as <see cref="ToCore(LiveDriverDto)"/>
+    /// validates the per-car pit enums. An unrecognised status becomes
+    /// <see cref="PitWindowStatus.Unavailable"/>, which every consumer already renders as "nothing
+    /// known" — the one safe reading of a code this build has never heard of.
+    /// </remarks>
+    public static PitWindow ToCore(LivePitWindowDto dto)
+    {
+        ArgumentNullException.ThrowIfNull(dto);
+
+        return new PitWindow
+        {
+            Status = Enum.IsDefined((PitWindowStatus)dto.Status)
+                ? (PitWindowStatus)dto.Status
+                : PitWindowStatus.Unavailable,
+            Start = dto.Start,
+            End = dto.End,
+            Unit = Enum.IsDefined((PitWindowUnit)dto.Unit) ? (PitWindowUnit)dto.Unit : PitWindowUnit.Unknown,
+        };
     }
 
     /// <summary>Converts a published standings frame back into its canonical form.</summary>
@@ -136,6 +167,7 @@ public static class LiveStandingsContractMapper
             SimulationTime = frame.SimulationTime,
             LocalSimDriverId = frame.LocalSimDriverId,
             Drivers = drivers,
+            PitWindow = frame.PitWindow is { } window ? ToCore(window) : null,
         };
     }
 

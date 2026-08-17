@@ -30,6 +30,27 @@ public sealed class LiveRoom
 
     private DateTimeOffset _lastUpdatedAtUtc;
 
+    /// <summary>
+    /// One lap of this layout, in meters, once any publisher has reported it.
+    /// </summary>
+    /// <remarks>
+    /// Held on the room rather than read off a publisher, so it survives the publisher that supplied
+    /// it disconnecting. The length of a lap does not stop being true when a collector's socket
+    /// drops, and a dashboard computing average lap speeds from it should not have every figure
+    /// blank out mid-race because somebody closed their game.
+    /// </remarks>
+    private float? _layoutLengthMeters;
+
+    /// <summary>
+    /// The session state as most recently handed to viewers, so an unchanged one is not re-sent.
+    /// </summary>
+    /// <remarks>
+    /// Standings arrive ten times a second and this changes perhaps twice in a race. Comparing before
+    /// broadcasting is what keeps a low-rate message low-rate — value equality on the record does the
+    /// comparison, so there is no field list here to fall out of step with the message's own.
+    /// </remarks>
+    private SessionStateMessage? _sessionState;
+
     /// <summary>Creates a room for a session key.</summary>
     /// <param name="roomId">The opaque id viewers subscribe with.</param>
     /// <param name="key">The session identity this room was opened for.</param>
@@ -100,6 +121,14 @@ public sealed class LiveRoom
 
             state.Session = frame;
             _lastUpdatedAtUtc = nowUtc;
+
+            // Kept only when the frame actually carries one. A publisher whose simulator does not
+            // report lap length must not erase a length another publisher already supplied, and
+            // RaceRoom's own "unknown" is a non-positive value rather than an absent one.
+            if (frame.LayoutLengthMeters is { } length && length > 0f)
+            {
+                _layoutLengthMeters = length;
+            }
 
             return ObserveAndProjectLocked(nowUtc);
         }
@@ -296,6 +325,22 @@ public sealed class LiveRoom
     }
 
     /// <summary>
+    /// What is true of the session itself, for a viewer that has just subscribed.
+    /// </summary>
+    /// <remarks>
+    /// Read-only, like <see cref="Snapshot"/>, and deliberately not the change-detecting path: a
+    /// viewer joining a race whose pit window opened ten minutes ago must be told it is open, and a
+    /// method that only answered when something had just changed would tell them nothing at all.
+    /// </remarks>
+    public SessionStateMessage SessionState()
+    {
+        lock (_gate)
+        {
+            return BuildSessionStateLocked(SelectSnapshotLocked());
+        }
+    }
+
+    /// <summary>
     /// The completed laps this room has recorded for one driver, or <see langword="null"/> when it
     /// has never heard of them.
     /// </summary>
@@ -340,9 +385,16 @@ public sealed class LiveRoom
     private LiveRoomUpdate ObserveAndProjectLocked(DateTimeOffset nowUtc)
     {
         var standings = SelectSnapshotLocked();
+
+        // Computed before the standings check, not after. A session announcement carries the lap
+        // length and arrives before any standings frame does, so returning early on "no standings
+        // yet" would hold the length back until the first snapshot — and, on a room whose publisher
+        // went quiet before sending one, forever.
+        var sessionState = TakeChangedSessionStateLocked(standings);
+
         if (standings is null)
         {
-            return LiveRoomUpdate.None;
+            return new LiveRoomUpdate(null, [], sessionState);
         }
 
         var changedDrivers = _lapHistory.Observe(standings);
@@ -362,9 +414,7 @@ public sealed class LiveRoom
             }
         }
 
-        return new LiveRoomUpdate(
-            new TowerSnapshotMessage(RoomId, nowUtc, LiveTowerProjector.Project(standings, SelfDriverKeysLocked())),
-            histories);
+        return new LiveRoomUpdate(ProjectLocked(nowUtc), histories, sessionState);
     }
 
     private TowerSnapshotMessage? ProjectLocked(DateTimeOffset nowUtc)
@@ -378,8 +428,66 @@ public sealed class LiveRoom
         return new TowerSnapshotMessage(
             RoomId,
             nowUtc,
-            LiveTowerProjector.Project(standings, SelfDriverKeysLocked()));
+            LiveTowerProjector.Project(
+                standings,
+                SelfDriverKeysLocked(),
+                _lapHistory.LastCompletedLapValidFor));
     }
+
+    /// <summary>
+    /// The current session state if it differs from what viewers were last sent, otherwise null.
+    /// </summary>
+    /// <remarks>
+    /// Records what it returns, so a caller that drops the message would suppress the next real
+    /// change. That is safe here and only here: every caller hands the result straight to the
+    /// registry to broadcast, and a viewer that joins later is answered from
+    /// <see cref="SessionState"/> rather than from this.
+    /// </remarks>
+    private SessionStateMessage? TakeChangedSessionStateLocked(SessionStandings? standings)
+    {
+        var current = BuildSessionStateLocked(standings);
+
+        if (current == _sessionState)
+        {
+            return null;
+        }
+
+        _sessionState = current;
+        return current;
+    }
+
+    private SessionStateMessage BuildSessionStateLocked(SessionStandings? standings) => new(
+        RoomId,
+        _layoutLengthMeters,
+        standings?.PitWindow is { Exists: true } window ? ToPitWindowState(window) : null);
+
+    /// <summary>
+    /// Converts a canonical pit window into the browser's view of it.
+    /// </summary>
+    /// <remarks>
+    /// The two enums are mapped member by member rather than cast across. They deliberately do not
+    /// share a numbering — the canonical one mirrors RaceRoom's <c>-1</c>-based codes, the view one
+    /// serializes as names — and a cast between them would be a silent off-by-one that renders a
+    /// closed window as open.
+    /// </remarks>
+    private static PitWindowState ToPitWindowState(PitWindow window) => new(
+        window.Status switch
+        {
+            PitWindowStatus.Disabled => PitWindowStatusView.Disabled,
+            PitWindowStatus.Closed => PitWindowStatusView.Closed,
+            PitWindowStatus.Open => PitWindowStatusView.Open,
+            PitWindowStatus.Stopped => PitWindowStatusView.Stopped,
+            PitWindowStatus.Completed => PitWindowStatusView.Completed,
+            _ => PitWindowStatusView.Unavailable,
+        },
+        window.Start,
+        window.End,
+        window.Unit switch
+        {
+            PitWindowUnit.Laps => PitWindowUnitView.Laps,
+            PitWindowUnit.Minutes => PitWindowUnitView.Minutes,
+            _ => PitWindowUnitView.Unknown,
+        });
 
     /// <summary>
     /// Picks the snapshot the tower is projected from.
@@ -514,9 +622,16 @@ public sealed class LiveRoom
 /// A full history for each driver whose lap count moved. Usually empty: standings arrive ten times a
 /// second and a lap finishes about once a minute.
 /// </param>
+/// <param name="SessionState">
+/// The session's own state, but <b>only when it has changed</b> — null on the overwhelming majority
+/// of frames. A lap length is learned once and a pit window opens twice in a race, against standings
+/// arriving ten times a second, so sending it unconditionally would turn a low-rate message into the
+/// second-highest-rate one on the wire.
+/// </param>
 public readonly record struct LiveRoomUpdate(
     TowerSnapshotMessage? Tower,
-    IReadOnlyList<LapHistoryMessage> LapHistories)
+    IReadOnlyList<LapHistoryMessage> LapHistories,
+    SessionStateMessage? SessionState = null)
 {
     /// <summary>Nothing to send — an unknown publisher, or a room with no standings yet.</summary>
     public static LiveRoomUpdate None => new(null, []);

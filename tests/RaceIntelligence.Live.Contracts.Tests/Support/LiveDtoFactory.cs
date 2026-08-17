@@ -65,6 +65,13 @@ internal static class LiveDtoFactory
         SimulationTime = 123.5,
         LocalSimDriverId = "4242",
         Drivers = [FullyPopulatedStanding(), EmptyStanding()],
+        PitWindow = new PitWindow
+        {
+            Status = PitWindowStatus.Open,
+            Start = 12,
+            End = 20,
+            Unit = PitWindowUnit.Laps,
+        },
     };
 
     public static TelemetrySample FullyPopulatedSample() => new()

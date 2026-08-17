@@ -244,6 +244,82 @@ body {
   border-color: var(--penalty);
 }
 
+/*
+ * A pill sitting inside a timing cell rather than in the state column: the INV marker beside a lap
+ * time. Smaller and quieter than a standalone pill — it is an annotation on the number next to it,
+ * not a column of its own — and never struck through, because the strikethrough belongs to the time
+ * and a struck "INV" is close to unreadable.
+ */
+.time .pill,
+.laps__table .pill {
+  margin-left: 6px;
+  padding: 1px 4px;
+  font-size: 9px;
+  text-decoration: none;
+  vertical-align: middle;
+}
+
+/*
+ * Present for a screen reader, absent on screen. Used for a column heading whose cells are empty on
+ * every ordinary row: the table still needs the header to be navigable, and showing it would put a
+ * permanent title over a permanently blank column.
+ */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * The pit window banner.
+ *
+ * Full width above the tower, because the window applies to the whole field at once. The three
+ * states differ in their wording first — see `PitWindowBanner` — and the colour here only reinforces
+ * what the text already says.
+ */
+.pit-window {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 8px 14px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-size: 13px;
+}
+
+.pit-window__label {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.pit-window__range {
+  color: var(--text-muted);
+}
+
+/* The one state worth interrupting a glance for: a stop taken now counts. */
+.pit-window--open {
+  border-color: var(--personal-best);
+  color: var(--personal-best);
+}
+
+.pit-window--closed {
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.pit-window--done {
+  border-color: var(--pit);
+  color: var(--pit);
+}
+
 .empty {
   text-align: center;
   padding: 64px 20px;

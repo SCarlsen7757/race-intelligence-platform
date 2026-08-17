@@ -95,7 +95,8 @@ public sealed class LiveViewContractShapeTests
             LiveTowerProjector.Project(
                 LiveDtoFactory.Standings(LiveDtoFactory.Standing(
                     simDriverId: "1", position: 1, bestLap: TimeSpan.FromSeconds(102))),
-                new HashSet<string>()));
+                new HashSet<string>(),
+                static _ => null));
 
         var json = Serialize(message);
         json.GetProperty("type").GetString().ShouldBe("towerSnapshot");
@@ -114,6 +115,42 @@ public sealed class LiveViewContractShapeTests
         PropertyNames(row).ShouldContain("finishStatus");
     }
 
+    [Fact]
+    public void The_session_state_carries_the_names_the_dashboard_reads()
+    {
+        var json = Serialize(new SessionStateMessage(
+            "room-1",
+            7004f,
+            new PitWindowState(PitWindowStatusView.Open, 12, 20, PitWindowUnitView.Laps)));
+
+        json.GetProperty("type").GetString().ShouldBe("sessionState");
+
+        PropertyNames(json).ShouldBe(["type", "roomId", "layoutLengthMeters", "pitWindow"], ignoreOrder: true);
+        PropertyNames(json.GetProperty("pitWindow")).ShouldBe(
+            ["status", "start", "end", "unit"], ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// The pit window's two codes cross as names, unlike the per-car pit fields which are ints. The
+    /// message is low-rate, so the bytes are free, and a browser matching on <c>"Open"</c> cannot
+    /// drift out of step with the server the way a hand-maintained table of integers does.
+    /// </summary>
+    [Fact]
+    public void The_pit_window_status_and_unit_cross_as_names()
+    {
+        var window = Serialize(new SessionStateMessage(
+                "room-1",
+                null,
+                new PitWindowState(PitWindowStatusView.Closed, null, 20, PitWindowUnitView.Minutes)))
+            .GetProperty("pitWindow");
+
+        window.GetProperty("status").GetString().ShouldBe("Closed");
+        window.GetProperty("unit").GetString().ShouldBe("Minutes");
+
+        // Nulls are omitted, so an unreported bound is an absent property rather than a zero.
+        PropertyNames(window).ShouldNotContain("start");
+    }
+
     /// <summary>
     /// Durations cross as milliseconds, not as <see cref="TimeSpan"/> strings. The dashboard does
     /// arithmetic on these — session-best comparisons, sector subtraction — and a string would
@@ -128,7 +165,8 @@ public sealed class LiveViewContractShapeTests
             LiveTowerProjector.Project(
                 LiveDtoFactory.Standings(LiveDtoFactory.Standing(
                     simDriverId: "1", position: 1, bestLap: TimeSpan.FromSeconds(102.5))),
-                new HashSet<string>()));
+                new HashSet<string>(),
+                static _ => null));
 
         var bestLap = Serialize(message).GetProperty("drivers")[0].GetProperty("bestLapMs");
 
@@ -149,7 +187,8 @@ public sealed class LiveViewContractShapeTests
             DateTimeOffset.UnixEpoch,
             LiveTowerProjector.Project(
                 LiveDtoFactory.Standings(LiveDtoFactory.Standing(simDriverId: "1", position: 1)),
-                new HashSet<string>()));
+                new HashSet<string>(),
+                static _ => null));
 
         var names = PropertyNames(Serialize(message).GetProperty("drivers")[0]).ToList();
 
@@ -166,7 +205,8 @@ public sealed class LiveViewContractShapeTests
             DateTimeOffset.UnixEpoch,
             LiveTowerProjector.Project(
                 LiveDtoFactory.Standings(LiveDtoFactory.Standing(simDriverId: "1", position: 1)),
-                new HashSet<string>(["id:1"])));
+                new HashSet<string>(["id:1"]),
+                static _ => null));
 
         Serialize(message).GetProperty("drivers")[0].GetProperty("tier").GetString().ShouldBe("Self");
     }

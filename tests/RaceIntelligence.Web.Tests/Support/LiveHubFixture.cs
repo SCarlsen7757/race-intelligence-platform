@@ -194,6 +194,18 @@ public static class LiveDtoFactory
             LocalSimDriverId: null,
             drivers);
 
+    /// <summary>A standings frame whose only interesting content is the session's pit window.</summary>
+    public static LiveStandingsFrame StandingsFrameWithWindow(
+        Guid sessionId,
+        PitWindowStatus status,
+        int? start = 12,
+        int? end = 20,
+        PitWindowUnit unit = PitWindowUnit.Laps) =>
+        StandingsFrameOf(sessionId, Driver(simDriverId: "77", position: 1)) with
+        {
+            PitWindow = new LivePitWindowDto((int)status, start, end, (int)unit),
+        };
+
     public static LiveSelfFrame SelfFrame(
         Guid? sessionId = null,
         string? simDriverId = null,

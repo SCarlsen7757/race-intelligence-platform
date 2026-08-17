@@ -126,6 +126,7 @@ public sealed class LiveViewJsonTests
         PreviousLapMs: null,
         BestLapMs: null,
         CurrentLapValid: null,
+        PreviousLapValid: null,
         CurrentSectorMs: [],
         PreviousSectorMs: [],
         BestSectorMs: [],

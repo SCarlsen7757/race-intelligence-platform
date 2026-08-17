@@ -88,6 +88,11 @@ public sealed class LiveViewer
         Volatile.Write(ref _roomId, roomId);
         UnfocusAll();
         UnsubscribeAllLapHistory();
+
+        // The old room's lap length and pit window are as wrong for the new room as its telemetry
+        // would be, and unlike a tower row a banner carries nothing on screen that would look out of
+        // place against the session the viewer has actually switched to.
+        Queue.ClearSessionState();
     }
 
     /// <summary>
@@ -167,6 +172,17 @@ public sealed class LiveViewer
         if (string.Equals(RoomId, snapshot.RoomId, StringComparison.Ordinal))
         {
             Queue.OfferTower(snapshot);
+        }
+    }
+
+    /// <summary>Offers the session's state, if this viewer is watching the room it describes.</summary>
+    public void OfferSessionState(SessionStateMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        if (string.Equals(RoomId, message.RoomId, StringComparison.Ordinal))
+        {
+            Queue.OfferSessionState(message);
         }
     }
 

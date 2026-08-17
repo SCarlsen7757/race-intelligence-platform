@@ -317,6 +317,51 @@ public sealed class LapHistoryTests
         }
     }
 
+    /// <summary>
+    /// The tower's last-lap column reads `PreviousLapValid`, and the accumulator is the only thing
+    /// that knows it: the flag on the snapshot reporting the count going up already belongs to the
+    /// new lap, so the completed lap's validity is the one observed a tick earlier.
+    /// </summary>
+    [Fact]
+    public void The_tower_carries_the_completed_laps_own_validity()
+    {
+        var (hub, room, _) = RoomWith(
+            // Lap 5 is driven cleanly, so the flag while it is in progress is true...
+            [Car(completedLaps: 4, currentLapValid: true)],
+            // ...and by the snapshot that reports it finished, the flag has moved on to lap 6, which
+            // the driver has already ruined. The tower must strike lap 5's successor, not lap 5.
+            [Car(completedLaps: 5, currentLapValid: false)]);
+
+        var row = room.Snapshot(hub.Time.GetUtcNow()).ShouldNotBeNull().Drivers.ShouldHaveSingleItem();
+
+        row.PreviousLapValid.ShouldBe(true);
+        row.CurrentLapValid.ShouldBe(false);
+    }
+
+    [Fact]
+    public void An_invalidated_lap_is_marked_invalid_on_the_tower()
+    {
+        var (hub, room, _) = RoomWith(
+            [Car(completedLaps: 4, currentLapValid: false)],
+            [Car(completedLaps: 5, currentLapValid: true)]);
+
+        room.Snapshot(hub.Time.GetUtcNow()).ShouldNotBeNull()
+            .Drivers.ShouldHaveSingleItem().PreviousLapValid.ShouldBe(false);
+    }
+
+    /// <summary>
+    /// Unknown is not invalid. Before the hub has watched a driver finish a lap there is nothing to
+    /// report, and reporting <see langword="false"/> would condemn a whole grid on connect.
+    /// </summary>
+    [Fact]
+    public void A_driver_the_hub_has_not_yet_watched_finish_a_lap_has_no_reported_validity()
+    {
+        var (hub, room, _) = RoomWith([Car(completedLaps: 4, currentLapValid: false)]);
+
+        room.Snapshot(hub.Time.GetUtcNow()).ShouldNotBeNull()
+            .Drivers.ShouldHaveSingleItem().PreviousLapValid.ShouldBeNull();
+    }
+
     private static List<LiveViewMessage> Drain(LiveViewer viewer)
     {
         var messages = new List<LiveViewMessage>();

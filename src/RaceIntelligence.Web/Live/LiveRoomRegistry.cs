@@ -212,14 +212,23 @@ public sealed class LiveRoomRegistry(
         return removed;
     }
 
-    /// <summary>Fans one applied frame's results out: the tower, then any lap that just completed.</summary>
+    /// <summary>
+    /// Fans one applied frame's results out: the session's state, the tower, then any lap that just
+    /// completed.
+    /// </summary>
     /// <remarks>
-    /// The tower first, so a row appears before the history that expands it. Nothing here can block:
-    /// every offer lands in a per-viewer conflating queue, and this runs on a publisher's receive
-    /// loop.
+    /// Session state first, so a tower never arrives before the lap length its average speeds are
+    /// derived from; the tower before the histories, so a row appears before the history that expands
+    /// it. Nothing here can block: every offer lands in a per-viewer conflating queue, and this runs
+    /// on a publisher's receive loop.
     /// </remarks>
     private void Broadcast(LiveRoomUpdate update)
     {
+        if (update.SessionState is { } sessionState)
+        {
+            viewers.BroadcastSessionState(sessionState);
+        }
+
         if (update.Tower is { } tower)
         {
             viewers.BroadcastTower(tower);

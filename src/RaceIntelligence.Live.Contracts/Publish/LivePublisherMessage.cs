@@ -142,13 +142,37 @@ public sealed record LiveSessionFrame(
 /// <param name="SimulationTime">The simulator's clock at capture, which does order one client's frames reliably.</param>
 /// <param name="LocalSimDriverId">Which row of <paramref name="Drivers"/> this client has rich telemetry for.</param>
 /// <param name="Drivers">Every car in the session, in the simulator's own order.</param>
+/// <param name="PitWindow">
+/// The session's mandatory pit window, or <see langword="null"/> from a connector that does not
+/// report one. Rides the standings frame rather than the session announcement because its status
+/// changes as the race runs, and this is the message that repeats.
+/// </param>
 [MessagePackObject]
 public sealed record LiveStandingsFrame(
     [property: Key(0)] Guid SessionId,
     [property: Key(1)] DateTimeOffset CapturedAtUtc,
     [property: Key(2)] double? SimulationTime,
     [property: Key(3)] string? LocalSimDriverId,
-    [property: Key(4)] IReadOnlyList<LiveDriverDto> Drivers) : LivePublisherMessage;
+    [property: Key(4)] IReadOnlyList<LiveDriverDto> Drivers,
+    [property: Key(5)] LivePitWindowDto? PitWindow = null) : LivePublisherMessage;
+
+/// <summary>The session's mandatory pit window, on the wire.</summary>
+/// <remarks>
+/// <see cref="Status"/> and <see cref="Unit"/> travel as plain <see cref="int"/> for the same reason
+/// <see cref="LiveDriverDto.PitLaneState"/> does: the value comes from another machine's build, which
+/// may know a code this one does not, and an unrecognised code has to degrade to "unavailable"
+/// rather than land in an enum as an out-of-range value every downstream <c>switch</c> falls through.
+/// </remarks>
+/// <param name="Status">As <see cref="RaceIntelligence.Core.Sessions.PitWindowStatus"/>.</param>
+/// <param name="Start">Where the window opens, in <paramref name="Unit"/>; null when unreported.</param>
+/// <param name="End">Where the window closes, in <paramref name="Unit"/>; null when unreported.</param>
+/// <param name="Unit">As <see cref="RaceIntelligence.Core.Sessions.PitWindowUnit"/>.</param>
+[MessagePackObject]
+public sealed record LivePitWindowDto(
+    [property: Key(0)] int Status,
+    [property: Key(1)] int? Start,
+    [property: Key(2)] int? End,
+    [property: Key(3)] int Unit);
 
 /// <summary>
 /// The rich channels only the machine running the simulator can see, for the car it is driving.

@@ -35,4 +35,15 @@ public sealed record SessionStandings
 
     /// <summary>Every car in the session, in the simulator's own order.</summary>
     public required IReadOnlyList<DriverStanding> Drivers { get; init; }
+
+    /// <summary>
+    /// The session's mandatory pit window, when the simulator reports one.
+    /// </summary>
+    /// <remarks>
+    /// Session-wide rather than per-car, so it sits here beside <see cref="Drivers"/> rather than in
+    /// each of them. It rides the standings snapshot rather than <see cref="SessionInfo"/> because
+    /// its status changes as the race runs, and the snapshot is the thing that is re-sent as things
+    /// change. <see langword="null"/> from a connector that does not report windows at all.
+    /// </remarks>
+    public PitWindow? PitWindow { get; init; }
 }

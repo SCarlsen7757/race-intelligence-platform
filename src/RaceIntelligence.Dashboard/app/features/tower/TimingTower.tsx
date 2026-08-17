@@ -165,8 +165,22 @@ export function TimingTower({
                 <td>{row.completedLaps ?? NOT_REPORTED}</td>
                 <td className="time">{formatGap(row.gapToCarAheadMs)}</td>
 
-                <td className={`time ${row.currentLapValid === false ? 'time--invalid' : ''}`}>
+                {/*
+                  `previousLapValid`, not `currentLapValid`. The two describe different laps: the
+                  simulator's live flag is about the lap being driven right now, so reading it here
+                  struck through a clean last lap the instant a driver put a wheel off on the
+                  following one — while the lap that was actually binned went by unmarked.
+                */}
+                <td className={`time ${row.previousLapValid === false ? 'time--invalid' : ''}`}>
                   {formatLapTime(row.previousLapMs)}
+                  {row.previousLapValid === false && (
+                    // Colour and a strikethrough are not enough on their own. This is the only
+                    // signal a colour-blind engineer, or anyone on a screen washed out by garage
+                    // lighting, gets that the lap was refused.
+                    <span className="pill pill--warn" title="The simulator did not count this lap">
+                      INV
+                    </span>
+                  )}
                 </td>
 
                 <td className={`time ${bestClass(row.bestLapMs, null, bests.lapMs)}`}>
