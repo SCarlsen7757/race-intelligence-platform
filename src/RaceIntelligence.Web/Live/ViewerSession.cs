@@ -140,11 +140,15 @@ public sealed class ViewerSession(
                 break;
 
             case FocusDriverCommand { DriverKey: null }:
-                viewer.Focus(null);
+                viewer.UnfocusAll();
                 break;
 
             case FocusDriverCommand focus:
                 FocusDriver(viewer, focus.DriverKey!);
+                break;
+
+            case UnfocusDriverCommand unfocus:
+                viewer.Unfocus(unfocus.DriverKey);
                 break;
 
             case SubscribeLapHistoryCommand { DriverKey: null }:
@@ -208,7 +212,15 @@ public sealed class ViewerSession(
         switch (room.GetFocusAvailability(driverKey))
         {
             case DriverFocusAvailability.Available:
-                viewer.Focus(driverKey);
+                // Refused rather than answered by evicting one of the drivers already open. A
+                // comparison silently losing half of itself is worse than being told it cannot start.
+                if (!viewer.Focus(driverKey))
+                {
+                    viewer.Queue.OfferError(new LiveErrorMessage(
+                        LiveErrorCodes.TooManyFocusDrivers,
+                        $"Only {LiveViewer.MaxFocusDrivers} drivers can be followed at full rate at once."));
+                    return;
+                }
 
                 // Answered from what the hub already holds rather than waiting out an extras
                 // interval. At roughly 1 Hz that is a second of an empty damage panel, which a race

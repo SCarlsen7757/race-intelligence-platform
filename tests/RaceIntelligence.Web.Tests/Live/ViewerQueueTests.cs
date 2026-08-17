@@ -17,11 +17,11 @@ public sealed class ViewerQueueTests
         $"id:{index}", $"Driver {index}", null, null, null, index + 1, null, null, null, null, null,
         null, null, null, null, [], [], [], null, null, null, -1, -1, null, -1, null, LiveDataTier.Observed);
 
-    private static FocusFrameMessage Focus(int lap) => new(
-        "room", "id:1", DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, null, 0, null, 0, 0, [], [], []);
+    private static FocusFrameMessage Focus(int lap, string driverKey = "id:1") => new(
+        "room", driverKey, DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, null, 0, null, 0, 0, [], [], []);
 
-    private static ExtrasFrameMessage Extras() => new(
-        "room", "id:1", DateTimeOffset.UnixEpoch, """{"damage":{"engine":0.5}}""");
+    private static ExtrasFrameMessage Extras(string driverKey = "id:1") => new(
+        "room", driverKey, DateTimeOffset.UnixEpoch, """{"damage":{"engine":0.5}}""");
 
     private static LapHistoryMessage History(string driverKey, int laps) => new(
         "room",
@@ -211,6 +211,76 @@ public sealed class ViewerQueueTests
         queue.OfferExtras(Extras());
         queue.ClearFocus();
 
+        queue.TryRead().ShouldBeNull();
+    }
+
+    /// <summary>
+    /// One slot per driver, not one in total. A single slot would interleave two compared cars into
+    /// one stream of alternating samples, so each driver's traces would show every other frame of
+    /// the other's — a comparison that is wrong about both halves.
+    /// </summary>
+    [Fact]
+    public void Focus_frames_for_different_drivers_do_not_evict_each_other()
+    {
+        var queue = new ViewerQueue();
+
+        queue.OfferFocus(Focus(lap: 1, driverKey: "id:1"));
+        queue.OfferFocus(Focus(lap: 1, driverKey: "id:2"));
+
+        var delivered = new[]
+        {
+            queue.TryRead().ShouldBeOfType<FocusFrameMessage>().DriverKey,
+            queue.TryRead().ShouldBeOfType<FocusFrameMessage>().DriverKey,
+        };
+
+        delivered.ShouldBe(["id:1", "id:2"], ignoreOrder: true);
+        queue.TryRead().ShouldBeNull();
+        queue.DroppedFrames.Focus.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The fairness the rotation exists for. Both slots refill every frame, so a scan that always
+    /// started at the same end would return the same driver forever and the other car's traces
+    /// would never advance at all.
+    /// </summary>
+    [Fact]
+    public void Two_focus_streams_share_the_pump_rather_than_one_starving_the_other()
+    {
+        var queue = new ViewerQueue();
+        var delivered = new List<string>();
+
+        // A pump that drains one message per frame against two publishers each offering one — the
+        // ratio a viewer comparing two cars actually runs at.
+        for (int lap = 0; lap < 40; lap++)
+        {
+            queue.OfferFocus(Focus(lap, driverKey: "id:1"));
+            queue.OfferFocus(Focus(lap, driverKey: "id:2"));
+
+            delivered.Add(queue.TryRead().ShouldBeOfType<FocusFrameMessage>().DriverKey);
+        }
+
+        delivered.Count(key => key == "id:1").ShouldBeGreaterThan(15);
+        delivered.Count(key => key == "id:2").ShouldBeGreaterThan(15);
+    }
+
+    /// <summary>
+    /// Dropping one of two compared drivers must cost the other nothing — its stream has not been
+    /// interrupted and has no reason to show a hole.
+    /// </summary>
+    [Fact]
+    public void Clearing_one_driver_leaves_the_other_focus_alone()
+    {
+        var queue = new ViewerQueue();
+
+        queue.OfferFocus(Focus(lap: 1, driverKey: "id:1"));
+        queue.OfferExtras(Extras("id:1"));
+        queue.OfferFocus(Focus(lap: 1, driverKey: "id:2"));
+        queue.OfferExtras(Extras("id:2"));
+
+        queue.ClearFocus("id:1");
+
+        queue.TryRead().ShouldBeOfType<FocusFrameMessage>().DriverKey.ShouldBe("id:2");
+        queue.TryRead().ShouldBeOfType<ExtrasFrameMessage>().DriverKey.ShouldBe("id:2");
         queue.TryRead().ShouldBeNull();
     }
 

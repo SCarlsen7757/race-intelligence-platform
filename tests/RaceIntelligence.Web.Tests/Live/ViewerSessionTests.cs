@@ -147,6 +147,127 @@ public sealed class ViewerSessionTests
     }
 
     /// <summary>
+    /// The comparison case: two cars streaming at full rate down one socket, neither replacing the
+    /// other.
+    /// </summary>
+    /// <remarks>
+    /// Two publishers in one room rather than one, because only a driver whose own machine is
+    /// publishing has full-rate channels at all — which is exactly why a session with a single
+    /// collector has nothing to compare against.
+    /// </remarks>
+    [Fact]
+    public async Task Two_drivers_can_be_followed_at_once()
+    {
+        var hub = new LiveHubFixture();
+
+        var first = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(first, localSimDriverId: "1");
+        hub.Rooms.ApplyStandings(first.ClientId, LiveDtoFactory.StandingsFrame(driverCount: 3));
+
+        // The same session announced by a second machine, so "id:2" is Self-tier as well.
+        var second = LiveDtoFactory.Identity();
+        hub.AnnounceRoom(second, localSimDriverId: "2");
+        hub.Rooms.ApplyStandings(second.ClientId, LiveDtoFactory.StandingsFrame(driverCount: 3));
+
+        var socket = new FakeLiveSocket();
+        socket.PushCommand(new WatchRoomCommand(room.RoomId));
+        socket.PushCommand(new FocusDriverCommand("id:1"));
+        socket.PushCommand(new FocusDriverCommand("id:2"));
+
+        var running = hub.CreateViewerSession().RunAsync(socket, TestContext.Current.CancellationToken);
+
+        // Room list, then the tower answering the watch. Commands are handled in order, so both
+        // focus commands have necessarily been processed by the time those two have arrived.
+        await socket.WaitForSendsAsync(2);
+
+        hub.Rooms.ApplySelf(first.ClientId, LiveDtoFactory.SelfFrame(simDriverId: "1"));
+        hub.Rooms.ApplySelf(second.ClientId, LiveDtoFactory.SelfFrame(simDriverId: "2"));
+
+        await socket.WaitForSendsAsync(4);
+        socket.PushClose();
+        await running;
+
+        socket.DrainViewMessages().OfType<FocusFrameMessage>().Select(frame => frame.DriverKey)
+            .ShouldBe(["id:1", "id:2"], ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// The cap is the explicit part of allowing more than one focus. Focus frames are the 60 Hz
+    /// channel, and the endpoint is open — so the bound has to hold against a client that is not the
+    /// dashboard, and it has to refuse rather than quietly evict a driver the viewer is still
+    /// reading.
+    /// </summary>
+    [Fact]
+    public async Task Following_more_drivers_than_the_cap_allows_is_refused()
+    {
+        var hub = new LiveHubFixture();
+        LiveRoom? room = null;
+
+        // One publisher per driver, so every one of them is Self-tier and the refusal is about the
+        // cap rather than about a driver having no telemetry to send.
+        for (int i = 1; i <= LiveViewer.MaxFocusDrivers + 1; i++)
+        {
+            var identity = LiveDtoFactory.Identity();
+            room = hub.AnnounceRoom(identity, localSimDriverId: i.ToString());
+            hub.Rooms.ApplyStandings(
+                identity.ClientId,
+                LiveDtoFactory.StandingsFrame(driverCount: LiveViewer.MaxFocusDrivers + 1));
+        }
+
+        var socket = new FakeLiveSocket();
+        socket.PushCommand(new WatchRoomCommand(room!.RoomId));
+        for (int i = 1; i <= LiveViewer.MaxFocusDrivers + 1; i++)
+        {
+            socket.PushCommand(new FocusDriverCommand($"id:{i}"));
+        }
+
+        var messages = await RunAsync(hub, socket, expectedMessages: 3);
+
+        messages.OfType<LiveErrorMessage>().ShouldHaveSingleItem()
+            .Code.ShouldBe(LiveErrorCodes.TooManyFocusDrivers);
+    }
+
+    /// <summary>
+    /// Dropping one half of a comparison must leave the other half streaming. The command names the
+    /// driver for exactly that reason: emulating it by clearing every focus and re-stating the rest
+    /// leaves a window at 60 Hz in which the driver still being watched sends nothing.
+    /// </summary>
+    [Fact]
+    public async Task Unfocusing_one_driver_leaves_the_other_streaming()
+    {
+        var hub = new LiveHubFixture();
+
+        var first = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(first, localSimDriverId: "1");
+        hub.Rooms.ApplyStandings(first.ClientId, LiveDtoFactory.StandingsFrame(driverCount: 3));
+
+        var second = LiveDtoFactory.Identity();
+        hub.AnnounceRoom(second, localSimDriverId: "2");
+        hub.Rooms.ApplyStandings(second.ClientId, LiveDtoFactory.StandingsFrame(driverCount: 3));
+
+        var socket = new FakeLiveSocket();
+        socket.PushCommand(new WatchRoomCommand(room.RoomId));
+        socket.PushCommand(new FocusDriverCommand("id:1"));
+        socket.PushCommand(new FocusDriverCommand("id:2"));
+        socket.PushCommand(new UnfocusDriverCommand("id:1"));
+
+        var running = hub.CreateViewerSession().RunAsync(socket, TestContext.Current.CancellationToken);
+        await socket.WaitForSendsAsync(2);
+
+        hub.Rooms.ApplySelf(first.ClientId, LiveDtoFactory.SelfFrame(simDriverId: "1"));
+        hub.Rooms.ApplySelf(second.ClientId, LiveDtoFactory.SelfFrame(simDriverId: "2"));
+
+        await socket.WaitForSendsAsync(3);
+        socket.PushClose();
+        await running;
+
+        var frames = socket.DrainViewMessages().OfType<FocusFrameMessage>().ToList();
+
+        frames.ShouldNotBeEmpty();
+        frames.ShouldAllBe(frame => frame.DriverKey == "id:2");
+    }
+
+    /// <summary>
     /// Answered from what the hub already holds rather than at the driver's next lap, which on a long
     /// circuit is minutes of an empty panel — and never at all for a driver who has finished.
     /// </summary>

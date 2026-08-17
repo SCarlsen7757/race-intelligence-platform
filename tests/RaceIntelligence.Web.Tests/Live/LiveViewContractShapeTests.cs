@@ -284,6 +284,9 @@ public sealed class LiveViewContractShapeTests
     [Theory]
     [InlineData("""{"type":"watchRoom","roomId":"abc"}""", typeof(WatchRoomCommand))]
     [InlineData("""{"type":"focusDriver","driverKey":"id:2"}""", typeof(FocusDriverCommand))]
+    [InlineData("""{"type":"unfocusDriver","driverKey":"id:2"}""", typeof(UnfocusDriverCommand))]
+    [InlineData("""{"type":"subscribeLapHistory","driverKey":"id:2"}""", typeof(SubscribeLapHistoryCommand))]
+    [InlineData("""{"type":"unsubscribeLapHistory","driverKey":"id:2"}""", typeof(UnsubscribeLapHistoryCommand))]
     [InlineData("""{"type":"watchRoom","roomId":null}""", typeof(WatchRoomCommand))]
     public void The_commands_the_dashboard_sends_deserialize(string json, Type expected)
     {

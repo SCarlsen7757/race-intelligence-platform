@@ -16,6 +16,24 @@ namespace RaceIntelligence.Web.Live;
 public sealed class LiveViewer
 {
     /// <summary>
+    /// How many drivers one viewer may follow at full rate.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two, because a comparison needs exactly two and the number is a cost, not a preference. Focus
+    /// frames are the 60 Hz channel; the two-rate transport exists precisely so they are not
+    /// broadcast widely, and each additional subscription multiplies this viewer's share of the
+    /// hub's serialize-and-send work by a whole stream.
+    /// </para>
+    /// <para>
+    /// Stated as a constant rather than left to fall out of however many the dashboard happens to
+    /// ask for: the endpoint is open, so the bound has to hold against a client that is not the
+    /// dashboard.
+    /// </para>
+    /// </remarks>
+    public const int MaxFocusDrivers = 2;
+
+    /// <summary>
     /// Drivers whose completed laps this viewer has asked for, used as a set.
     /// </summary>
     /// <remarks>
@@ -26,8 +44,18 @@ public sealed class LiveViewer
     private readonly ConcurrentDictionary<string, byte> _lapHistoryDriverKeys =
         new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Drivers whose full-rate channels this viewer is following, used as a set.
+    /// </summary>
+    /// <remarks>
+    /// A set rather than a slot so two cars can be read side by side — see
+    /// <see cref="MaxFocusDrivers"/> for why it is a small set. Concurrent for the same reason the
+    /// lap-history set is: the command loop writes it while every publisher's receive loop reads it.
+    /// </remarks>
+    private readonly ConcurrentDictionary<string, byte> _focusDriverKeys =
+        new(StringComparer.Ordinal);
+
     private string? _roomId;
-    private string? _focusDriverKey;
 
     /// <summary>The queue this viewer's send pump drains.</summary>
     public ViewerQueue Queue { get; } = new();
@@ -35,8 +63,16 @@ public sealed class LiveViewer
     /// <summary>The room whose timing tower this viewer is watching, if any.</summary>
     public string? RoomId => Volatile.Read(ref _roomId);
 
-    /// <summary>The driver whose full-rate channels this viewer is following, if any.</summary>
-    public string? FocusDriverKey => Volatile.Read(ref _focusDriverKey);
+    /// <summary>How many drivers this viewer is currently following at full rate.</summary>
+    public int FocusCount => _focusDriverKeys.Count;
+
+    /// <summary>Whether this viewer is following a driver's full-rate channels.</summary>
+    public bool IsFocused(string driverKey)
+    {
+        ArgumentNullException.ThrowIfNull(driverKey);
+
+        return _focusDriverKeys.ContainsKey(driverKey);
+    }
 
     /// <summary>
     /// Switches which room this viewer watches, clearing any focus that belonged to the old one.
@@ -50,17 +86,49 @@ public sealed class LiveViewer
     public void WatchRoom(string? roomId)
     {
         Volatile.Write(ref _roomId, roomId);
-        Focus(null);
+        UnfocusAll();
         UnsubscribeAllLapHistory();
     }
 
-    /// <summary>Switches which driver this viewer follows at full rate.</summary>
-    public void Focus(string? driverKey)
+    /// <summary>
+    /// Adds a driver to the set this viewer follows at full rate.
+    /// </summary>
+    /// <returns>
+    /// <see langword="false"/> when the viewer already follows <see cref="MaxFocusDrivers"/> others,
+    /// so the caller can answer rather than silently doing nothing.
+    /// </returns>
+    public bool Focus(string driverKey)
     {
-        Volatile.Write(ref _focusDriverKey, driverKey);
+        ArgumentNullException.ThrowIfNull(driverKey);
 
-        // Drop anything already waiting for the previous driver. Delivered after the switch it
-        // would appear as a stray frame of someone else's telemetry in the new driver's traces.
+        // Checked before the add, and re-stating an existing focus is always allowed: a dashboard
+        // replaying its subscriptions after a reconnect must not be refused for asking for what it
+        // already has.
+        if (!_focusDriverKeys.ContainsKey(driverKey) && _focusDriverKeys.Count >= MaxFocusDrivers)
+        {
+            return false;
+        }
+
+        _focusDriverKeys[driverKey] = 0;
+        return true;
+    }
+
+    /// <summary>Removes one driver from that set, dropping any frame already waiting for them.</summary>
+    public void Unfocus(string driverKey)
+    {
+        ArgumentNullException.ThrowIfNull(driverKey);
+
+        _focusDriverKeys.TryRemove(driverKey, out _);
+
+        // Delivered after the drop, a frame already in the queue would appear as a stray sample of a
+        // car the viewer has stopped watching. Named, so the other focus keeps every frame it has.
+        Queue.ClearFocus(driverKey);
+    }
+
+    /// <summary>Drops every focus subscription.</summary>
+    public void UnfocusAll()
+    {
+        _focusDriverKeys.Clear();
         Queue.ClearFocus();
     }
 
@@ -111,7 +179,7 @@ public sealed class LiveViewer
         // with the same key in a room it is not watching, which is possible whenever two sessions
         // contain the same person.
         if (string.Equals(RoomId, frame.RoomId, StringComparison.Ordinal)
-            && string.Equals(FocusDriverKey, frame.DriverKey, StringComparison.Ordinal))
+            && IsFocused(frame.DriverKey))
         {
             Queue.OfferFocus(frame);
         }
@@ -129,7 +197,7 @@ public sealed class LiveViewer
         ArgumentNullException.ThrowIfNull(frame);
 
         if (string.Equals(RoomId, frame.RoomId, StringComparison.Ordinal)
-            && string.Equals(FocusDriverKey, frame.DriverKey, StringComparison.Ordinal))
+            && IsFocused(frame.DriverKey))
         {
             Queue.OfferExtras(frame);
         }

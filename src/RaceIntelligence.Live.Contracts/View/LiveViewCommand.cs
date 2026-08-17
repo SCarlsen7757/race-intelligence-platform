@@ -14,6 +14,7 @@ namespace RaceIntelligence.Live.Contracts.View;
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(WatchRoomCommand), "watchRoom")]
 [JsonDerivedType(typeof(FocusDriverCommand), "focusDriver")]
+[JsonDerivedType(typeof(UnfocusDriverCommand), "unfocusDriver")]
 [JsonDerivedType(typeof(SubscribeLapHistoryCommand), "subscribeLapHistory")]
 [JsonDerivedType(typeof(UnsubscribeLapHistoryCommand), "unsubscribeLapHistory")]
 public abstract record LiveViewCommand;
@@ -26,19 +27,44 @@ public abstract record LiveViewCommand;
 public sealed record WatchRoomCommand(string? RoomId) : LiveViewCommand;
 
 /// <summary>
-/// Subscribes this viewer to one driver's full-rate channels, replacing any previous focus.
+/// Adds a driver to the set whose full-rate channels this viewer receives.
 /// </summary>
 /// <remarks>
-/// At most one focus per viewer. A head-to-head comparison of two drivers is a second socket
-/// rather than a second subscription — that keeps the hub's per-viewer conflation logic to a single
-/// stream, which is what guarantees a slow viewer drops frames instead of stalling the publisher.
+/// <para>
+/// <b>Additive, and capped.</b> A race engineer answering "why is he quicker than me through the
+/// infield" needs both cars on screen at once, so this follows the
+/// <see cref="SubscribeLapHistoryCommand"/> precedent rather than replacing the previous focus.
+/// </para>
+/// <para>
+/// The cap is the part worth stating out loud. Focus frames are the 60 Hz channel, and the whole
+/// two-rate design exists so they are not broadcast widely; allowing an unbounded set would let one
+/// browser ask for a full field's telemetry and quietly multiply the hub's send cost by twenty. Two
+/// is what a comparison needs, and <see cref="LiveViewer.MaxFocusDrivers"/> is where that number
+/// lives. Asking for one more is refused with <c>tooManyFocusDrivers</c> rather than silently
+/// evicting a driver the viewer is still watching.
+/// </para>
 /// </remarks>
 /// <param name="DriverKey">
 /// The driver to follow, matching <see cref="TowerRow.DriverKey"/>, or <see langword="null"/> to
-/// stop following. A driver whose tier is <see cref="LiveDataTier.Observed"/> has no full-rate data
-/// to send, and the hub answers with a <see cref="LiveErrorMessage"/> rather than silence.
+/// drop <b>every</b> focus at once — the same meaning null carries on
+/// <see cref="SubscribeLapHistoryCommand"/>, and for the same reason: with a set rather than a
+/// single slot, dropping one has to name it, which is what <see cref="UnfocusDriverCommand"/> is
+/// for. A driver whose tier is <see cref="LiveDataTier.Observed"/> has no full-rate data to send,
+/// and the hub answers with a <see cref="LiveErrorMessage"/> rather than silence.
 /// </param>
 public sealed record FocusDriverCommand(string? DriverKey) : LiveViewCommand;
+
+/// <summary>
+/// Removes one driver from the focus set, leaving every other focus untouched.
+/// </summary>
+/// <remarks>
+/// The mirror of <see cref="UnsubscribeLapHistoryCommand"/>, and it exists for the same reason:
+/// emulating a single unfocus by dropping all and re-stating the rest leaves a window in which the
+/// other driver is unsubscribed, and at 60 Hz that window is visible as a hole in their traces.
+/// Unfocusing a driver that was never focused is a no-op rather than an error.
+/// </remarks>
+/// <param name="DriverKey">The driver to stop following.</param>
+public sealed record UnfocusDriverCommand(string DriverKey) : LiveViewCommand;
 
 /// <summary>
 /// Adds a driver to the set whose completed laps this viewer receives, and answers immediately with
@@ -46,11 +72,11 @@ public sealed record FocusDriverCommand(string? DriverKey) : LiveViewCommand;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Additive, unlike <see cref="FocusDriverCommand"/>.</b> A viewer may hold several of these at
-/// once, because comparing two drivers' stints side by side is the whole point of expanding rows —
-/// where comparing two drivers' 60 Hz pedal traces is a second socket. The cost scale is what makes
-/// the two answers different: a lap history is sent when a lap finishes, roughly once a minute per
-/// driver, so a dozen subscriptions is still less traffic than one focus stream.
+/// <b>Additive, and uncapped where <see cref="FocusDriverCommand"/> is capped.</b> A viewer may hold
+/// as many of these as it has rows expanded, because comparing stints side by side is the whole
+/// point of expanding rows. The cost scale is what makes the two answers different: a lap history is
+/// sent when a lap finishes, roughly once a minute per driver, so a dozen subscriptions is still far
+/// less traffic than one focus stream.
 /// </para>
 /// <para>
 /// Works for a driver of any <see cref="LiveDataTier"/>. Lap history comes from the standings

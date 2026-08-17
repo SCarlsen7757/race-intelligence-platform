@@ -25,6 +25,17 @@ public static class LiveErrorCodes
     /// </summary>
     public const string NoTelemetryForDriver = "noTelemetryForDriver";
 
+    /// <summary>
+    /// The viewer asked to focus one driver more than <see cref="LiveViewer.MaxFocusDrivers"/>
+    /// allows.
+    /// </summary>
+    /// <remarks>
+    /// Refused rather than answered by evicting whoever was focused first: a viewer that asked for a
+    /// third car and silently lost one of the two it was reading would have no way to tell that from
+    /// the stream simply stopping.
+    /// </remarks>
+    public const string TooManyFocusDrivers = "tooManyFocusDrivers";
+
     /// <summary>The viewer must be watching a room before it can focus a driver in one.</summary>
     public const string NotWatchingRoom = "notWatchingRoom";
 
