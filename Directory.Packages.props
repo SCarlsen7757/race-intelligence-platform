@@ -1,59 +1,58 @@
 <Project>
-
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
-
   <!-- CentralPackageTransitivePinningEnabled means a PackageVersion with no matching
        PackageReference is not necessarily dead: it pins the version a transitive dependency
        resolves to. Microsoft.EntityFrameworkCore(.Relational) and Microsoft.Extensions.Http are
        here for exactly that reason, holding transitives at the same version as their direct
        siblings. Check for that before deleting an entry that looks unreferenced. -->
-
   <ItemGroup Label="Persistence">
+    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.4.6" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
   </ItemGroup>
-
   <ItemGroup Label="Hosting and logging">
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
-    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.10" />
-    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.6.0" />
-    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.11" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
   </ItemGroup>
-
   <ItemGroup Label="Serialization">
     <PackageVersion Include="MessagePack" Version="3.1.8" />
   </ItemGroup>
-
   <!-- Aspire.Hosting.AppHost is supplied by Aspire.AppHost.Sdk/13.4.6 and must NOT be referenced directly. -->
   <ItemGroup Label="Aspire">
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.4.6" />
   </ItemGroup>
-
-  <!-- Versions match exactly what the Aspire 13.4.6 servicedefaults template pins (its tested combination). -->
+  <!-- These deliberately run AHEAD of what the Aspire 13.4.6 servicedefaults template pins
+       (ServiceDiscovery 10.6.0, OpenTelemetry 1.15.x), which is a change of policy: they used to
+       track the template's tested combination exactly. If service discovery stops resolving
+       "https+http://ingest-api/" from the collector, or traces stop reaching the dashboard, this
+       group is the first place to look. -->
   <ItemGroup Label="Service defaults / OpenTelemetry">
-    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="10.6.0" />
-    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
-    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
+    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="10.9.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.17.0" />
   </ItemGroup>
-
   <!-- xunit v3 runs on Microsoft Testing Platform (MTP): xunit.v3.mtp-v2 replaces
        xunit.v3 + xunit.runner.visualstudio + Microsoft.NET.Test.Sdk entirely. -->
   <ItemGroup Label="Testing">
-    <PackageVersion Include="xunit.v3.mtp-v2" Version="3.2.2" />
+    <PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
-    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.13.0" />
-    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.8.0" />
+    <!-- 4.14.0 is the first release to depend on SSH.NET 2026.0.0, which fixes GHSA-q939-rpr3-3284
+         (ScpClient.Download path traversal). 4.13.0 pulled SSH.NET 2025.1.0 and failed the NuGet
+         audit, breaking the build for every project in the solution. -->
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
   </ItemGroup>
-
 </Project>

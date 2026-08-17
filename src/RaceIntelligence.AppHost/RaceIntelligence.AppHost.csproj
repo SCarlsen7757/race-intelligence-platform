@@ -3,9 +3,11 @@
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Ingest.Api\RaceIntelligence.Ingest.Api.csproj" />
     <ProjectReference Include="..\RaceIntelligence.Collector\RaceIntelligence.Collector.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Web\RaceIntelligence.Web.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.JavaScript" />
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
   </ItemGroup>
 

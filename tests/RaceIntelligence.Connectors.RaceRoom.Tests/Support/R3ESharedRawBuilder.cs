@@ -14,6 +14,7 @@ namespace RaceIntelligence.Connectors.RaceRoom.Tests.Support;
 internal sealed class R3ESharedRawBuilder
 {
     private R3ESharedRaw _raw = CreateDefault();
+    private R3EDriverData[] _drivers = [];
 
     private static R3ESharedRaw CreateDefault()
     {
@@ -132,6 +133,50 @@ internal sealed class R3ESharedRawBuilder
         return this;
     }
 
+    /// <summary>
+    /// Opens the in-session (ESC) menu over whatever session the builder currently describes,
+    /// leaving the session fields untouched.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="InMenus"/>, which models the <i>main</i> menu and clears the
+    /// session type and phase. RaceRoom sets <c>game_in_menus</c> for both, which is what made an
+    /// ordinary pause indistinguishable from leaving the session.
+    /// </remarks>
+    public R3ESharedRawBuilder InSessionMenu()
+    {
+        _raw.GameInMenus = 1;
+        return this;
+    }
+
+    /// <summary>Sets <c>game_paused</c> — a pause that does not necessarily open a menu.</summary>
+    public R3ESharedRawBuilder Paused(bool paused = true)
+    {
+        _raw.GamePaused = paused ? 1 : 0;
+        return this;
+    }
+
+    /// <summary>
+    /// Starts a replay over whatever session the builder currently describes, leaving the session
+    /// fields untouched.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately does <i>not</i> set <c>game_in_menus</c>. A replay is watched from the track
+    /// view, so the only field distinguishing it from live driving is <c>game_in_replay</c> — which
+    /// is exactly why leaving it unchecked made replay laps indistinguishable from real ones.
+    /// </remarks>
+    public R3ESharedRawBuilder InReplay(bool inReplay = true)
+    {
+        _raw.GameInReplay = inReplay ? 1 : 0;
+        return this;
+    }
+
+    /// <summary>Sets <c>session_iteration</c>: 1 = first session of this type, 2 = second, -1 = N/A.</summary>
+    public R3ESharedRawBuilder WithSessionIteration(int iteration)
+    {
+        _raw.SessionIteration = iteration;
+        return this;
+    }
+
     /// <summary>Puts the snapshot into an on-track race session at the given track/layout.</summary>
     public R3ESharedRawBuilder InRaceSession(string track, string layout)
     {
@@ -201,6 +246,12 @@ internal sealed class R3ESharedRawBuilder
     public R3ESharedRawBuilder WithBrake(float value)
     {
         _raw.Brake = value;
+        return this;
+    }
+
+    public R3ESharedRawBuilder WithClutch(float value)
+    {
+        _raw.Clutch = value;
         return this;
     }
 
@@ -286,10 +337,60 @@ internal sealed class R3ESharedRawBuilder
     /// <summary>A mutation applied directly to a builder's in-progress <see cref="R3ESharedRaw"/>.</summary>
     public delegate void RawEditor(ref R3ESharedRaw raw);
 
+    /// <summary>
+    /// Places <paramref name="drivers"/> in the block's trailing <c>all_drivers_data_1</c> array and
+    /// sets <c>num_cars</c> to match.
+    /// </summary>
+    /// <remarks>
+    /// Only meaningful via <see cref="BuildBytes"/>: the array is not a field of
+    /// <see cref="R3ESharedRaw"/> (it is deliberately unmapped), so <see cref="Build"/> cannot carry
+    /// it. Overrides <see cref="WithCompletedLaps"/>-style scalar setters not at all — the two
+    /// describe different cars' worth of state.
+    /// </remarks>
+    public R3ESharedRawBuilder WithDrivers(params R3EDriverData[] drivers)
+    {
+        ArgumentNullException.ThrowIfNull(drivers);
+
+        _drivers = drivers;
+        _raw.NumCars = drivers.Length;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets <c>num_cars</c> without supplying matching entries, for tests that need the header to
+    /// claim a field the block does not actually contain.
+    /// </summary>
+    public R3ESharedRawBuilder WithNumCars(int numCars)
+    {
+        _raw.NumCars = numCars;
+        return this;
+    }
+
     public R3ESharedRaw Build() => _raw;
 
-    /// <summary>Builds and serializes directly to the byte layout <see cref="FakeSharedMemoryView"/> expects.</summary>
-    public byte[] BuildBytes() => _raw.ToBytes();
+    /// <summary>
+    /// Builds and serializes directly to the byte layout <see cref="FakeSharedMemoryView"/> expects.
+    /// </summary>
+    /// <remarks>
+    /// When <see cref="WithDrivers"/> supplied entries, the result is the mapped struct followed by
+    /// those entries — which is where the real block puts them, since <c>all_drivers_offset</c>
+    /// points at <c>num_cars</c> and the struct ends immediately after it. Without them the result
+    /// is just the struct, exactly as before, so every existing test is unaffected.
+    /// </remarks>
+    public byte[] BuildBytes()
+    {
+        byte[] prefix = _raw.ToBytes();
+        if (_drivers.Length == 0)
+        {
+            return prefix;
+        }
+
+        ReadOnlySpan<byte> driverBytes = MemoryMarshal.AsBytes<R3EDriverData>(_drivers);
+        byte[] block = new byte[prefix.Length + driverBytes.Length];
+        prefix.CopyTo(block, 0);
+        driverBytes.CopyTo(block.AsSpan(prefix.Length));
+        return block;
+    }
 
     /// <summary>
     /// Encodes a UTF-8, NUL-terminated 64-byte name buffer, matching how RaceRoom's shared memory

@@ -26,11 +26,28 @@ namespace RaceIntelligence.Connectors.RaceRoom;
 /// <para>
 /// See the state machine documented on <see cref="ProcessTick"/>'s helpers: opening the shared
 /// memory and validating its version takes a connection from Disconnected/WaitingForSimulator to
-/// Connected; leaving the game's menus with a recognized session type takes it from Connected to
-/// InSession; and a "session boundary" — the game returning to menus, the session phase moving
-/// past checkered, the (track, layout, session type) tuple changing, or the simulation tick
-/// counter regressing (an in-game session restart, which otherwise looks identical) — ends the
-/// current session.
+/// Connected; a recognized session type, held steady for
+/// <see cref="RaceRoomConnectorOptions.SessionStartDebounce"/>, takes it from Connected to
+/// InSession; and a genuine session boundary — the session type becoming unavailable, the phase
+/// moving past checkered, the (track, layout, session type, session iteration) tuple changing, or
+/// the simulation tick counter regressing (an in-game session restart, which otherwise looks
+/// identical) — ends the current session.
+/// </para>
+/// <para>
+/// <b>An in-session menu suspends the session; it does not end it.</b> RaceRoom sets
+/// <c>game_in_menus</c> for its in-session (ESC) menu, not only for the main menu, so treating it
+/// as a session boundary ended and restarted the session every time the driver paused — one
+/// qualifying session became six database rows, and any lap completed while the menu was open was
+/// dropped, because the restart re-based the lap counter. Menus and <c>game_paused</c> therefore
+/// move the source to SessionSuspended, which keeps the session id, sequence numbering and lap
+/// count intact and publishes no samples until the driver returns. Laps completed during the
+/// suspension are emitted on resume by the same catch-up path that covers a skipped poll.
+/// </para>
+/// <para>
+/// While suspended, nothing else in the frame is trusted: a menu frame's session type and phase
+/// describe the menu rather than the session behind it, so end conditions are re-evaluated only
+/// once the driver is back on track. The only rule that applies while suspended is
+/// <see cref="RaceRoomConnectorOptions.MaxSuspendDuration"/>.
 /// </para>
 /// <para>
 /// <b>Game exit is detected by a frozen tick counter, not by the mapping disappearing.</b> The
@@ -75,8 +92,15 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
     /// <inheritdoc />
     public GameVersionIdentity? Version => _version;
 
-    /// <inheritdoc />
-    public SimCapabilities Capabilities { get; } =
+    /// <summary>
+    /// What this connector can produce, independent of any instance.
+    /// </summary>
+    /// <remarks>
+    /// Static because the collector has to declare it to the live hub when opening a publishing
+    /// connection, which happens before any telemetry source has been constructed — and because
+    /// the answer cannot vary between instances anyway.
+    /// </remarks>
+    public static SimCapabilities DeclaredCapabilities { get; } =
         SimCapabilities.TyreWear |
         SimCapabilities.TyrePressure |
         SimCapabilities.TyreTemperature |
@@ -86,7 +110,15 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         SimCapabilities.Drs |
         SimCapabilities.Damage |
         SimCapabilities.PitWindow |
-        SimCapabilities.SuspensionTelemetry;
+        SimCapabilities.SuspensionTelemetry |
+        // RaceRoom's driver array covers every car in the session, but only at scoring granularity
+        // — hence no opponent tyre/fuel/input capability to declare alongside these three.
+        SimCapabilities.OpponentStandings |
+        SimCapabilities.OpponentSectorTimes |
+        SimCapabilities.OpponentPitState;
+
+    /// <inheritdoc />
+    public SimCapabilities Capabilities => DeclaredCapabilities;
 
     /// <inheritdoc />
     public ConnectionState State => _state;
@@ -164,6 +196,7 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
 
             case ConnectionState.Connected:
             case ConnectionState.InSession:
+            case ConnectionState.SessionSuspended:
                 ProcessConnectedTick(events, now);
                 break;
 
@@ -239,25 +272,120 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             return;
         }
 
-        bool inMenus = raw.GameInMenus != 0;
+        // The driver is not driving: an in-session (ESC) menu, an outright pause, or a replay.
+        //
+        // Menus and pauses freeze the published frame, so neither its telemetry nor its session
+        // fields describe anything current. A replay is worse than stale — the block publishes the
+        // replayed car's inputs and lap times as if they were happening now, which is
+        // indistinguishable from live driving to everything downstream. Collecting it would file
+        // replay laps in the archive as real ones and put a race engineer in front of a timing
+        // tower showing a race that already finished.
+        bool suspended = raw.GameInMenus != 0 || raw.GamePaused != 0 || raw.GameInReplay != 0;
         bool sessionAvailable = raw.SessionType != (int)R3ESessionType.Unavailable;
         bool phasePastCheckered = raw.SessionPhase > (int)R3ESessionPhase.Checkered;
+        bool onTrackSessionFrame = !suspended && sessionAvailable && !phasePastCheckered;
+
+        var newKey = new SessionKey(
+            R3ETelemetryMapper.DecodeUtf8Name(raw.TrackName),
+            R3ETelemetryMapper.DecodeUtf8Name(raw.LayoutName),
+            raw.SessionType,
+            raw.SessionIteration);
 
         if (_state == ConnectionState.Connected)
         {
-            if (!inMenus && sessionAvailable)
+            // No session yet. Waiting for the key to settle discards the sub-second flicker the
+            // game publishes while loading the next session.
+            if (onTrackSessionFrame)
             {
-                StartSession(events, now, in raw);
+                StartSessionOnceKeyIsStable(events, now, in raw, newKey);
+            }
+            else
+            {
+                _run.ClearPendingStart();
             }
 
             return;
         }
 
+        // InSession or SessionSuspended: a session is live and must survive this tick unless a
+        // genuine boundary says otherwise.
+        if (suspended)
+        {
+            // The one boundary worth trusting from a menu frame: it names a different session that
+            // is unambiguously real. That is the game loading the next session while the loading
+            // screen still counts as "in menus", and it ends the previous session promptly instead
+            // of leaving it open until the suspend timeout.
+            //
+            // A session type of "unavailable" is deliberately NOT treated the same way. It is what
+            // the main menu reports, but it cannot be distinguished from a mid-session menu that
+            // simply stops publishing a session type, and guessing wrong there reinstates the bug
+            // this state exists to fix. Waiting costs a late ended_at on a session the driver
+            // abandoned; guessing costs every paused session in the database.
+            bool movedToAnotherSession = sessionAvailable && _run.CurrentKey is { } suspendedKey && suspendedKey != newKey;
+
+            if (movedToAnotherSession)
+            {
+                EndCurrentSessionIfAny(events, now);
+                SetState(ConnectionState.Connected, events, now, reason: null);
+                return;
+            }
+
+            if (_state == ConnectionState.InSession)
+            {
+                _run.SuspendedAtUtc = now;
+                SetState(ConnectionState.SessionSuspended, events, now, "the driver is in a menu or the game is paused; the session is suspended, not ended.");
+            }
+            else if (now - _run.SuspendedAtUtc >= _options.MaxSuspendDuration)
+            {
+                EndCurrentSessionIfAny(events, now);
+                SetState(ConnectionState.Connected, events, now, $"the session stayed suspended for longer than {_options.MaxSuspendDuration}; presuming it was abandoned.");
+            }
+
+            // Deliberately no other checks. A menu frame reports the menu's session type and phase,
+            // not the suspended session's, so evaluating boundaries against it is what caused a
+            // menu visit to end the session in the first place.
+            return;
+        }
+
+        // Back on track — the frame can be trusted again, so re-evaluate the real end conditions.
+        bool keyChanged = _run.CurrentKey is { } currentKey && currentKey != newKey;
+
+        // A restart from the in-session menu resumes with the tick counter re-based, which is the
+        // only thing distinguishing it from an ordinary resume. Checked on the resuming frame too,
+        // for exactly that reason.
+        bool ticksRegressed = !keyChanged && raw.Player.GameSimulationTicks < _run.LastTicks;
+
+        if (!sessionAvailable || phasePastCheckered || keyChanged || ticksRegressed)
+        {
+            EndCurrentSessionIfAny(events, now);
+            SetState(ConnectionState.Connected, events, now, reason: null);
+
+            // The same frame may already describe the next session. Starting it here rather than on
+            // a later tick is what makes a restart read as SessionEnded immediately followed by
+            // SessionStarted, once the key has settled.
+            if (onTrackSessionFrame)
+            {
+                StartSessionOnceKeyIsStable(events, now, in raw, newKey);
+            }
+
+            return;
+        }
+
+        if (_state == ConnectionState.SessionSuspended)
+        {
+            // Resume the same session. The tick clock restarts from here: the frozen span while
+            // suspended is not evidence that the game has stopped writing.
+            _run.LastTicks = raw.Player.GameSimulationTicks;
+            _run.LastTicksChangedAtUtc = now;
+            _run.SuspendedAtUtc = default;
+            SetState(ConnectionState.InSession, events, now, reason: null);
+        }
+
         // InSession: a tick counter that has stopped advancing for longer than the configured
-        // timeout means RaceRoom is no longer writing to the block. Checked before every other
-        // boundary rule because a dead game keeps serving the same frame indefinitely, and that
-        // frame is (by definition) still on-track, still the same session key, and has ticks that
-        // are equal rather than lower — so nothing else here would ever fire.
+        // timeout means RaceRoom is no longer writing to the block. Checked before publishing a
+        // sample because a dead game keeps serving the same frame indefinitely, and that frame is
+        // (by definition) still on-track, still the same session key, and has ticks that are equal
+        // rather than lower — so nothing else here would ever fire.
         if (raw.Player.GameSimulationTicks != _run.LastTicks)
         {
             _run.LastTicksChangedAtUtc = now;
@@ -275,34 +403,31 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             return;
         }
 
-        // InSession: detect the session boundary described on the type's <remarks/>.
-        var newKey = new SessionKey(
-            R3ETelemetryMapper.DecodeUtf8Name(raw.TrackName),
-            R3ETelemetryMapper.DecodeUtf8Name(raw.LayoutName),
-            raw.SessionType);
+        // Also emits a LapCompleted per lap finished since the last published sample — which, after
+        // a suspension, is every lap the driver completed before opening the menu on the out-lap as
+        // well as any the game credited while it was open.
+        EmitSample(events, now, in raw);
+    }
 
-        bool keyChanged = _run.CurrentKey is { } currentKey && currentKey != newKey;
-        bool ticksRegressed = !keyChanged && raw.Player.GameSimulationTicks < _run.LastTicks;
-        bool sessionBoundary = inMenus || phasePastCheckered || keyChanged || ticksRegressed;
-
-        if (sessionBoundary)
+    /// <summary>
+    /// Connected -&gt; InSession, once <paramref name="key"/> has been reported unchanged for
+    /// <see cref="RaceRoomConnectorOptions.SessionStartDebounce"/>.
+    /// </summary>
+    private void StartSessionOnceKeyIsStable(List<TelemetryEvent> events, DateTimeOffset now, in R3ESharedRaw raw, SessionKey key)
+    {
+        if (_run.PendingKey is not { } pending || pending != key)
         {
-            events.Add(new SessionEnded { OccurredAtUtc = now, SessionId = _run.SessionId });
-            _run.ClearSession();
-            SetState(ConnectionState.Connected, events, now, reason: null);
+            _run.PendingKey = key;
+            _run.PendingKeySinceUtc = now;
+        }
 
-            // Same frame may already describe a new (or restarted) session — start it immediately
-            // instead of losing a tick, which is what makes an in-session restart look like
-            // SessionEnded immediately followed by SessionStarted rather than a multi-tick gap.
-            if (!inMenus && sessionAvailable && !phasePastCheckered)
-            {
-                StartSession(events, now, in raw);
-            }
-
+        if (now - _run.PendingKeySinceUtc < _options.SessionStartDebounce)
+        {
             return;
         }
 
-        EmitSample(events, now, in raw);
+        _run.ClearPendingStart();
+        StartSession(events, now, in raw);
     }
 
     /// <summary>Connected -&gt; InSession: begin tracking a new session and emit its first sample.</summary>
@@ -312,7 +437,8 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         _run.CurrentKey = new SessionKey(
             R3ETelemetryMapper.DecodeUtf8Name(raw.TrackName),
             R3ETelemetryMapper.DecodeUtf8Name(raw.LayoutName),
-            raw.SessionType);
+            raw.SessionType,
+            raw.SessionIteration);
         _run.LastCompletedLaps = raw.CompletedLaps;
         _run.LastTicks = raw.Player.GameSimulationTicks;
         _run.LastTicksChangedAtUtc = now;
@@ -353,12 +479,122 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         }
 
         _run.LastTicks = raw.Player.GameSimulationTicks;
+
+        EmitExtrasIfDue(events, now, sample);
+        EmitStandingsIfDue(events, now, in raw);
     }
 
-    /// <summary>InSession, if any -&gt; emits SessionEnded and clears session state.</summary>
+    /// <summary>
+    /// Re-publishes the local car's extras document, no more often than
+    /// <see cref="RaceRoomConnectorOptions.ExtrasInterval"/>.
+    /// </summary>
+    /// <remarks>
+    /// Takes the string off the sample that was just mapped rather than building a second one. The
+    /// mapper writes it for every sample regardless — the archive path stores it per row — so
+    /// reusing it makes this channel free to produce and leaves the rate limit purely about how
+    /// often anything downstream has to parse it.
+    /// </remarks>
+    private void EmitExtrasIfDue(List<TelemetryEvent> events, DateTimeOffset now, TelemetrySample sample)
+    {
+        // Any negative interval disables extras, not only Timeout.InfiniteTimeSpan — see the same
+        // reasoning spelled out on EmitStandingsIfDue.
+        if (_options.ExtrasInterval < TimeSpan.Zero)
+        {
+            return;
+        }
+
+        if (now - _run.LastExtrasAtUtc < _options.ExtrasInterval)
+        {
+            return;
+        }
+
+        _run.LastExtrasAtUtc = now;
+        events.Add(new ExtrasUpdated
+        {
+            OccurredAtUtc = now,
+            SessionId = sample.SessionId,
+            ExtrasJson = sample.Extras,
+        });
+    }
+
+    /// <summary>
+    /// Reads the driver array and emits <see cref="StandingsUpdated"/>, no more often than
+    /// <see cref="RaceRoomConnectorOptions.StandingsInterval"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Called from <see cref="EmitSample"/> rather than from the tick loop directly, so that
+    /// standings inherit exactly the conditions under which a sample is publishable: a live
+    /// session, an untorn frame, and not suspended. A menu frame's driver array describes the
+    /// moment the driver pressed escape, and republishing it would show a race still unfolding
+    /// while nothing is moving.
+    /// </para>
+    /// <para>
+    /// A torn or failed array read is not a connection failure: the player snapshot it accompanies
+    /// was read cleanly and has already been published. The tick is skipped and the due-time is
+    /// left untouched, so the next poll retries immediately rather than waiting out another
+    /// interval.
+    /// </para>
+    /// </remarks>
+    private void EmitStandingsIfDue(List<TelemetryEvent> events, DateTimeOffset now, in R3ESharedRaw raw)
+    {
+        // Any negative interval disables standings, not only Timeout.InfiniteTimeSpan (-1 tick).
+        // Testing for that exact value would let TimeSpan.FromSeconds(-1) fall through to the
+        // comparison below, where "elapsed < a negative" is never true — silently turning an
+        // obvious attempt to switch the feature off into reading the field on every single poll.
+        if (_options.StandingsInterval < TimeSpan.Zero)
+        {
+            return;
+        }
+
+        // No "never read yet" special case: LastStandingsAtUtc defaults to year 1, so the elapsed
+        // span is ~739,000 days and the first tick of a session is always due.
+        if (now - _run.LastStandingsAtUtc < _options.StandingsInterval)
+        {
+            return;
+        }
+
+        var view = _run.View;
+        if (view is null || !view.IsValid)
+        {
+            return;
+        }
+
+        if (R3EDriverDataReader.TryRead(view, in raw, out var drivers) != DriverArrayReadOutcome.Ok)
+        {
+            return;
+        }
+
+        _run.LastStandingsAtUtc = now;
+
+        if (drivers.Length == 0)
+        {
+            // A session with no field reported yet — nothing to say, and an empty tower would read
+            // as "everyone retired" rather than "not known yet".
+            return;
+        }
+
+        // Settled from the local car, whose root block carries both a lap time and that lap's
+        // splits, then applied to every car in the field. Checked on each snapshot rather than once
+        // because the first frames of a session cannot answer it — nobody has completed a lap yet.
+        _run.SectorTimeConvention = R3ESectorTimeConventionDetector.Detect(in raw, _run.SectorTimeConvention);
+
+        var standings = R3ETelemetryMapper.ToSessionStandings(
+            drivers, in raw, _run.SessionId, now, _run.SectorTimeConvention);
+        events.Add(new StandingsUpdated { OccurredAtUtc = now, Standings = standings });
+    }
+
+    /// <summary>
+    /// InSession or SessionSuspended, if either -&gt; emits SessionEnded and clears session state.
+    /// </summary>
+    /// <remarks>
+    /// A suspended session is still a live session that has to be closed: the game exiting, or the
+    /// suspension outstaying <see cref="RaceRoomConnectorOptions.MaxSuspendDuration"/>, must not
+    /// leave it dangling with no <see cref="SessionEnded"/> ever emitted.
+    /// </remarks>
     private void EndCurrentSessionIfAny(List<TelemetryEvent> events, DateTimeOffset now)
     {
-        if (_state == ConnectionState.InSession)
+        if (_state is ConnectionState.InSession or ConnectionState.SessionSuspended)
         {
             events.Add(new SessionEnded { OccurredAtUtc = now, SessionId = _run.SessionId });
             _run.ClearSession();
@@ -394,7 +630,11 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
     /// Byte offset of <c>player.game_simulation_ticks</c> within the block — the field re-read to
     /// detect a torn frame.
     /// </summary>
-    private static readonly long SimulationTicksOffset =
+    /// <remarks>
+    /// Internal rather than private because <see cref="R3EDriverDataReader"/> makes the same
+    /// torn-frame check against the same field, and the two must never drift apart.
+    /// </remarks>
+    internal static readonly long SimulationTicksOffset =
         Marshal.OffsetOf<R3ESharedRaw>(nameof(R3ESharedRaw.Player)).ToInt64()
         + Marshal.OffsetOf<R3EPlayerData>(nameof(R3EPlayerData.GameSimulationTicks)).ToInt64();
 
@@ -501,6 +741,37 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
 
         public long SequenceNumber;
 
+        /// <summary>When the session was suspended — the clock behind the max-suspend check.</summary>
+        public DateTimeOffset SuspendedAtUtc;
+
+        /// <summary>
+        /// The key of a session that has been observed but not yet started, and when it was first
+        /// seen — the debounce that keeps a half-loaded session out of the database.
+        /// </summary>
+        public SessionKey? PendingKey;
+
+        public DateTimeOffset PendingKeySinceUtc;
+
+        /// <summary>
+        /// When the driver array was last read — the clock behind
+        /// <see cref="RaceRoomConnectorOptions.StandingsInterval"/>. Never set means "not yet this
+        /// session", which reads as due.
+        /// </summary>
+        public DateTimeOffset LastStandingsAtUtc;
+
+        /// <summary>
+        /// When the extras document was last published — the clock behind
+        /// <see cref="RaceRoomConnectorOptions.ExtrasInterval"/>. Never set reads as due, so the
+        /// first sample of a session always carries one.
+        /// </summary>
+        public DateTimeOffset LastExtrasAtUtc;
+
+        /// <summary>
+        /// How this game fills its sector triples. Held per session and re-established each time,
+        /// since a session boundary is also where a game update could take effect.
+        /// </summary>
+        public R3ESectorTimeConvention SectorTimeConvention;
+
         public void ClearSession()
         {
             SessionId = default;
@@ -509,13 +780,29 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             LastTicks = 0;
             LastTicksChangedAtUtc = default;
             SequenceNumber = 0;
+            SuspendedAtUtc = default;
+            LastStandingsAtUtc = default;
+            LastExtrasAtUtc = default;
+            SectorTimeConvention = R3ESectorTimeConvention.Cumulative;
+        }
+
+        public void ClearPendingStart()
+        {
+            PendingKey = null;
+            PendingKeySinceUtc = default;
         }
     }
 
     /// <summary>
-    /// The (track, layout, session type) tuple that identifies a session boundary. Deliberately
-    /// does not include <see cref="RunState.LastTicks"/> — tick regression is checked separately
-    /// so that an in-game "restart session" (identical tuple, ticks reset) is still detected.
+    /// The tuple that identifies one of the simulator's sessions. Deliberately does not include
+    /// <see cref="RunState.LastTicks"/> — tick regression is checked separately so that an in-game
+    /// "restart session" (identical tuple, ticks reset) is still detected.
     /// </summary>
-    private readonly record struct SessionKey(string TrackName, string LayoutName, int RawSessionType);
+    /// <remarks>
+    /// <paramref name="RawSessionIteration"/> is what makes the tuple sufficient on its own. Two
+    /// qualifying sessions at the same track differ in nothing else, so without it the connector
+    /// could only tell them apart by watching for a trip through the menus — which is precisely the
+    /// coupling that made an ordinary pause look like a new session.
+    /// </remarks>
+    private readonly record struct SessionKey(string TrackName, string LayoutName, int RawSessionType, int RawSessionIteration);
 }

@@ -17,7 +17,7 @@ namespace RaceIntelligence.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -352,6 +352,10 @@ namespace RaceIntelligence.Persistence.Migrations
                     b.Property<float?>("Brake")
                         .HasColumnType("real")
                         .HasColumnName("brake");
+
+                    b.Property<float?>("Clutch")
+                        .HasColumnType("real")
+                        .HasColumnName("clutch");
 
                     b.Property<float>("EngineRpm")
                         .HasColumnType("real")

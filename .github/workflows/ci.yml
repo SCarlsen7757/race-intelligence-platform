@@ -68,10 +68,72 @@ jobs:
         #     discovery report "No test projects were found" too. Rebuilding costs seconds.
         run: |
           dotnet test tests/RaceIntelligence.Analysis.Tests/RaceIntelligence.Analysis.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Collector.Plugins.Ingest.Tests/RaceIntelligence.Collector.Plugins.Ingest.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Collector.Plugins.Live.Tests/RaceIntelligence.Collector.Plugins.Live.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Collector.Tests/RaceIntelligence.Collector.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj --configuration Release
           dotnet test tests/RaceIntelligence.Persistence.Tests/RaceIntelligence.Persistence.Tests.csproj --configuration Release
+          dotnet test tests/RaceIntelligence.Web.Tests/RaceIntelligence.Web.Tests.csproj --configuration Release
+
+  # The dashboard. Separate from the .NET jobs because it needs Node rather than the SDK, and
+  # because a TypeScript error should read as a frontend failure rather than as part of a build log
+  # for six C# projects.
+  #
+  # It is its own deployable now — a Node process on its own origin, no longer built into the hub's
+  # wwwroot by `dotnet publish` — so nothing else in this workflow would notice it breaking.
+  # Without this job a dashboard that does not typecheck, lint, test or build reaches main.
+  dashboard:
+    name: Build and test (dashboard)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: src/RaceIntelligence.Dashboard
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/RaceIntelligence.Dashboard/package-lock.json
+
+      # `ci` rather than `install`: it installs exactly what the lock file pins and fails if the
+      # lock file and package.json disagree, so CI cannot pass against dependencies a developer's
+      # machine never had.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # ESLint plus a Prettier formatting check. The formatting half is what keeps a diff about
+      # behaviour from also being a diff about whitespace.
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      # Builds both halves — the client bundle and the Node server — because a TanStack Start app
+      # that compiles in the browser environment can still fail in the SSR one.
+      - name: Build
+        run: npx vite build
+
+      # app/routeTree.gen.ts is generated from app/routes/ by the Start plugin and committed, so
+      # `npm run typecheck` works without a build step first. The build above has just regenerated
+      # it, so a difference here means a route was added or renamed without committing the result —
+      # which typechecks locally against the stale file and fails for the next person to build.
+      - name: Verify the generated route tree is current
+        run: |
+          git diff --exit-code -- app/routeTree.gen.ts \
+            || { echo "::error file=src/RaceIntelligence.Dashboard/app/routeTree.gen.ts::Out of date. Run npm run build and commit the result."; exit 1; }
 
   # The RaceRoom connector reads the sim's shared memory through a *named* memory-mapped file
   # (MemoryMappedFile.OpenExisting(name, ...)), and named maps are a Windows-only feature — on Unix

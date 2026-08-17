@@ -39,6 +39,29 @@ internal static class R3ETelemetryMapper
 
     private static int? NullIfNegative(int value) => value < 0 ? null : value;
 
+    /// <summary>
+    /// Converts RaceRoom's <c>tire_wear</c> to the canonical
+    /// <see cref="TelemetrySample.TyreWear"/> convention.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Despite its name, RaceRoom reports tread <i>remaining</i>: the value starts at 1.0 on fresh
+    /// tyres and falls as they wear. The header documents only "Range 0.0-1.0", so this was read
+    /// off real telemetry — a 24-lap stint moved from 0.9979 to 0.8098, monotonically down.
+    /// </para>
+    /// <para>
+    /// The canonical field is the other way round (0 = new, 1 = fully worn), so this inverts. That
+    /// direction is deliberate: "wear" that decreases as tyres wear out would invert the sign of
+    /// every degradation rate computed from it.
+    /// </para>
+    /// <para>
+    /// The sentinel check happens first, and must: <c>-1.0</c> means "not available", and inverting
+    /// it before testing would turn it into a confident, entirely fictional <c>2.0</c>.
+    /// </para>
+    /// </remarks>
+    private static float? TreadRemainingToWear(float treadRemaining) =>
+        NullIfNegative(treadRemaining) is { } remaining ? 1f - remaining : null;
+
     /// <summary>RaceRoom's <c>gear</c> value for "not available", distinct from -1 (reverse).</summary>
     private const int GearNotAvailable = -2;
 
@@ -111,10 +134,10 @@ internal static class R3ETelemetryMapper
             NullIfNegative(raw.TirePressure[3]));
 
         var tyreWear = new WheelData<float?>(
-            NullIfNegative(raw.TireWear[0]),
-            NullIfNegative(raw.TireWear[1]),
-            NullIfNegative(raw.TireWear[2]),
-            NullIfNegative(raw.TireWear[3]));
+            TreadRemainingToWear(raw.TireWear[0]),
+            TreadRemainingToWear(raw.TireWear[1]),
+            TreadRemainingToWear(raw.TireWear[2]),
+            TreadRemainingToWear(raw.TireWear[3]));
 
         return new TelemetrySample
         {
@@ -125,6 +148,10 @@ internal static class R3ETelemetryMapper
             Speed = raw.CarSpeed,
             Throttle = NullIfNegative(raw.Throttle),
             Brake = NullIfNegative(raw.Brake),
+            // Same -1.0 = N/A sentinel as throttle and brake, and it is reported far more often
+            // here: RaceRoom leaves clutch at -1 for a car with an automatic clutch, so a car that
+            // simply has nothing to say must arrive as null rather than as "clutch fully up".
+            Clutch = NullIfNegative(raw.Clutch),
             Steering = raw.SteerInputRaw, // -1..1 is a legitimate range, not an N/A sentinel.
             // Not NullIfNegative: -1 is reverse, a real gear. Only -2 means "not available".
             Gear = raw.Gear == GearNotAvailable ? null : raw.Gear,
@@ -191,6 +218,184 @@ internal static class R3ETelemetryMapper
             FuelUsageRate = raw.FuelUseActive,
             TyreWearRate = raw.TireWearActive,
             Extras = BuildSessionExtras(in raw),
+        };
+    }
+
+    /// <summary>
+    /// Converts a RaceRoom lap/sector time in seconds to a <see cref="TimeSpan"/>, honouring the
+    /// <c>-1.0 = N/A</c> sentinel the timing fields share with the rest of the block.
+    /// </summary>
+    private static TimeSpan? SecondsToTimeSpan(float seconds) =>
+        seconds < 0f ? null : TimeSpan.FromSeconds(seconds);
+
+    /// <summary>
+    /// Converts a <c>sector_time_*</c> triple to canonical cumulative splits, normalising whichever
+    /// convention the running game turns out to use.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="DriverStanding.CurrentSectorTimes"/> is defined as cumulative, so a game found to
+    /// publish per-sector durations is converted here — this is the one place that knows, and every
+    /// consumer downstream sees a single convention. See <see cref="R3ESectorTimeConvention"/> for
+    /// why the convention has to be discovered rather than assumed.
+    /// </para>
+    /// <para>
+    /// A running sum cannot simply skip a missing entry: if sector 1 is unreported, no later
+    /// cumulative split can be reconstructed, and inventing one would understate the lap. Once a
+    /// gap appears, everything after it is <see langword="null"/>.
+    /// </para>
+    /// <para>
+    /// A fresh array is allocated per driver per snapshot; at the standings rate that is a few
+    /// hundred small arrays a second, well below the point where pooling would earn its complexity.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<TimeSpan?> MapSectorTimes(Float3 sectors, R3ESectorTimeConvention convention)
+    {
+        if (convention == R3ESectorTimeConvention.Cumulative)
+        {
+            return [SecondsToTimeSpan(sectors[0]), SecondsToTimeSpan(sectors[1]), SecondsToTimeSpan(sectors[2])];
+        }
+
+        var splits = new TimeSpan?[3];
+        float running = 0f;
+        for (int i = 0; i < 3; i++)
+        {
+            if (sectors[i] < 0f)
+            {
+                break;
+            }
+
+            running += sectors[i];
+            splits[i] = TimeSpan.FromSeconds(running);
+        }
+
+        return splits;
+    }
+
+    /// <summary>The lap total a sector triple implies: its last cumulative split.</summary>
+    private static TimeSpan? LapTimeFromSectors(IReadOnlyList<TimeSpan?> cumulativeSplits) =>
+        cumulativeSplits.Count > 0 ? cumulativeSplits[^1] : null;
+
+    /// <summary>
+    /// Counts the cut-track penalty types currently outstanding.
+    /// </summary>
+    /// <remarks>
+    /// r3e.h documents each member of <see cref="R3ECutTrackPenalties"/> as "-1.0 = none pending,
+    /// otherwise penalty time dep on penalty type". So <c>-1</c> here means <i>clean</i>, not
+    /// <i>unknown</i>, and a count of zero is a real answer rather than a sentinel leak — unlike
+    /// almost everywhere else in this block.
+    /// </remarks>
+    private static int CountPendingPenalties(in R3ECutTrackPenalties penalties)
+    {
+        int count = 0;
+        if (penalties.DriveThrough >= 0f) { count++; }
+        if (penalties.StopAndGo >= 0f) { count++; }
+        if (penalties.PitStop >= 0f) { count++; }
+        if (penalties.TimeDeduction >= 0f) { count++; }
+        if (penalties.SlowDown >= 0f) { count++; }
+        return count;
+    }
+
+    /// <summary>Builds one canonical timing-tower row from a raw driver array entry.</summary>
+    /// <remarks>
+    /// Everything here is scoring-granularity by necessity: RaceRoom's per-driver entry carries no
+    /// pedal inputs, tyre state, fuel or damage for anyone. Those exist only in the root of the
+    /// block, describing the car this machine is running — see <see cref="DriverStanding"/>.
+    /// </remarks>
+    internal static DriverStanding ToDriverStanding(in R3EDriverData driver, R3ESectorTimeConvention convention)
+    {
+        var currentSectors = MapSectorTimes(driver.SectorTimeCurrentSelf, convention);
+        var previousSectors = MapSectorTimes(driver.SectorTimePreviousSelf, convention);
+        var bestSectors = MapSectorTimes(driver.SectorTimeBestSelf, convention);
+
+        return new DriverStanding
+        {
+            // Same > 0 test, and the same reason, as SessionInfo.SimDriverId above: RaceRoom
+            // reports 0 or -1 for an offline/unauthenticated slot, and treating "0" as an identity
+            // would merge every such driver into one person when views from several machines are
+            // matched up.
+            SimDriverId = NullIfNotPositive(driver.DriverInfo.UserId)?.ToString(),
+            SlotId = NullIfNegative(driver.DriverInfo.SlotId),
+            DisplayName = DecodeUtf8Name(driver.DriverInfo.Name),
+            CarNumber = NullIfNegative(driver.DriverInfo.CarNumber),
+            SimCarId = NullIfNegative(driver.DriverInfo.ModelId)?.ToString(),
+            SimCarClassId = NullIfNegative(driver.DriverInfo.ClassId)?.ToString(),
+            SimManufacturerId = NullIfNegative(driver.DriverInfo.ManufacturerId)?.ToString(),
+            Position = NullIfNotPositive(driver.Place),
+            PositionInClass = NullIfNotPositive(driver.PlaceClass),
+            // r3e.h: "How many laps the car has completed. If this value is 6, the car is on it's
+            // 7th lap. -1 = n/a". A slot that is not yet active reports the sentinel, and flooring
+            // it to zero would state as fact that the car has completed no laps.
+            CompletedLaps = NullIfNegative(driver.CompletedLaps),
+            TrackPositionFraction = NullIfNegative(driver.LapDistanceFraction),
+            // r3e.h documents no base and no sentinel for track_sector. Treated as 1-based with 0
+            // meaning "not reported", which is what the field is observed to do — it reads 0 before
+            // the car crosses the line, then 1, 2, 3.
+            //
+            // NOTE: ToSample passes the root block's track_sector through raw and unfiltered, so a
+            // sample can carry 0 or -1 where a standing carries null. The two disagree today. This
+            // side is the one that can change freely; the sample side feeds a permanent archive, so
+            // reconciling them is a deliberate decision rather than a cleanup.
+            Sector = NullIfNotPositive(driver.TrackSector),
+            // car_speed carries no documented sentinel, unlike most of the block. Filtered anyway
+            // because it is a magnitude and a negative reading could only be an unreported value.
+            Speed = NullIfNegative(driver.CarSpeed),
+            CurrentLapTime = SecondsToTimeSpan(driver.LapTimeCurrentSelf),
+            // The driver array has no lap_time_previous_self or lap_time_best_self field. A lap's
+            // total is its final cumulative split, which MapSectorTimes has already normalised.
+            PreviousLapTime = LapTimeFromSectors(previousSectors),
+            BestLapTime = LapTimeFromSectors(bestSectors),
+            // -1 = N/A, so a plain == 1 test rather than != 0.
+            CurrentLapValid = driver.CurrentLapValid < 0 ? null : driver.CurrentLapValid == 1,
+            CurrentSectorTimes = currentSectors,
+            PreviousSectorTimes = previousSectors,
+            BestSectorTimes = bestSectors,
+            GapToCarAhead = SecondsToTimeSpan(driver.TimeDeltaFront),
+            GapToCarBehind = SecondsToTimeSpan(driver.TimeDeltaBehind),
+            InPitLane = driver.InPitlane < 0 ? null : driver.InPitlane == 1,
+            PitStopStatus = Enum.IsDefined((PitStopStatus)driver.PitStopStatus)
+                ? (PitStopStatus)driver.PitStopStatus
+                : PitStopStatus.Unavailable,
+            PitStopCount = NullIfNegative(driver.NumPitstops),
+            FinishStatus = Enum.IsDefined((DriverFinishStatus)driver.FinishStatus)
+                ? (DriverFinishStatus)driver.FinishStatus
+                : DriverFinishStatus.Unavailable,
+            PenaltyCount = CountPendingPenalties(in driver.Penalties),
+        };
+    }
+
+    /// <summary>Builds a canonical standings snapshot from the raw driver array.</summary>
+    /// <param name="drivers">The entries read for this frame, already trimmed to the cars actually present.</param>
+    /// <param name="raw">The snapshot the array was read alongside, supplying the local car's identity and the sim clock.</param>
+    /// <param name="sessionId">The session the snapshot belongs to.</param>
+    /// <param name="capturedAtUtc">UTC time of capture, as observed by the connector.</param>
+    /// <param name="convention">
+    /// How this game fills its sector triples, as established by
+    /// <see cref="R3ESectorTimeConventionDetector"/>. Applies to every car, since one game publishes
+    /// one convention.
+    /// </param>
+    public static SessionStandings ToSessionStandings(
+        ReadOnlySpan<R3EDriverData> drivers,
+        in R3ESharedRaw raw,
+        Guid sessionId,
+        DateTimeOffset capturedAtUtc,
+        R3ESectorTimeConvention convention)
+    {
+        var standings = new DriverStanding[drivers.Length];
+        for (int i = 0; i < drivers.Length; i++)
+        {
+            standings[i] = ToDriverStanding(in drivers[i], convention);
+        }
+
+        return new SessionStandings
+        {
+            SessionId = sessionId,
+            CapturedAtUtc = capturedAtUtc,
+            SimulationTime = raw.Player.GameSimulationTime,
+            // Derived exactly like SessionInfo.SimDriverId so the local car matches its own row in
+            // Drivers by the same key every other machine will use for it.
+            LocalSimDriverId = (NullIfNotPositive(raw.VehicleInfo.UserId) ?? NullIfNotPositive(raw.Player.UserId))?.ToString(),
+            Drivers = standings,
         };
     }
 
@@ -288,6 +493,59 @@ internal static class R3ETelemetryMapper
         for (int i = 0; i < 4; i++)
         {
             writer.WriteNumberValue(raw.BrakePressure[i]);
+        }
+        writer.WriteEndArray();
+
+        // Per-tyre channels with no canonical equivalent yet. tyreGrip is the reason this block
+        // exists: it is grip loss measured directly, rather than inferred from lap time the way a
+        // lap-time trend has to, and a degradation model built without it can only see the symptom.
+        //
+        // Written raw, sentinels included (-1 = N/A), like every other value in this object. These
+        // are candidates for promotion to canonical fields, and that is where the -1 -> null
+        // translation belongs, alongside the one TyreWear already gets.
+        writer.WriteStartArray("tyreGrip");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireGrip[i]);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteStartArray("tyreLoadNewtons");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireLoad[i]);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteStartArray("tyreDirt");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireDirt[i]);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteStartArray("tyreFlatspot");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireFlatspot[i]);
+        }
+        writer.WriteEndArray();
+
+        // Rotation speed in rad/s alongside the canonical linear WheelSpeed: the pair is what makes
+        // slip ratio recoverable later, which neither value gives on its own.
+        writer.WriteStartArray("tyreRotationRadiansPerSecond");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireRps[i]);
+        }
+        writer.WriteEndArray();
+
+        // Surface material under each tyre (r3e_mtrl_type) — the cheapest evidence that a lap left
+        // the track, which is what lap quality scoring needs to discount it.
+        writer.WriteStartArray("tyreSurfaceMaterial");
+        for (int i = 0; i < 4; i++)
+        {
+            writer.WriteNumberValue(raw.TireOnMtrl[i]);
         }
         writer.WriteEndArray();
 

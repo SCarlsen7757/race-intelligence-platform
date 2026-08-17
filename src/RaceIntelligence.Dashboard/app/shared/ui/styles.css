@@ -1,0 +1,636 @@
+/*
+ * A dark palette, because this is read on a second monitor beside a running game and a white page
+ * beside a night race is genuinely unpleasant. Timing colours follow the convention every
+ * sim-racing timing screen uses — purple for a session best, green for a personal best — because
+ * a race engineer already reads them without thinking, and inventing a different scheme here would
+ * cost accuracy at exactly the wrong moment.
+ */
+
+:root {
+  --bg: #0d1117;
+  --bg-raised: #161b26;
+  --bg-hover: #1d2432;
+  --border: #262d3d;
+  --text: #e6e9ef;
+  --text-muted: #8b93a7;
+
+  --session-best: #b388ff;
+  --personal-best: #3ddc84;
+  --invalid: #ff8a5c;
+  --penalty: #ff5c5c;
+  --pit: #5aa9ff;
+  --live: #3ddc84;
+
+  /* Mirrored in features/focus/traceColours.ts — canvas cannot read a custom property, so the
+     input channels exist twice and must be changed together. */
+  --trace-throttle: #3ddc84;
+  --trace-brake: #ff5c5c;
+  --trace-clutch: #ffc35c;
+  --trace-steering: #5aa9ff;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 14px;
+}
+
+/* Tabular figures everywhere a number changes in place — without them a lap time jitters
+   horizontally as digits change width, which is maddening to watch. */
+.time,
+.metric__value,
+.wheel__value,
+.pedal-value__number,
+.damage__value,
+.laps__number,
+.tower__pos {
+  font-variant-numeric: tabular-nums;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app__header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.app__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.app__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.app__session {
+  color: var(--text-muted);
+}
+
+.app__main {
+  flex: 1;
+  padding: 20px;
+}
+
+.status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.status--live::before {
+  background: var(--live);
+}
+
+.status--offline::before {
+  background: var(--invalid);
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--pit);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: none;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+/* Room list */
+
+.rooms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-width: 900px;
+}
+
+.room {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 2fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.room:hover {
+  background: var(--bg-hover);
+}
+
+.room__track {
+  display: flex;
+  flex-direction: column;
+}
+
+.room__name {
+  font-weight: 600;
+}
+
+.room__layout,
+.room__age,
+.room__drivers,
+.room__idle {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.room__meta,
+.room__publishers {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.publisher {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.publisher__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--live);
+}
+
+.pill {
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pill--muted {
+  color: var(--text-muted);
+}
+
+.pill--warn {
+  color: var(--invalid);
+  border-color: var(--invalid);
+}
+
+.pill--pit {
+  color: var(--pit);
+  border-color: var(--pit);
+}
+
+.pill--penalty {
+  color: var(--penalty);
+  border-color: var(--penalty);
+}
+
+.empty {
+  text-align: center;
+  padding: 64px 20px;
+  color: var(--text-muted);
+}
+
+.empty h2 {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.empty--inline {
+  padding: 32px;
+}
+
+/* Session view */
+
+.session {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .session {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Timing tower */
+
+.tower {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tower th {
+  text-align: right;
+  padding: 8px 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.tower td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+
+.tower tr:last-child td {
+  border-bottom: none;
+}
+
+.tower__pos,
+.tower__driver,
+th.tower__pos,
+th.tower__driver {
+  text-align: left;
+}
+
+.tower__pos {
+  width: 40px;
+  color: var(--text-muted);
+}
+
+.tower__driver {
+  min-width: 200px;
+}
+
+.tower__telemetry,
+th.tower__telemetry {
+  width: 28px;
+  text-align: center;
+}
+
+.tower__state {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.tower__row--rich {
+  background: rgba(61, 220, 132, 0.04);
+}
+
+.tower__row--focused {
+  background: rgba(90, 169, 255, 0.1);
+}
+
+.tower__row--expanded {
+  background: var(--bg-hover);
+}
+
+.tower__row--pit {
+  opacity: 0.65;
+}
+
+.tower__detail > td {
+  padding: 0 10px 12px 34px;
+  text-align: left;
+  background: var(--bg);
+}
+
+.driver-button {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+}
+
+.driver-button:hover {
+  color: var(--pit);
+}
+
+.driver-button__chevron {
+  color: var(--text-muted);
+  width: 10px;
+  flex-shrink: 0;
+}
+
+/* The only marker distinguishing a row with telemetry behind it from one with timing only. */
+.focus-button {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.focus-button__mark {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--live);
+}
+
+.focus-button:hover .focus-button__mark {
+  box-shadow: 0 0 0 3px rgba(61, 220, 132, 0.25);
+}
+
+.car-number {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.time--session-best {
+  color: var(--session-best);
+  font-weight: 600;
+}
+
+.time--personal-best {
+  color: var(--personal-best);
+}
+
+.time--invalid {
+  color: var(--invalid);
+  text-decoration: line-through;
+}
+
+/* Lap history */
+
+.laps__note {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 8px 0;
+}
+
+.laps__table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.laps__table th,
+.laps__table td {
+  padding: 3px 14px 3px 0;
+  text-align: right;
+  border: none;
+}
+
+.laps__table th {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.laps__number {
+  color: var(--text-muted);
+}
+
+.laps__row--invalid {
+  opacity: 0.7;
+}
+
+/* Focus panel */
+
+.focus {
+  width: 380px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+}
+
+@media (max-width: 1100px) {
+  .focus {
+    width: 100%;
+  }
+}
+
+.focus__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.focus__driver {
+  margin: 0;
+  font-size: 15px;
+}
+
+.focus__primary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.metric {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.metric__value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.metric--large .metric__value {
+  font-size: 24px;
+}
+
+.metric__unit,
+.wheel__unit,
+.wheel__label,
+.pedal-value__label,
+.damage__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.focus__section {
+  margin-top: 16px;
+}
+
+.focus__section-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.focus__note {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.trace {
+  width: 100%;
+}
+
+/* Pedal bars */
+
+.pedals {
+  width: 100%;
+  display: block;
+}
+
+.pedal-values {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 4px 0 12px;
+  text-align: center;
+}
+
+.pedal-value {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pedal-value__number {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wheels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.wheel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.wheel__value {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Damage */
+
+.damage {
+  display: grid;
+  gap: 6px;
+}
+
+.damage__part {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.damage__track {
+  height: 8px;
+  border-radius: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.damage__fill {
+  height: 100%;
+  background: var(--live);
+}
+
+.damage__fill--critical {
+  background: var(--penalty);
+}
+
+.damage__value {
+  font-size: 12px;
+  text-align: right;
+  color: var(--text-muted);
+}
+
+/* Banner */
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.banner--warn {
+  background: rgba(255, 92, 92, 0.12);
+}
+
+.banner--info {
+  background: rgba(90, 169, 255, 0.12);
+}

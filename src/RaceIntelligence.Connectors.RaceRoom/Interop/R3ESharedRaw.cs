@@ -76,7 +76,12 @@ internal struct R3ESharedRaw
     /// <summary>0 = in-session/on-track, 1 = in menus. Drives the Connected/InSession boundary.</summary>
     public int GameInMenus;
 
+    /// <summary>
+    /// 0 = live, 1 = watching a replay. Suspends the session, because the block keeps publishing
+    /// the replayed car's telemetry and lap times as though they were live.
+    /// </summary>
     public int GameInReplay;
+
     public int GameUsingVr;
     public int GamePlayerInGarage;
 

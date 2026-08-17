@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\RaceIntelligence.Collector\RaceIntelligence.Collector.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Collector.TestSupport\RaceIntelligence.Collector.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

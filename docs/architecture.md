@@ -82,6 +82,68 @@ The important design philosophy is:
                 +-----------------------+
 ```
 
+### The live path
+
+Everything above is the archive path: permanent, batched, and read long after the session. Alongside
+it runs a second path with the opposite priorities, feeding a dashboard a race engineer watches
+while the race happens.
+
+```
+   Gaming PC                          Home Server                     Anywhere
+   ---------                          -----------                     --------
+
+   Sim Connector
+     |  60 Hz local car ---> Buffer ---> Upload --HTTP+key--> Ingest.Api --> PostgreSQL
+     |
+     |  10 Hz whole field
+     |   1 Hz extras (damage)
+     +--------------------> LiveOutbox --WS+key--> +----------------------+
+                            (conflating)           | Web (live hub)       |
+                                                   |  room registry       |--WS (open)--> Dashboard
+   Second gaming PC ------------WS+key------------>|  tower + focus       |
+                                                   |  lap accumulator     |
+                                                   |  latest extras       |
+                                                   +----------------------+
+```
+
+The collector publishes three rates, each sized for what it carries. The tower runs at a tenth of
+the focus stream's rate because positions and gaps do not change between two 60 Hz frames. Extras —
+the simulator's own JSON document, which is where car damage lives — run slower again, because their
+contents move on the scale of a race and every consumer of them parses JSON. In both the collector's
+outbox and each viewer's queue, extras sit at the *bottom* of the priority ladder: a once-a-second
+document must never interrupt the traces a race engineer is reading.
+
+The two paths share only the connector that feeds them, and neither can stall the other. Three
+properties define the live one, and each is the opposite of what the archive path does:
+
+- **Conflating, not buffered.** Every hop keeps the newest frame and drops the rest. A live value
+  is worthless the moment a fresher one exists, so a recovering socket must deliver the current
+  race rather than a replay of where the cars used to be.
+- **In memory, and mostly momentary.** No tables, no migrations, and a hub restart mid-race costs a
+  reconnect rather than data — the archive path already keeps what is worth keeping forever. One
+  thing does accumulate: `LapHistoryAccumulator` retains every completed lap per driver for the life
+  of the room, because a stint only means anything as a sequence and a race engineer reading tyre
+  degradation off five laps needs all five. It is bounded (512 laps per driver, drop-oldest, with a
+  `truncated` flag on the wire) and forgotten when the room expires, so it is retention, not storage.
+- **Open to read, keyed to write.** Anyone with the link can watch. Publishing needs a key, because
+  a fabricated timing tower is indistinguishable from a real one to the person making a pit call
+  from it.
+
+Two hosts on the server rather than one: the auth postures are opposites, and bulk-COPY transactions
+should not share a process with a latency-sensitive fan-out loop.
+
+Opponent data is scoring-granularity only — position, gaps, lap and sector times, pit state. Pedals,
+tyre pressure, tyre wear and the extras document exist solely for the car a machine is driving. That
+asymmetry is why several collectors in one session merge into one enriched view rather than
+competing.
+
+Lap history is the exception to that asymmetry, and deliberately so: it is accumulated from the
+standings snapshot, which describes every car in the session, so a viewer can expand any driver's
+row — not only one whose own machine is publishing. The accumulator is fed from the snapshot the
+hub *selected*, not from whichever frame arrived, and records idempotently by lap number. That is
+what keeps it correct when the selection switches between two publishers mid-race: a snapshot from a
+client a lap behind reports a lap already recorded and produces nothing.
+
 ---
 
 ## Core Design Principles
@@ -175,6 +237,14 @@ Example
 ```
 
 A new simulator with fields nobody anticipated should cost a connector, not a migration.
+
+That still holds for the **wire**: the collector posts the canonical model plus this JSON, whatever
+the simulator is. What is changing is the far side of it. With storage moving per simulator
+([0001](decisions/0001-per-sim-storage.md)), a channel that is first-class to a simulator gets
+promoted out of this blob into a typed column in *that simulator's* schema — push-to-pass is not
+exotic metadata to RaceRoom, it is a strategy input, and buried in JSON it can be neither indexed
+nor constrained. The JSON stays as the escape hatch for everything not yet promoted, so a brand-new
+channel still costs nothing.
 
 ---
 
@@ -312,6 +382,12 @@ So identity is the **sim's own stable driver id**, not the display name:
   The name used during a given session is recorded on the session itself, so
   renaming loses nothing.
 
+> **Changing.** Storage is moving to one database per simulator, so the **game** scope above
+> disappears — inside RaceRoom's database, a RaceRoom driver id is already unique. What that scope
+> bought, one human recognisable across simulators, moves to a separately held identity registry.
+> See [0001](decisions/0001-per-sim-storage.md) and [0002](decisions/0002-cross-sim-translator.md).
+> The other two bullets are unaffected.
+
 Sims that expose no driver id fall back to name matching within a game — worse, but
 the only option available for that source.
 
@@ -402,18 +478,55 @@ Reasons:
 
 ## Collector Design
 
-Responsibilities:
+The collector reads the simulator and dispatches what it reads. Everything that *sends* data
+anywhere is a **plugin**:
+
+```
+   Simulator ──▶ Connector ──▶ Collect loop ──┬──▶ Ingest plugin ──▶ Ingest API ──▶ PostgreSQL
+                (ITelemetrySource)            │     buffered, ordered, retried
+                                              │
+                                              └──▶ Live plugin ────▶ Live hub ──▶ Dashboard
+                                                    conflating, newest-wins
+```
+
+Responsibilities of the collector itself:
 
 - Read simulator telemetry.
 - Convert to canonical model.
-- Buffer locally.
-- Upload continuously in the background.
-- Handle temporary network outages.
-- Resume uploads automatically.
+- Dispatch to whichever plugins consume each event.
+- Keep those plugins from being able to affect each other.
 
-The collector should perform **no analysis**.
+The collector should perform **no analysis**, and should not know where anything ends up. Adding a
+destination costs a plugin, not a change to the collect loop.
 
-Its only responsibility is collecting reliable data.
+### Why plugins share a lifecycle, not a sink interface
+
+There is deliberately no uniform `ITelemetrySink`. The two paths have opposite definitions of
+correct behaviour:
+
+| | Archive | Live |
+|---|---|---|
+| Under pressure | Buffers, applies backpressure | Drops the older frame |
+| A lost message | Data gone forever | Correct — a newer one exists |
+| After an outage | Resumes and uploads the backlog | Resumes with the current race |
+
+One interface spanning both would force one path to adopt the other's failure mode: either the live
+path starts buffering stale frames, or the archive path starts dropping telemetry. Plugins therefore
+share only a lifecycle, and implement whichever of the four observer interfaces they consume —
+sessions, samples, standings, extras — each bringing its own delivery semantics.
+
+The same argument sets the shape of those interfaces. Sessions and laps are rare enough that a plugin
+may do real work inline; samples at 60 Hz, standings at 10 Hz and extras at ~1 Hz run on the collect
+loop, where time spent is time the simulator is not being read — for every plugin, not just the one
+spending it.
+
+### Composition is config-driven, not dynamic
+
+The set of plugins the collector *can* run is fixed when it is built; configuration chooses which of
+them actually run. That keeps the build trimmable and AOT-safe, avoids a public plugin API to keep
+compatible across versions, and makes a misconfigured plugin a startup failure rather than a
+load-time surprise mid-race. A genuinely new destination needs a rebuild — which, for a platform
+deployed by the person developing it, is not a cost.
 
 ---
 
@@ -565,6 +678,28 @@ work can start before multi-simulator support is finished, and probably will.
 - PostgreSQL storage
 - Background upload and session storage
 
+### In progress — the platform
+
+- Collector plugin host: the collect loop dispatches, plugins deliver *(built)*
+- Per-sim storage images and the translator layer that restores cross-sim comparison *(designed —
+  [0001](decisions/0001-per-sim-storage.md), [0002](decisions/0002-cross-sim-translator.md))*
+- The cross-simulator identity registry, which must exist **before** the second simulator's database
+  rather than after it
+
+### In progress — the live dashboard
+
+- Whole-field standings from the connector, and the live wire contracts *(built)*
+- Collector live publishing, independently switchable from archiving *(built)*
+- Server-side lap history, so a race engineer sees a whole stint rather than the last lap *(built)*
+- A low-rate channel for slow-moving sim-specific values such as car damage *(built)*
+- Live hub: publisher and viewer sockets, room registry, timing tower *(built)*
+- Dashboard: TanStack Start on its own origin, room and driver in the URL, timing tower with
+  expandable per-lap rows, focus panel with pedal bars and a capability-gated damage panel *(built)*
+- Merging several collectors in one session into one enriched view
+- Head-to-head comparison and a historical read API
+- RaceRoom-specific channels on the live wire: push-to-pass, DRS, virtual energy, cut-track
+  warnings, tyre subtype, pit menu state
+
 ### In progress — analysis
 
 - Lap-time trend over a stint
@@ -599,8 +734,20 @@ strategy engine existing, so it comes after it — not because of a fixed slot i
 ### Ongoing — more simulators
 
 Connectors for Assetto Corsa Competizione, iRacing, Automobilista 2, Le Mans Ultimate, rFactor 2 and
-whatever comes next. No backend changes should be required — only new connectors — so this can
-happen at any point rather than waiting its turn.
+whatever comes next. A new simulator costs a connector and a storage image; the collector, the wire
+and the live hub are unchanged, so this can happen at any point rather than waiting its turn.
+
+---
+
+## Decision records
+
+Design decisions that changed something written above, kept as their own records rather than folded
+in silently:
+
+| | |
+|---|---|
+| [0001](decisions/0001-per-sim-storage.md) | Storage becomes one database per simulator |
+| [0002](decisions/0002-cross-sim-translator.md) | The translator that restores cross-simulator comparison |
 
 ---
 
@@ -608,10 +755,12 @@ happen at any point rather than waiting its turn.
 
 1. **Collect first, analyse later.**
 2. **Raw telemetry is immutable.**
-3. **The database is the single source of truth.**
-4. **Algorithms are replaceable and versioned.**
-5. **Every session records the game, game version, telemetry API version and connector version that produced it.**
+3. **The per-simulator databases are the single source of truth.** Everything cross-simulator is
+   derived from them and can be rebuilt.
+4. **Algorithms are replaceable and versioned** — including the translator.
+5. **Every session records the game version, telemetry API version and connector version that produced it.**
 6. **Machine learning is an enhancement, not a requirement.**
-7. **The backend is simulator-agnostic.**
+7. **The collector, the wire and the live hub are simulator-agnostic.** Storage is deliberately not:
+   it is shaped to the simulator it holds, and the translator is what puts the pieces back together.
 8. **The AI explains decisions instead of making opaque calculations.**
 9. **Design for extensibility without overengineering the first implementation.**

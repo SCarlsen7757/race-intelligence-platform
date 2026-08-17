@@ -57,6 +57,21 @@ public class R3ESharedRawLayoutTests
     }
 
     [Fact]
+    public void AMaximalGrid_EndsExactlyAtTheEndOfThePublishedBlock()
+    {
+        // What R3EDriverDataReader's bounds check has to be true for. Deliberately expressed
+        // through the reader's own MaxDrivers rather than a local constant, so the two cannot
+        // drift: if the reader ever raised its cap, this is what would notice that the block has
+        // no room for the extra entries.
+        long lastEntryEnd =
+            R3EVersionGate.ExpectedAllDriversOffset
+            + sizeof(int)
+            + ((long)R3EDriverDataReader.MaxDrivers * Unsafe.SizeOf<R3EDriverData>());
+
+        lastEntryEnd.ShouldBe(PublishedBlockSize);
+    }
+
+    [Fact]
     public void VersionMajor_IsFirstField()
     {
         Marshal.OffsetOf<R3ESharedRaw>(nameof(R3ESharedRaw.VersionMajor)).ToInt32().ShouldBe(0);

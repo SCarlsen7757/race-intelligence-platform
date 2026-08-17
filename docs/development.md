@@ -12,6 +12,7 @@ reads a Windows named shared-memory block that only exists while the game is run
 | Windows | the RaceRoom connector — it is marked `[SupportedOSPlatform("windows")]` |
 | RaceRoom, running | actual telemetry. The collector starts fine without it and waits |
 | Docker Desktop | Options A and C below, and the full test suite. Not needed for Option B |
+| Node 24 | the dashboard — its own service now, so also Option A, which launches it |
 
 ---
 
@@ -24,6 +25,11 @@ developing the pipeline itself and want to see telemetry land in a database.
 # One-time: set the shared secret the collector and API both use.
 dotnet user-secrets set "Parameters:ingest-api-key" "dev-local-only-key" --project src/RaceIntelligence.AppHost
 
+# One-time: the secret the collector presents to the live hub when publishing. A separate key from
+# the ingest one on purpose — the two guard services with different exposure, and the hub is the one
+# meant to be reachable through a tunnel.
+dotnet user-secrets set "Parameters:live-api-key" "dev-local-only-key" --project src/RaceIntelligence.AppHost
+
 # One-time: fix the local Postgres password so it doesn't regenerate on every run — otherwise any
 # external tool (DataGrip, psql, ...) has to be reconfigured each time you restart AppHost.
 dotnet user-secrets set "Parameters:postgres-password" "dev-local-only-password" --project src/RaceIntelligence.AppHost
@@ -31,7 +37,19 @@ dotnet user-secrets set "Parameters:postgres-password" "dev-local-only-password"
 dotnet run --project src/RaceIntelligence.AppHost
 ```
 
-The Aspire dashboard opens in a browser with all three resources. PostgreSQL runs in a container
+The Aspire dashboard opens in a browser with every resource, the race-engineer dashboard among
+them. The collector publishes live as well as archiving here — AppHost sets
+`Collector__Live__Enabled`, unlike the shipped default — because the point of the full graph is to
+exercise the whole pipeline.
+
+AppHost also wires the two halves of the two-origin split, so neither needs configuring by hand: the
+dashboard is given the hub's endpoint as `HUB_URL`, and the hub is given the dashboard's origin as
+`Live__AllowedOrigins__0`. Node must be on `PATH`; Aspire runs `npm install` and `npm run dev` for
+the dashboard resource.
+
+The hub's own room list is readable at `<web>/api/v1/live/rooms` for a curl-level check.
+
+PostgreSQL runs in a container
 with a persistent data volume, so telemetry survives restarts — deliberately, since losing a test
 session's data on every restart would make the "raw data is permanent" behaviour impossible to
 exercise. It's also reachable on a fixed host port (`55432`, chosen to avoid colliding with a
@@ -54,13 +72,21 @@ dotnet run --project src/RaceIntelligence.Collector
 Point it at the server by overriding two settings — environment variables are easiest:
 
 ```powershell
-$env:Collector__IngestBaseUrl = "https://home-server:5443/"
-$env:Collector__ApiKey        = "<the server's Ingest__ApiKey value>"
+$env:Collector__Ingest__BaseUrl = "https://home-server:5443/"
+$env:Collector__Ingest__ApiKey  = "<the server's Ingest__ApiKey value>"
 dotnet run --project src/RaceIntelligence.Collector
 ```
 
-`IngestBaseUrl` **must end in a trailing slash** or the relative request paths won't combine
+`Ingest:BaseUrl` **must end in a trailing slash** or the relative request paths won't combine
 correctly with `HttpClient.BaseAddress`.
+
+To also publish a live view for a race engineer to watch, add the hub and pass `--live`:
+
+```powershell
+$env:Collector__Live__BaseUrl = "https://home-server:5444/"
+$env:Collector__Live__ApiKey  = "<the hub's publish key>"
+dotnet run --project src/RaceIntelligence.Collector -- --live
+```
 
 ## Option C — API and collector separately, no Aspire
 
@@ -90,7 +116,7 @@ collector at the API's `https` launch profile URL yourself — see
 `src/RaceIntelligence.Ingest.Api/Properties/launchSettings.json` for the port:
 
 ```powershell
-$env:Collector__IngestBaseUrl = "https://localhost:<https-port-from-launchSettings>/"
+$env:Collector__Ingest__BaseUrl = "https://localhost:<https-port-from-launchSettings>/"
 ```
 
 ---
@@ -188,18 +214,247 @@ session.
 Collector settings bind from the `Collector` section. They're validated on startup, so a bad value
 fails immediately rather than silently dropping telemetry mid-race.
 
+The collector itself only reads the simulator. Everything that *sends* that data anywhere is a
+**plugin**, configured in its own block under `Collector` and switched on independently:
+
+- **Ingest** — archives telemetry to the ingest API for permanent storage. On by default.
+- **Live** — publishes a live view to the dashboard hub for a race engineer to watch. Off by
+  default, because it sends this machine's session somewhere other people can see it.
+
+Enabling neither fails at startup: the collector would read the simulator and do nothing with it.
+
+Each plugin validates only its own block, and only when it is switched on — so a publish-only
+collector is never asked for an ingest API key it will never send. Plugins are also isolated from
+each other at run time: an ingest API outage cannot stop the live view, and an unreachable hub
+cannot stop archiving.
+
+The two are deliberately *not* built on a shared sink interface. The archive path is buffered,
+ordered and retried, and a sample it drops is gone for good; the live path is conflating and
+newest-wins, and a frame it keeps instead of dropping is a stale frame shown to a race engineer as
+current. One interface spanning both would force one path into the other's failure mode.
+
 | Setting | Default | Notes |
 |---|---|---|
-| `IngestBaseUrl` | `https://localhost:5443/` | Trailing slash required |
-| `ApiKey` | *(empty)* | Required. Sent as the `X-Api-Key` header |
-| `PollInterval` | `00:00:00.0166667` | 60 Hz |
-| `BufferCapacity` | `20000` | Samples held before `BufferFullMode` applies |
-| `BufferFullMode` | `Wait` | `Wait` or `DropWrite` |
-| `MaxBatchSize` | `500` | Flush trigger by size |
-| `MaxBatchAge` | `00:00:02` | Flush trigger by age |
+| `PollInterval` | `00:00:00.0166667` | 60 Hz. Feeds both jobs |
+| `Ingest:Enabled` | `true` | Archive to the ingest API |
+| `Ingest:BaseUrl` | `https://localhost:5443/` | Trailing slash required |
+| `Ingest:ApiKey` | *(empty)* | Required when enabled. Sent as `X-Api-Key` |
+| `Ingest:BufferCapacity` | `20000` | Samples held before `BufferFullMode` applies |
+| `Ingest:BufferFullMode` | `Wait` | `Wait` or `DropWrite` |
+| `Ingest:MaxBatchSize` | `500` | Flush trigger by size |
+| `Ingest:MaxBatchAge` | `00:00:02` | Flush trigger by age |
+| `Live:Enabled` | `false` | Publish to the dashboard hub |
+| `Live:BaseUrl` | `https://localhost:5444/` | `http`/`https`, not `ws` — the scheme is switched when the socket opens |
+| `Live:ApiKey` | *(empty)* | Required when enabled. Viewing the dashboard is open; publishing is not |
+| `Live:ClientId` | *(generated)* | Set once per machine so a restart isn't a new client |
+| `Live:ClientName` | *(machine name)* | Label shown in the dashboard's client list |
+| `Live:StandingsInterval` | `00:00:00.100` | 10 Hz timing tower. Must not be shorter than `PollInterval` |
+| `Live:ExtrasInterval` | `00:00:01` | 1 Hz simulator-specific document — car damage and the rest. Must not be shorter than `PollInterval` |
+| `Live:ReconnectDelay` | `00:00:01` | First backoff after the socket drops |
+| `Live:MaxReconnectDelay` | `00:00:30` | Backoff ceiling |
 
-Override any of them with `Collector__<Name>` as an environment variable, or via user secrets on the
-gaming PC. **Don't put a real API key in `appsettings.json`.**
+Override any of them with `Collector__<Block>__<Name>` as an environment variable (e.g.
+`Collector__Live__ApiKey`), or via user secrets on the gaming PC. **Don't put a real API key in
+`appsettings.json`.**
+
+Either job can also be switched from the command line, which is the quickest way to change your
+mind for one run:
+
+```powershell
+dotnet run --project src/RaceIntelligence.Collector -- --live             # archive and publish
+dotnet run --project src/RaceIntelligence.Collector -- --live --no-ingest # publish only
+```
+
+`--live`, `--no-live`, `--ingest` and `--no-ingest` are shorthands for the corresponding
+`Collector:<Plugin>:Enabled` key. `--plugin <id>` and `--no-plugin <id>` do the same for any plugin
+by name, including ones added later that never get a shorthand of their own:
+
+```powershell
+dotnet run --project src/RaceIntelligence.Collector -- --plugin Live --no-plugin Ingest
+```
+
+Anything without a shorthand still takes the long form —
+`--Collector:Live:StandingsInterval 00:00:00.2`.
+
+With `Live:Enabled` off, nothing consumes standings or extras, and the connector is told neither to
+read the simulator's driver array nor to publish the extras document — so a collector that isn't
+publishing pays nothing for either feature. Both decisions are made from the registered plugins
+rather than by naming the live plugin, so a future plugin that wants standings or extras gets them
+without a change to the collector.
+
+`Live:ExtrasInterval` is deliberately much slower than the poll rate. The document is written for
+every sample anyway — the archive path stores it per row — so publishing it costs nothing extra;
+what the interval limits is how often the dashboard parses JSON to read a damage value that changes
+when someone hits a wall. Turn it down if you want a more responsive damage panel and can spare the
+parsing; there is no reason to take it below `Live:StandingsInterval`.
+
+### Live hub settings
+
+The hub (`RaceIntelligence.Web`) binds its own settings from the `Live` section.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `ApiKey` | *(empty)* | **Required.** The key a collector must present to publish. Startup fails without it |
+| `AllowedOrigins` | *(empty)* | **Required, and must list at least one origin.** The browser origins allowed to read the room list and open a viewing socket. Startup fails without it |
+| `RoomExpiry` | `00:00:30` | How long a session survives with no frames before the hub forgets it |
+| `RoomSweepInterval` | `00:00:05` | How often expired rooms are swept |
+| `MaxPublisherMessageBytes` | `524288` | Largest frame accepted from a collector |
+
+`AllowedOrigins` takes origins, not URLs — scheme, host and port with no trailing slash, exactly as
+a browser sends them:
+
+```json
+{ "Live": { "AllowedOrigins": [ "http://localhost:3000" ] } }
+```
+
+It drives two mechanisms that a browser applies at different moments: a CORS policy on
+`GET /api/v1/live/rooms`, and `WebSocketOptions.AllowedOrigins` on the two sockets. **The hub
+refuses to start when the list is empty, because an empty list means "accept every origin"** — the
+behaviour before the dashboard moved off this host, and one that looks configured while being open
+to any page on the internet.
+
+Only browsers are constrained by it. A collector connects with a raw `ClientWebSocket` and sends no
+`Origin` header, which is still accepted: origin is a browser's self-report about which page opened
+the connection, and it means nothing coming from a program. Publishing is guarded by the API key
+instead.
+
+Two endpoints, with deliberately opposite auth:
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /live/publish` (WebSocket) | `X-Api-Key` | A collector publishes its session |
+| `GET /live/view` (WebSocket) | **none**, origin-checked | A race engineer watches |
+| `GET /api/v1/live/rooms` | **none**, CORS | The room list as JSON, identical to what the socket sends |
+
+Publishing is gated and viewing is not because the risks are opposite: a viewer can only read what
+someone chose to publish, while a publisher injects the data every race engineer is making decisions
+from — and a fabricated timing tower looks exactly like a real one.
+
+Anything that is neither an API route nor a socket is a plain 404. **The hub serves no UI** — see
+below.
+
+`RoomExpiry` is measured from the **last frame**, not from the last publisher disconnecting. That
+gap is what lets a collector whose socket drops mid-race rejoin the room it was already in, keeping
+its room id, its accumulated lap history and every viewer's subscription intact across the reconnect.
+
+### What a viewer can say, and what it is sent
+
+Commands are JSON with a `type` discriminator, sent on `/live/view`:
+
+| Command | Payload | Effect |
+|---|---|---|
+| `watchRoom` | `roomId` or `null` | Subscribe to a room's tower. `null` leaves it |
+| `focusDriver` | `driverKey` or `null` | Follow one driver's full-rate channels. At most one at a time |
+| `subscribeLapHistory` | `driverKey` or `null` | Add a driver to the lap-history set. `null` drops them all |
+| `unsubscribeLapHistory` | `driverKey` | Remove one driver from that set |
+
+Lap history is a **set**, unlike focus, because several rows can be expanded at once and each costs
+about one message a minute where a focus stream costs sixty a second. It also works for any driver
+in the session, not only one whose own machine is publishing: it is accumulated from the standings
+snapshot, which sees every car. Subscribing is answered immediately with what the hub already holds
+rather than at the driver's next lap.
+
+The hub keeps no viewer memory across connections, so a reconnecting dashboard replays its
+`watchRoom`, `focusDriver` and `subscribeLapHistory` commands.
+
+Messages back carry the same discriminator: `roomList`, `towerSnapshot`, `focusFrame`, `lapHistory`,
+`extrasFrame`, `error`. Durations are **milliseconds as JSON numbers**, never `TimeSpan` strings, and
+nulls are omitted — a value the simulator did not report must never arrive as `0`.
+
+`extrasFrame` carries the simulator's own document as an opaque JSON **string**; the hub never parses
+it. For RaceRoom that is where car damage lives (`damage.engine`, `damage.transmission`,
+`damage.aerodynamics`, `damage.suspension`). **Treat `-1` as unavailable, not as zero** — extras are
+written raw and the sentinel is not translated anywhere upstream, so a panel rendering `-1` as
+undamaged says the car is fine when the truth is that nobody knows.
+
+Publishers declare a `LiveSchemaVersion` in their hello and the hub refuses a version it does not
+speak, naming both. **Version 2** added clutch to the self frame and the extras union member; a
+version 1 collector is refused at the handshake rather than failing to decode mid-race.
+
+---
+
+## The dashboard
+
+The dashboard lives in `src/RaceIntelligence.Dashboard/` — a [TanStack Start](https://tanstack.com/start)
+app on Node, **its own service on its own origin**. The hub no longer serves it, and the browser
+opens its WebSocket straight at the hub rather than being proxied through Node.
+
+Direct rather than proxied because it is both the more modular arrangement and the lower-latency
+one: a proxy adds a second connection and forces Node's event loop to re-emit every focus frame
+sixty times a second, which is jitter as well as delay.
+
+That costs two things, and both are settings rather than assumptions:
+
+- the dashboard has to be told where the hub is — **`HUB_URL`**;
+- the hub has to be told which origin to accept — **`Live:AllowedOrigins`**, above.
+
+Room and driver are in the URL (`/`, `/rooms/$roomId`, `/rooms/$roomId/$driverKey`), so a refresh
+or a link restores the view.
+
+### Working on it
+
+Under AppHost (Option A) neither setting needs touching: it launches the dashboard as a resource
+and wires both directions itself. Standalone, it is two terminals:
+
+```powershell
+# Terminal 1 — the hub. Its development settings already allow http://localhost:3000.
+dotnet run --project src/RaceIntelligence.Web --launch-profile http
+
+# Terminal 2 — the dashboard, with hot reload.
+cd src/RaceIntelligence.Dashboard
+npm install
+npm run dev      # http://localhost:3000
+```
+
+Both defaults line up on purpose: the dashboard falls back to `http://localhost:5044`, which is the
+hub's `http` launch profile, and the hub's `appsettings.Development.json` allows
+`http://localhost:3000`, which is the dashboard's default port. Point it elsewhere with `HUB_URL`:
+
+```powershell
+$env:HUB_URL = "https://home-server:5444"
+npm run dev
+```
+
+**`HUB_URL` is read at build time, not per request**, because the browser has no environment to
+read and the live routes are client-only — there is no server render to ship the value down with.
+So a deployed dashboard is repointed by rebuilding, not by restarting. See
+`app/shared/live/hubUrlBuild.ts` for the full argument.
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Vite dev server with hot reload |
+| `npm run build` | Typecheck, then build the client and server bundles into `dist/` |
+| `npm start` | Run the built server |
+| `npm run typecheck` | Types only |
+| `npm run lint` | ESLint, then a Prettier formatting check |
+| `npm run format` | Rewrite files to Prettier's formatting |
+| `npm test` | Vitest |
+
+`dist/` and `node_modules/` are generated and gitignored. **`dotnet publish` no longer builds the
+dashboard** — it is deployed as a Node service of its own, so `npm ci && npm run build && npm start`
+on the host that serves it, or a container built from the same three commands.
+
+`app/routeTree.gen.ts` is generated from `app/routes/` by the Vite plugin and **is** tracked, so
+`npm run typecheck` works without building first. Adding or renaming a route means committing the
+regenerated file; CI checks that it is current.
+
+### How it stays fast
+
+The focus stream runs at the collector's full poll rate, and **that data never goes through React
+state**. The socket writes into a plain store — plain fields and `Float32Array` ring buffers — and
+the focus panel reads it from `requestAnimationFrame` loops that paint the pedal bars to canvas and
+the trace through uPlot. React state holds only the slow-changing half: the room list, the tower,
+lap history, extras, errors. A `setState` per focus frame would mean a render cycle 60 times a
+second, which drops frames on a laptop well before it does on a desktop.
+
+Damage has its own channel at roughly 1 Hz precisely so it can go through React like the rest: it
+changes on contact, not per frame, and parsing its JSON sixty times a second would be pure waste.
+
+### Testing without RaceRoom
+
+The dashboard needs a publisher, not a simulator. Anything that speaks the live contracts works —
+the collector itself with `--live`, or a small harness posting synthetic frames. That is how the
+tower and focus panel were exercised on a machine with no game installed.
 
 ---
 

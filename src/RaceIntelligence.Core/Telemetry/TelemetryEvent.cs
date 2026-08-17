@@ -17,6 +17,26 @@ public enum ConnectionState
     /// <summary>Connected and an on-track session is active.</summary>
     InSession,
 
+    /// <summary>
+    /// A session is still active but the simulator is not currently producing on-track frames —
+    /// the driver is in an in-session menu, or the game is paused.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Distinct from <see cref="Connected"/>, which means no session exists at all. Suspension is
+    /// deliberately <b>not</b> a session boundary: the same session resumes afterwards, keeping its
+    /// id, its sequence numbering and its lap count. Treating a menu visit as the end of a session
+    /// fragmented one real session into many, and silently dropped any lap completed while the menu
+    /// was open.
+    /// </para>
+    /// <para>
+    /// No <see cref="TelemetrySampleReceived"/> is emitted while suspended. A paused simulator
+    /// republishes the same frame indefinitely, so sampling it would store thousands of identical
+    /// rows describing a car that is not moving.
+    /// </para>
+    /// </remarks>
+    SessionSuspended,
+
     /// <summary>The source encountered an unrecoverable error and stopped producing events.</summary>
     Faulted,
 }
@@ -40,6 +60,48 @@ public sealed record SessionStarted : TelemetryEvent
 public sealed record TelemetrySampleReceived : TelemetryEvent
 {
     public required TelemetrySample Sample { get; init; }
+}
+
+/// <summary>Raised when the simulator's view of the whole field is re-read.</summary>
+/// <remarks>
+/// Emitted at its own cadence, independent of <see cref="TelemetrySampleReceived"/>: the field's
+/// scoring data changes far more slowly than a car's control inputs, and re-reading it is
+/// comparatively expensive. Like samples, it is not emitted while
+/// <see cref="ConnectionState.SessionSuspended"/> — a frozen frame's standings describe the moment
+/// the driver opened the menu, not the moment they are read.
+/// </remarks>
+public sealed record StandingsUpdated : TelemetryEvent
+{
+    public required SessionStandings Standings { get; init; }
+}
+
+/// <summary>
+/// Raised when the local car's simulator-specific channels are re-published, at their own slow
+/// cadence.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The same document a <see cref="TelemetrySample"/> already carries on
+/// <see cref="TelemetrySample.Extras"/>, emitted separately so a consumer that wants damage or
+/// push-to-pass can have it without being handed sixty JSON documents a second to find it in. The
+/// archive path reads it off the sample, where it belongs to a row; anything watching it live reads
+/// it here, where it arrives about once a second.
+/// </para>
+/// <para>
+/// Not emitted while <see cref="ConnectionState.SessionSuspended"/>, for the same reason samples and
+/// standings are not: a paused simulator republishes the same frame indefinitely.
+/// </para>
+/// </remarks>
+public sealed record ExtrasUpdated : TelemetryEvent
+{
+    /// <summary>The session the values were captured in.</summary>
+    public required Guid SessionId { get; init; }
+
+    /// <summary>
+    /// The connector's raw JSON document, sentinels untranslated. See <c>IExtrasObserver</c> — a
+    /// consumer rendering RaceRoom's <c>-1</c> as zero reports the opposite of the truth.
+    /// </summary>
+    public required string ExtrasJson { get; init; }
 }
 
 /// <summary>Raised when a lap completes.</summary>

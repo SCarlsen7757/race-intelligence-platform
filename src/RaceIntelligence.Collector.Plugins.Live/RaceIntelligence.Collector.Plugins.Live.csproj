@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RaceIntelligence.Collector.Plugins.Live.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RaceIntelligence.Collector.Abstractions\RaceIntelligence.Collector.Abstractions.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Live.Contracts\RaceIntelligence.Live.Contracts.csproj" />
+  </ItemGroup>
+</Project>
