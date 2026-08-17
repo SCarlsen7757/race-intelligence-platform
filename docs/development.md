@@ -241,6 +241,7 @@ current. One interface spanning both would force one path into the other's failu
 | `Live:ClientId` | *(generated)* | Set once per machine so a restart isn't a new client |
 | `Live:ClientName` | *(machine name)* | Label shown in the dashboard's client list |
 | `Live:StandingsInterval` | `00:00:00.100` | 10 Hz timing tower. Must not be shorter than `PollInterval` |
+| `Live:ExtrasInterval` | `00:00:01` | 1 Hz simulator-specific document — car damage and the rest. Must not be shorter than `PollInterval` |
 | `Live:ReconnectDelay` | `00:00:01` | First backoff after the socket drops |
 | `Live:MaxReconnectDelay` | `00:00:30` | Backoff ceiling |
 
@@ -267,10 +268,17 @@ dotnet run --project src/RaceIntelligence.Collector -- --plugin Live --no-plugin
 Anything without a shorthand still takes the long form —
 `--Collector:Live:StandingsInterval 00:00:00.2`.
 
-With `Live:Enabled` off, nothing consumes standings, and the connector is told not to read the
-simulator's driver array at all — so a collector that isn't publishing pays nothing for the feature.
-That decision is made from the registered plugins rather than by naming the live plugin, so a future
-plugin that wants standings gets them without a change to the collector.
+With `Live:Enabled` off, nothing consumes standings or extras, and the connector is told neither to
+read the simulator's driver array nor to publish the extras document — so a collector that isn't
+publishing pays nothing for either feature. Both decisions are made from the registered plugins
+rather than by naming the live plugin, so a future plugin that wants standings or extras gets them
+without a change to the collector.
+
+`Live:ExtrasInterval` is deliberately much slower than the poll rate. The document is written for
+every sample anyway — the archive path stores it per row — so publishing it costs nothing extra;
+what the interval limits is how often the dashboard parses JSON to read a damage value that changes
+when someone hits a wall. Turn it down if you want a more responsive damage panel and can spare the
+parsing; there is no reason to take it below `Live:StandingsInterval`.
 
 ### Live hub settings
 
@@ -297,7 +305,41 @@ from — and a fabricated timing tower looks exactly like a real one.
 
 `RoomExpiry` is measured from the **last frame**, not from the last publisher disconnecting. That
 gap is what lets a collector whose socket drops mid-race rejoin the room it was already in, keeping
-its room id and every viewer's subscription intact across the reconnect.
+its room id, its accumulated lap history and every viewer's subscription intact across the reconnect.
+
+### What a viewer can say, and what it is sent
+
+Commands are JSON with a `type` discriminator, sent on `/live/view`:
+
+| Command | Payload | Effect |
+|---|---|---|
+| `watchRoom` | `roomId` or `null` | Subscribe to a room's tower. `null` leaves it |
+| `focusDriver` | `driverKey` or `null` | Follow one driver's full-rate channels. At most one at a time |
+| `subscribeLapHistory` | `driverKey` or `null` | Add a driver to the lap-history set. `null` drops them all |
+| `unsubscribeLapHistory` | `driverKey` | Remove one driver from that set |
+
+Lap history is a **set**, unlike focus, because several rows can be expanded at once and each costs
+about one message a minute where a focus stream costs sixty a second. It also works for any driver
+in the session, not only one whose own machine is publishing: it is accumulated from the standings
+snapshot, which sees every car. Subscribing is answered immediately with what the hub already holds
+rather than at the driver's next lap.
+
+The hub keeps no viewer memory across connections, so a reconnecting dashboard replays its
+`watchRoom`, `focusDriver` and `subscribeLapHistory` commands.
+
+Messages back carry the same discriminator: `roomList`, `towerSnapshot`, `focusFrame`, `lapHistory`,
+`extrasFrame`, `error`. Durations are **milliseconds as JSON numbers**, never `TimeSpan` strings, and
+nulls are omitted — a value the simulator did not report must never arrive as `0`.
+
+`extrasFrame` carries the simulator's own document as an opaque JSON **string**; the hub never parses
+it. For RaceRoom that is where car damage lives (`damage.engine`, `damage.transmission`,
+`damage.aerodynamics`, `damage.suspension`). **Treat `-1` as unavailable, not as zero** — extras are
+written raw and the sentinel is not translated anywhere upstream, so a panel rendering `-1` as
+undamaged says the car is fine when the truth is that nobody knows.
+
+Publishers declare a `LiveSchemaVersion` in their hello and the hub refuses a version it does not
+speak, naming both. **Version 2** added clutch to the self frame and the extras union member; a
+version 1 collector is refused at the handshake rather than failing to decode mid-race.
 
 ---
 
