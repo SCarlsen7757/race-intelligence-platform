@@ -96,8 +96,47 @@ public sealed class LiveTowerProjectorTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public void A_publisher_with_no_identity_for_its_own_car_maps_to_no_driver_key(string? simDriverId) =>
-        LiveTowerProjector.DriverKeyForSimDriverId(simDriverId).ShouldBeNull();
+    public void A_publisher_with_nothing_identifying_its_own_car_maps_to_no_driver_key(string? empty) =>
+        LiveTowerProjector.DriverKeyForLocalCar(empty, slotId: null, displayName: empty).ShouldBeNull();
+
+    /// <summary>
+    /// The regression this whole fallback chain exists for.
+    /// </summary>
+    /// <remarks>
+    /// A publisher's local car has to resolve to the key its own tower row was built with, or the
+    /// focus and extras channels are dropped for want of a row to attach them to — the dashboard
+    /// then shows a healthy timing tower with no pedals, no tyre data and no damage on it. RaceRoom
+    /// issues account ids only to authenticated online sessions, so every offline race arrives with
+    /// no identity and lands on the <c>slot:</c> fallback, which is the case that used to break.
+    /// </remarks>
+    [Fact]
+    public void A_publisher_with_no_identity_falls_back_to_the_slot_its_tower_row_uses()
+    {
+        string rowKey = LiveTowerProjector.DriverKeyFor(
+            LiveDtoFactory.Standing(simDriverId: null, slotId: 3, displayName: "Mark"));
+
+        LiveTowerProjector
+            .DriverKeyForLocalCar(simDriverId: null, slotId: 3, displayName: "Mark")
+            .ShouldBe(rowKey);
+    }
+
+    [Fact]
+    public void A_publisher_with_neither_identity_nor_slot_falls_back_to_the_name_its_row_uses()
+    {
+        string rowKey = LiveTowerProjector.DriverKeyFor(
+            LiveDtoFactory.Standing(simDriverId: null, slotId: null, displayName: "Mark"));
+
+        LiveTowerProjector
+            .DriverKeyForLocalCar(simDriverId: null, slotId: null, displayName: "Mark")
+            .ShouldBe(rowKey);
+    }
+
+    /// <summary>An identity still wins outright, so an online session is unaffected by the fallbacks.</summary>
+    [Fact]
+    public void An_identity_is_preferred_over_the_slot_and_the_name() =>
+        LiveTowerProjector
+            .DriverKeyForLocalCar(simDriverId: "4242", slotId: 3, displayName: "Mark")
+            .ShouldBe("id:4242");
 
     [Fact]
     public void Durations_cross_to_the_browser_as_milliseconds() =>

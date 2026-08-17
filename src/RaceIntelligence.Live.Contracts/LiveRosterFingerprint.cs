@@ -45,12 +45,48 @@ public static class LiveRosterFingerprint
     {
         ArgumentNullException.ThrowIfNull(driver);
 
-        if (!string.IsNullOrEmpty(driver.SimDriverId))
+        // Never null in practice: DisplayName is required, so the last fallback always produces a
+        // key. The coalesce is for the empty-name case, where the overload declines rather than
+        // inventing "name:" — a roster row still needs a key of its own to be counted.
+        return KeyFor(driver.SimDriverId, driver.SlotId, driver.DisplayName)
+            ?? $"name:{driver.DisplayName}";
+    }
+
+    /// <summary>
+    /// The same key from loose identity fields, for a car described outside a
+    /// <see cref="DriverStanding"/> — the local car of a publishing client, which the hub knows
+    /// only from the session announcement.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The whole chain, not just the first step.</b> This overload exists because the hub used
+    /// to derive the local car's key from its simulator identity alone while tower rows came
+    /// through <see cref="KeyFor(DriverStanding)"/> above with two fallbacks behind it. The two
+    /// agreed for as long as the simulator issued identities and silently stopped agreeing when it
+    /// did not, which is every offline RaceRoom session — and a key that resolves to nothing means
+    /// the focus and extras channels are dropped, so the driver's own car loses its pedals, tyre
+    /// data and damage while the tower carries on. Both paths now format keys here, so the two can
+    /// no longer drift apart.
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// The key, or <see langword="null"/> when nothing identifies the car at all. Null is a real
+    /// answer rather than a failure: guessing a row would show a race engineer another driver's
+    /// damage, which is worse than showing them none.
+    /// </returns>
+    public static string? KeyFor(string? simDriverId, int? slotId, string? displayName)
+    {
+        if (!string.IsNullOrEmpty(simDriverId))
         {
-            return $"id:{driver.SimDriverId}";
+            return $"id:{simDriverId}";
         }
 
-        return driver.SlotId is { } slot ? $"slot:{slot}" : $"name:{driver.DisplayName}";
+        if (slotId is { } slot)
+        {
+            return $"slot:{slot}";
+        }
+
+        return string.IsNullOrEmpty(displayName) ? null : $"name:{displayName}";
     }
 
     /// <summary>

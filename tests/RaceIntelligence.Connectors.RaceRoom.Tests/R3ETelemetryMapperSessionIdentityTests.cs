@@ -113,6 +113,60 @@ public class R3ETelemetryMapperSessionIdentityTests
         session.SimDriverId.ShouldBe("987654");
     }
 
+    // --- SimSlotId: the fallback identity, and the only one an offline session has. ---
+
+    /// <summary>
+    /// Slot <c>0</c> is the first car in the field, not a missing value.
+    /// </summary>
+    /// <remarks>
+    /// The opposite treatment to <see cref="SessionInfo.SimDriverId"/> directly above, and
+    /// deliberately so: <c>0</c> is RaceRoom's filler for an account id it does not have, but a
+    /// genuine slot for a car. Filtering it out the way user ids are filtered would leave pole
+    /// position as the one grid slot whose driver gets no live telemetry.
+    /// </remarks>
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(3, 3)]
+    [InlineData(23, 23)]
+    public void SimSlotId_NonNegativeSlot_MapsToItself(int slotId, int? expected)
+    {
+        var session = MapSessionInfo(b => b.Configure((ref R3ESharedRaw raw) =>
+            raw.VehicleInfo.SlotId = slotId));
+
+        session.SimSlotId.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void SimSlotId_NotAvailable_MapsToNull()
+    {
+        var session = MapSessionInfo(b => b.Configure((ref R3ESharedRaw raw) =>
+            raw.VehicleInfo.SlotId = -1));
+
+        session.SimSlotId.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The offline case, end to end through the mapper: no account id anywhere, but a slot.
+    /// </summary>
+    /// <remarks>
+    /// This is what the live hub attaches the focus and extras channels to when RaceRoom reports no
+    /// identity, which it does for every unauthenticated session. Without it the driver's own car
+    /// reaches the dashboard with no pedal inputs, no tyre data and no damage.
+    /// </remarks>
+    [Fact]
+    public void An_offline_session_has_no_identity_but_still_reports_its_slot()
+    {
+        var session = MapSessionInfo(b => b.Configure((ref R3ESharedRaw raw) =>
+        {
+            raw.VehicleInfo.UserId = -1;
+            raw.Player.UserId = 0;
+            raw.VehicleInfo.SlotId = 5;
+        }));
+
+        session.SimDriverId.ShouldBeNull();
+        session.SimSlotId.ShouldBe(5);
+    }
+
     // --- FuelUsageRate / TyreWearRate: raw pass-through, no sentinel filtering. ---
 
     [Theory]

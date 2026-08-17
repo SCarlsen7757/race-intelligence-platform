@@ -146,7 +146,8 @@ public sealed class LiveOutbox : ILiveOutbox
             session.PlayerName,
             session.SimDriverId,
             rosterFingerprint,
-            rosterSize);
+            rosterSize,
+            session.SimSlotId);
 
         // Not queued: the session is a sticky slot, delivered by TryRead when an announcement is
         // outstanding. Queuing it as well would send it twice on the first connection — once from

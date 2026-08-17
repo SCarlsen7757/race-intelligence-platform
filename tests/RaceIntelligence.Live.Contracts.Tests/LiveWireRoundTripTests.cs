@@ -53,7 +53,8 @@ public sealed class LiveWireRoundTripTests
             PlayerName: "Mark",
             LocalSimDriverId: "4242",
             RosterFingerprint: "0123456789abcdef0123456789abcdef",
-            RosterSize: 20);
+            RosterSize: 20,
+            LocalSlotId: 7);
 
         RoundTrip(frame).ShouldBe(frame);
     }
@@ -94,7 +95,7 @@ public sealed class LiveWireRoundTripTests
         LivePublisherMessage[] messages =
         [
             new LiveHello(LiveSchemaVersion.Current, Guid.NewGuid(), "rig", "0.1.0", "raceroom", 0),
-            new LiveSessionFrame(Guid.NewGuid(), "raceroom", "Spa", "GP", null, 3, 1, DateTimeOffset.UnixEpoch, null, null, "", 0),
+            new LiveSessionFrame(Guid.NewGuid(), "raceroom", "Spa", "GP", null, 3, 1, DateTimeOffset.UnixEpoch, null, null, "", 0, null),
             LiveStandingsContractMapper.ToFrame(LiveDtoFactory.FullyPopulatedStandings()),
             LiveStandingsContractMapper.ToSelfFrame(LiveDtoFactory.FullyPopulatedSample(), "4242"),
             new LiveGoodbye(Guid.NewGuid(), null),

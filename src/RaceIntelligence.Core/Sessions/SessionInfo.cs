@@ -66,6 +66,18 @@ public sealed record SessionInfo
     /// </summary>
     public string? SimDriverId { get; init; }
 
+    /// <summary>
+    /// The simulator's per-session slot for the car this session is collecting, if known.
+    /// </summary>
+    /// <remarks>
+    /// The same fallback join key <see cref="DriverStanding.SlotId"/> is, applied to the local car:
+    /// it says which row of a <see cref="SessionStandings"/> roster this machine is the one driving
+    /// when <see cref="SimDriverId"/> cannot, which is every offline session on a simulator that
+    /// only issues account ids online. Unique within a session and reused across them, so it is a
+    /// fallback rather than an identity — see <see cref="DriverStanding.SlotId"/>.
+    /// </remarks>
+    public int? SimSlotId { get; init; }
+
     public string? CarName { get; init; }
 
     public string? CarClassName { get; init; }
