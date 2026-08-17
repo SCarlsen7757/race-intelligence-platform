@@ -155,6 +155,21 @@ internal sealed class R3ESharedRawBuilder
         return this;
     }
 
+    /// <summary>
+    /// Starts a replay over whatever session the builder currently describes, leaving the session
+    /// fields untouched.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately does <i>not</i> set <c>game_in_menus</c>. A replay is watched from the track
+    /// view, so the only field distinguishing it from live driving is <c>game_in_replay</c> — which
+    /// is exactly why leaving it unchecked made replay laps indistinguishable from real ones.
+    /// </remarks>
+    public R3ESharedRawBuilder InReplay(bool inReplay = true)
+    {
+        _raw.GameInReplay = inReplay ? 1 : 0;
+        return this;
+    }
+
     /// <summary>Sets <c>session_iteration</c>: 1 = first session of this type, 2 = second, -1 = N/A.</summary>
     public R3ESharedRawBuilder WithSessionIteration(int iteration)
     {

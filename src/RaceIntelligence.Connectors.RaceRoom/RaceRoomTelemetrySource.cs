@@ -272,10 +272,15 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             return;
         }
 
-        // The driver is not looking at the track: an in-session (ESC) menu, or an outright pause.
-        // Both freeze the published frame, so neither its telemetry nor its session fields describe
-        // anything current.
-        bool suspended = raw.GameInMenus != 0 || raw.GamePaused != 0;
+        // The driver is not driving: an in-session (ESC) menu, an outright pause, or a replay.
+        //
+        // Menus and pauses freeze the published frame, so neither its telemetry nor its session
+        // fields describe anything current. A replay is worse than stale — the block publishes the
+        // replayed car's inputs and lap times as if they were happening now, which is
+        // indistinguishable from live driving to everything downstream. Collecting it would file
+        // replay laps in the archive as real ones and put a race engineer in front of a timing
+        // tower showing a race that already finished.
+        bool suspended = raw.GameInMenus != 0 || raw.GamePaused != 0 || raw.GameInReplay != 0;
         bool sessionAvailable = raw.SessionType != (int)R3ESessionType.Unavailable;
         bool phasePastCheckered = raw.SessionPhase > (int)R3ESessionPhase.Checkered;
         bool onTrackSessionFrame = !suspended && sessionAvailable && !phasePastCheckered;
