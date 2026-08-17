@@ -57,6 +57,32 @@ var ingestApi = builder.AddProject<Projects.RaceIntelligence_Ingest_Api>("ingest
 var web = builder.AddProject<Projects.RaceIntelligence_Web>("web")
     .WithEnvironment("Live__ApiKey", liveApiKey);
 
+// The dashboard, as its own Node process on its own origin. It is no longer served by the hub: the
+// browser opens its WebSocket straight at the hub, which is both the more modular arrangement and
+// the lower-latency one — proxying through Node would add a connection and force that event loop to
+// re-emit every focus frame sixty times a second.
+//
+// Two origins means two things have to agree, and both are wired here rather than written down in
+// a README that drifts: the dashboard is told where the hub is, and the hub is told which origin to
+// accept. Aspire allocates the ports, so neither side has one hard-coded.
+//
+// HUB_URL is read by Vite at config time and baked into the bundle, so it must be set before the
+// process starts — which it is, as an environment variable, exactly like the collector's BaseUrl.
+// The http endpoint rather than https for the same reason as the collector below: it is the one
+// that exists under either launch profile.
+var dashboard = builder.AddViteApp("dashboard", "../RaceIntelligence.Dashboard")
+    .WithEnvironment("HUB_URL", web.GetEndpoint("http"))
+    .WaitFor(web);
+
+// Stated after the dashboard exists, because it names the dashboard's endpoint. There is no cycle:
+// Aspire allocates every endpoint before it resolves any environment variable, so the two
+// references below resolve against addresses that are already decided.
+//
+// __0 is the configuration binder's array syntax — Live:AllowedOrigins is a list, and this is its
+// first entry. Without it the hub refuses to boot rather than accepting every origin, which is the
+// whole point of the setting.
+web.WithEnvironment("Live__AllowedOrigins__0", dashboard.GetEndpoint("http"));
+
 // The collector holds no database credentials by design — it reaches the database only through
 // the ingest API.
 //

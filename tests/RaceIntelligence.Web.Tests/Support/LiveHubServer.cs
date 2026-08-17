@@ -47,21 +47,47 @@ public sealed class LiveHubServer : IAsyncDisposable
     /// <summary>The publishing key this server was started with.</summary>
     public const string ApiKey = "end-to-end-key";
 
+    /// <summary>The only browser origin this server accepts.</summary>
+    public const string AllowedOrigin = "http://dashboard.test";
+
     /// <summary>Starts the hub on a free loopback port.</summary>
-    public static async Task<LiveHubServer> StartAsync()
+    /// <param name="settings">
+    /// Overrides for the <c>Live</c> section. A null value removes a setting entirely, which is how
+    /// the startup-validation tests provoke a missing one.
+    /// </param>
+    public static async Task<LiveHubServer> StartAsync(IDictionary<string, string?>? settings = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
 
-        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        var configuration = new Dictionary<string, string?>
         {
             ["Live:ApiKey"] = ApiKey,
-        });
+            ["Live:AllowedOrigins:0"] = AllowedOrigin,
+        };
+
+        foreach (var (key, value) in settings ?? new Dictionary<string, string?>())
+        {
+            // Removed rather than set to null: a key present with a null value still binds — an
+            // origin list of one null entry, which passes a length check and then crashes the
+            // WebSocket middleware. Absence is what a forgotten setting actually looks like.
+            if (value is null)
+            {
+                configuration.Remove(key);
+            }
+            else
+            {
+                configuration[key] = value;
+            }
+        }
+
+        builder.Configuration.AddInMemoryCollection(configuration);
 
         // Port 0 lets the OS pick, so parallel test runs cannot collide on a fixed one.
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddLiveHub(builder.Configuration);
 
         var app = builder.Build();
+        app.UseCors();
         app.UseLiveWebSockets();
         app.MapLiveEndpoints();
 
@@ -88,9 +114,19 @@ public sealed class LiveHubServer : IAsyncDisposable
     }
 
     /// <summary>Opens a viewing socket. No key — the endpoint is open.</summary>
-    public async Task<ClientWebSocket> ConnectViewerAsync()
+    /// <param name="origin">
+    /// The <c>Origin</c> header to send, or null to send none. Null is what a collector or any
+    /// other non-browser client does, and is deliberately still accepted; a browser always sends
+    /// one, and it is checked against <see cref="LiveHubOptions.AllowedOrigins"/>.
+    /// </param>
+    public async Task<ClientWebSocket> ConnectViewerAsync(string? origin = null)
     {
         var socket = new ClientWebSocket();
+        if (origin is not null)
+        {
+            socket.Options.SetRequestHeader("Origin", origin);
+        }
+
         await socket.ConnectAsync(SocketUri(LiveEndpoints.ViewPath), TestContext.Current.CancellationToken);
         return socket;
     }

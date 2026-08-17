@@ -34,8 +34,13 @@ public static class LiveEndpoints
         // Serialized through the shared view options and as the base type, so this is byte-identical
         // to what arrives over the socket — including the "type" discriminator. A browser that had
         // to parse two shapes of the same message would need two code paths for one thing.
+        //
+        // Under the dashboard's CORS policy, because the dashboard is a separate origin now. The
+        // socket needs no such policy — CORS does not apply to a WebSocket upgrade — which is why
+        // the origin check for that lives on WebSocketOptions instead. Two mechanisms, one list.
         app.MapGet("/api/v1/live/rooms", (LiveRoomRegistry rooms) =>
-            Results.Json<LiveViewMessage>(rooms.BuildRoomList(), LiveViewJson.Default));
+            Results.Json<LiveViewMessage>(rooms.BuildRoomList(), LiveViewJson.Default))
+            .RequireCors(LiveHubRegistration.DashboardCorsPolicy);
     }
 
     private static async Task PublishAsync(

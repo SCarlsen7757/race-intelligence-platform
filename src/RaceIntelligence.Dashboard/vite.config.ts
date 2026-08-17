@@ -27,7 +27,10 @@ export default defineConfig({
     __HUB_URL__: JSON.stringify(resolveHubUrlAtBuildTime(process.env.HUB_URL)),
   },
 
+  // `PORT` because that is what Aspire assigns a JavaScript resource, and Vite does not read it on
+  // its own. 3000 otherwise, which is what `docs/development.md` and the hub's development
+  // `Live:AllowedOrigins` both assume for the two-terminal loop.
   server: {
-    port: 3000,
+    port: Number(process.env.PORT ?? 3000),
   },
 });
