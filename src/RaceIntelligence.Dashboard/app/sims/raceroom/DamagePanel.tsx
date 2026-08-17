@@ -59,7 +59,7 @@ function parseExtras(extrasJson: string | null): RaceRoomExtras | null {
  */
 export function DamagePanel() {
   const extras = useExtras();
-  const damage = useMemo(() => parseExtras(extras?.extrasJson ?? null)?.damage, [extras]);
+  const damage = useMemo(() => parseExtras(extras?.extras ?? null)?.damage, [extras]);
 
   return (
     <div className="damage">

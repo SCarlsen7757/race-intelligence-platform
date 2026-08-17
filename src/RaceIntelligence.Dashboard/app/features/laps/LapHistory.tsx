@@ -32,7 +32,10 @@ function computePersonalBests(laps: LapRecord[]): PersonalBests {
   const sectorMs: (number | null)[] = Array.from({ length: SECTOR_COUNT }, () => null);
 
   for (const lap of laps) {
-    if (!lap.valid) {
+    // Only an explicit false bars a lap. Unknown validity is not invalidity — a simulator that
+    // never reports the flag would otherwise have every one of its laps silently excluded, leaving
+    // a driver with no personal best at all.
+    if (lap.valid === false) {
       continue;
     }
 
@@ -98,12 +101,12 @@ export function LapHistory({ laps, truncated, sessionBests }: LapHistoryProps) {
             const perSector = toPerSector(lap.sectorMs);
 
             return (
-              <tr key={lap.lapNumber} className={lap.valid ? '' : 'laps__row--invalid'}>
+              <tr key={lap.lapNumber} className={lap.valid === false ? 'laps__row--invalid' : ''}>
                 <td className="laps__number">{lap.lapNumber}</td>
 
                 <td
                   className={`time ${
-                    lap.valid
+                    lap.valid !== false
                       ? bestClass(lap.lapTimeMs, personal.lapMs, sessionBests.lapMs)
                       : 'time--invalid'
                   }`}
@@ -115,7 +118,7 @@ export function LapHistory({ laps, truncated, sessionBests }: LapHistoryProps) {
                   <td
                     key={i}
                     className={`time ${
-                      lap.valid
+                      lap.valid !== false
                         ? bestClass(
                             perSector[i] ?? null,
                             personal.sectorMs[i] ?? null,

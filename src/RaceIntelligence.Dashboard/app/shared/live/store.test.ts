@@ -117,7 +117,7 @@ describe('LiveStore', () => {
       roomId: 'room',
       driverKey: 'id:2',
       capturedAtUtc: '2026-08-16T12:00:00Z',
-      extrasJson: '{}',
+      extras: '{}',
     });
 
     const listener = vi.fn();

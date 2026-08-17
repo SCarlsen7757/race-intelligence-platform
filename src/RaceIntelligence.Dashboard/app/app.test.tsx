@@ -266,7 +266,12 @@ describe('the dashboard', () => {
       rival.click();
     });
 
-    expect(allSent()).toContainEqual({ type: 'subscribeLapHistory', driverKey: null });
+    expect(allSent()).toContainEqual({ type: 'unsubscribeLapHistory', driverKey: 'id:9' });
+
+    // Named rather than "drop all, then re-state the rest": subscriptions are a set, so clearing
+    // them to remove one leaves a window in which the other open rows are unsubscribed, and a lap
+    // completed inside that window is simply missed.
+    expect(allSent()).not.toContainEqual({ type: 'subscribeLapHistory', driverKey: null });
   });
 
   /**
