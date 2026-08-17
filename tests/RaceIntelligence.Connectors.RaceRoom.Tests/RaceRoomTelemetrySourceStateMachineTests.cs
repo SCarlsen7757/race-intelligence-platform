@@ -225,6 +225,81 @@ public class RaceRoomTelemetrySourceStateMachineTests
     }
 
     [Fact]
+    public async Task Replay_SuspendsAndResumesTheSameSession()
+    {
+        // A replay is not a stale frame, it is a convincing lie: the block keeps publishing lap
+        // times, pedal inputs and positions for the car being replayed, and nothing about the frame
+        // says it already happened. Collected, it files replay laps in the archive as real ones and
+        // puts a race engineer in front of a timing tower for a race that is already over.
+        //
+        // It is suspended rather than ended because RaceRoom can start a replay from the in-session
+        // menu and return to the same session afterwards -- the same reason a menu suspends.
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        await using var source = new RaceRoomTelemetrySource(FastOptions, () => view);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> Connected
+
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(100)
+            .WithCompletedLaps(2)
+            .Build()
+            .ToBytes());
+
+        await NextAsync<ConnectionStateChanged>(enumerator); // -> InSession
+        var started = await NextAsync<SessionStarted>(enumerator);
+        Guid sessionId = started.Session.SessionId;
+
+        var firstSample = await NextAsync<TelemetrySampleReceived>(enumerator);
+        firstSample.Sample.SequenceNumber.ShouldBe(0L);
+
+        // The driver watches a replay. The frame still looks like an on-track race session in every
+        // other respect -- no menu, a real session type, a green phase.
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .InReplay()
+            .WithTicks(120)
+            .WithCompletedLaps(2)
+            .Build()
+            .ToBytes());
+
+        var suspended = await NextAsync<ConnectionStateChanged>(enumerator);
+        suspended.State.ShouldBe(
+            ConnectionState.SessionSuspended,
+            "a replay must suspend the session rather than being collected as live driving.");
+        suspended.Reason.ShouldNotBeNull();
+
+        // Back to driving, with the game having credited a lap while the replay was open.
+        view.SetFrame(new R3ESharedRawBuilder()
+            .InRaceSession("Track", "Layout")
+            .WithTicks(160)
+            .WithCompletedLaps(3)
+            .WithPreviousLap(91.5f, prevLapValid: 1)
+            .Build()
+            .ToBytes());
+
+        var resumed = await NextAsync<ConnectionStateChanged>(enumerator);
+        resumed.State.ShouldBe(
+            ConnectionState.InSession,
+            "leaving a replay must resume the suspended session, not start a new one.");
+
+        var afterResume = await NextAsync<TelemetrySampleReceived>(enumerator);
+        afterResume.Sample.SessionId.ShouldBe(sessionId, "the resumed session must keep its id.");
+        afterResume.Sample.SequenceNumber.ShouldBe(
+            1L,
+            "no sample may be published while a replay is running, so numbering continues from the last live frame.");
+
+        var lap = await NextAsync<LapCompleted>(enumerator);
+        lap.Lap.SessionId.ShouldBe(sessionId);
+        lap.Lap.LapNumber.ShouldBe(3, "a lap completed while the replay was open must still be reported on resume.");
+        lap.Lap.LapTime.ShouldBe(TimeSpan.FromSeconds(91.5));
+    }
+
+    [Fact]
     public async Task NoSamplesArePublishedWhileSuspended()
     {
         // A paused simulator republishes the same frame forever. Sampling it at the poll rate would
