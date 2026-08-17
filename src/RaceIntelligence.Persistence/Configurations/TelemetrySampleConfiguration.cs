@@ -25,6 +25,7 @@ public sealed class TelemetrySampleConfiguration : IEntityTypeConfiguration<Tele
         builder.Property(t => t.Speed).HasColumnName("speed").IsRequired();
         builder.Property(t => t.Throttle).HasColumnName("throttle");
         builder.Property(t => t.Brake).HasColumnName("brake");
+        builder.Property(t => t.Clutch).HasColumnName("clutch");
         builder.Property(t => t.Steering).HasColumnName("steering").IsRequired();
         builder.Property(t => t.Gear).HasColumnName("gear").HasColumnType("smallint");
         builder.Property(t => t.EngineRpm).HasColumnName("engine_rpm").IsRequired();

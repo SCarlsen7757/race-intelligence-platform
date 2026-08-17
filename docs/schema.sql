@@ -182,3 +182,11 @@ VALUES ('20260806232140_InitialCreate', '10.0.11');
 
 COMMIT;
 
+START TRANSACTION;
+ALTER TABLE telemetry_samples ADD clutch real;
+
+INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+VALUES ('20260817112344_AddClutch', '10.0.11');
+
+COMMIT;
+

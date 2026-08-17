@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using RaceIntelligence.Live.Contracts;
 using RaceIntelligence.Live.Contracts.Publish;
 using RaceIntelligence.Live.Contracts.View;
 using RaceIntelligence.Web.Live;
@@ -50,6 +51,32 @@ public sealed class PublisherSessionTests
 
         socket.ClosedWith.ShouldBe(WebSocketCloseStatus.PolicyViolation);
         socket.CloseDescription.ShouldNotBeNull().ShouldContain("99");
+        hub.Rooms.Count.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The specific mismatch the schema bump to 2 exists to catch. A version 1 collector's frames
+    /// would decode against this hub right up until it sent an extras frame, whose union key it has
+    /// no member for — so the failure is moved forward into the handshake, where it names both
+    /// versions instead of arriving as a decode error mid-race.
+    /// </summary>
+    [Fact]
+    public async Task A_version_1_collector_is_refused_by_a_version_2_hub()
+    {
+        var hub = new LiveHubFixture();
+        var socket = new FakeLiveSocket();
+
+        socket.Push(LiveDtoFactory.Hello(schemaVersion: 1));
+
+        await hub.CreatePublisherSession().RunAsync(socket, TestContext.Current.CancellationToken);
+
+        socket.ClosedWith.ShouldBe(WebSocketCloseStatus.PolicyViolation);
+        socket.CloseDescription.ShouldNotBeNull()
+            .ShouldContain("1", Case.Sensitive, "the refusal names the version the client speaks");
+        socket.CloseDescription.ShouldContain(
+            LiveSchemaVersion.Current.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Case.Sensitive,
+            "and the version this hub speaks, so the operator knows what to upgrade to");
         hub.Rooms.Count.ShouldBe(0);
     }
 

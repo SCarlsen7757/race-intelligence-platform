@@ -60,7 +60,7 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource)
     private static readonly string[] Columns =
     [
         "session_id", "timestamp", "sequence_number", "simulation_time", "lap_number", "sector",
-        "speed", "throttle", "brake", "steering", "gear", "engine_rpm", "fuel_left", "position",
+        "speed", "throttle", "brake", "clutch", "steering", "gear", "engine_rpm", "fuel_left", "position",
         "track_position_fraction", "wheel_speed", "suspension_travel", "tyre_pressure", "tyre_wear",
         "tyre_temperature", "extras",
     ];
@@ -168,6 +168,7 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource)
         await importer.WriteAsync(sample.Speed, NpgsqlDbType.Real, ct).ConfigureAwait(false);
         await WriteNullableAsync(importer, sample.Throttle, NpgsqlDbType.Real, ct).ConfigureAwait(false);
         await WriteNullableAsync(importer, sample.Brake, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, sample.Clutch, NpgsqlDbType.Real, ct).ConfigureAwait(false);
         await importer.WriteAsync(sample.Steering, NpgsqlDbType.Real, ct).ConfigureAwait(false);
         await WriteNullableAsync<short>(
             importer,

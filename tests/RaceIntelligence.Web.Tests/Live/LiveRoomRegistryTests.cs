@@ -150,6 +150,36 @@ public sealed class LiveRoomRegistryTests
         viewer.Queue.TryRead().ShouldBeOfType<FocusFrameMessage>().DriverKey.ShouldBe("id:4242");
     }
 
+    [Fact]
+    public void Clutch_crosses_the_hub_onto_the_focus_frame()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: "4242");
+        var viewer = hub.AddViewer(room.RoomId, focusDriverKey: "id:4242");
+
+        hub.Rooms.ApplySelf(identity.ClientId, LiveDtoFactory.SelfFrame(simDriverId: "4242", clutch: 0.75f));
+
+        viewer.Queue.TryRead().ShouldBeOfType<FocusFrameMessage>().Clutch.ShouldBe(0.75f);
+    }
+
+    /// <summary>
+    /// A car with an automatic clutch reports nothing, and "nothing" must not reach a race engineer
+    /// as a clutch pedal sitting fully up — that is a different and confident claim.
+    /// </summary>
+    [Fact]
+    public void A_sim_reporting_no_clutch_leaves_the_focus_frame_null_not_zero()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: "4242");
+        var viewer = hub.AddViewer(room.RoomId, focusDriverKey: "id:4242");
+
+        hub.Rooms.ApplySelf(identity.ClientId, LiveDtoFactory.SelfFrame(simDriverId: "4242", clutch: null));
+
+        viewer.Queue.TryRead().ShouldBeOfType<FocusFrameMessage>().Clutch.ShouldBeNull();
+    }
+
     /// <summary>
     /// The self frame's own id is preferred, but the session announcement answers the same question
     /// and is available when a frame omits it.

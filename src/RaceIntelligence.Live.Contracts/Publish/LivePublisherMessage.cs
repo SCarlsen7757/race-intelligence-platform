@@ -161,6 +161,13 @@ public sealed record LiveStandingsFrame(
 /// <param name="TyrePressure">Kilopascals, FL/FR/RL/RR. Members are <see langword="null"/> when unreported.</param>
 /// <param name="TyreWear">0 (new) to 1 (fully worn), FL/FR/RL/RR.</param>
 /// <param name="TyreTemperature">Core tyre temperature in celsius, FL/FR/RL/RR.</param>
+/// <param name="Clutch">
+/// 0 (engaged) to 1 (fully disengaged), or <see langword="null"/> when unreported — the normal case
+/// for a car with an automatic clutch, where a dashboard must draw nothing rather than a bar at
+/// rest. Appended at the end rather than placed beside <paramref name="Brake"/> because union keys
+/// are permanent and the wire position is <c>Key(18)</c> either way; keeping the earlier keys where
+/// they are is what makes the addition readable in a diff.
+/// </param>
 [MessagePackObject]
 public sealed record LiveSelfFrame(
     [property: Key(0)] Guid SessionId,
@@ -180,7 +187,8 @@ public sealed record LiveSelfFrame(
     [property: Key(14)] float FuelLeft,
     [property: Key(15)] LiveWheelValues TyrePressure,
     [property: Key(16)] LiveWheelValues TyreWear,
-    [property: Key(17)] LiveWheelValues TyreTemperature) : LivePublisherMessage;
+    [property: Key(17)] LiveWheelValues TyreTemperature,
+    [property: Key(18)] float? Clutch) : LivePublisherMessage;
 
 /// <summary>Per-wheel values in the platform's FL, FR, RL, RR order.</summary>
 /// <remarks>

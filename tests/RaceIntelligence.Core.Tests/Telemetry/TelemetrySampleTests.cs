@@ -56,6 +56,7 @@ public class TelemetrySampleTests
 
         sample.Throttle.ShouldBeNull();
         sample.Brake.ShouldBeNull();
+        sample.Clutch.ShouldBeNull();
         sample.Position.ShouldBeNull();
         sample.TrackPositionFraction.ShouldBeNull();
         sample.TyrePressure.FrontLeft.ShouldBeNull();
@@ -79,7 +80,7 @@ public class TelemetrySampleTests
         // a real value like 0 to stand in for "unavailable".
         var type = typeof(TelemetrySample);
 
-        foreach (string propertyName in new[] { nameof(TelemetrySample.Throttle), nameof(TelemetrySample.Brake), nameof(TelemetrySample.Position), nameof(TelemetrySample.TrackPositionFraction) })
+        foreach (string propertyName in new[] { nameof(TelemetrySample.Throttle), nameof(TelemetrySample.Brake), nameof(TelemetrySample.Clutch), nameof(TelemetrySample.Position), nameof(TelemetrySample.TrackPositionFraction) })
         {
             var propertyType = type.GetProperty(propertyName)!.PropertyType;
             Nullable.GetUnderlyingType(propertyType).ShouldNotBeNull($"{propertyName} must be nullable so 'not reported' is distinct from a real reading.");

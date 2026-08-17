@@ -83,6 +83,9 @@ public sealed class TelemetrySample
     /// <summary>Brake input, 0 (released) to 1 (full brake). <see langword="null"/> if the source does not report it.</summary>
     public float? Brake { get; set; }
 
+    /// <summary>Clutch input, 0 (engaged) to 1 (fully disengaged). <see langword="null"/> if the source does not report it.</summary>
+    public float? Clutch { get; set; }
+
     /// <summary>Steering input, -1 (full left) to 1 (full right).</summary>
     public float Steering { get; set; }
 

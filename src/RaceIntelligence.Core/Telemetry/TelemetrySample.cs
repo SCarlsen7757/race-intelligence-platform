@@ -48,6 +48,18 @@ public sealed record TelemetrySample
     /// <summary>Brake input, 0 (released) to 1 (full brake). <see langword="null"/> if the source does not report it.</summary>
     public float? Brake { get; init; }
 
+    /// <summary>
+    /// Clutch input, 0 (fully engaged, pedal up) to 1 (fully disengaged, pedal down).
+    /// <see langword="null"/> if the source does not report it.
+    /// </summary>
+    /// <remarks>
+    /// Nullable for a reason that bites more often than it does for throttle or brake: a car with an
+    /// automatic clutch, or a simulator watching a remote or AI car, reports nothing here at all.
+    /// A missing clutch reading is emphatically not a released one — rendered as <c>0</c> it claims
+    /// the driver was fully off the clutch through a launch nobody has any data for.
+    /// </remarks>
+    public float? Clutch { get; init; }
+
     /// <summary>Steering input, -1 (full left) to 1 (full right).</summary>
     public required float Steering { get; init; }
 

@@ -148,6 +148,10 @@ internal static class R3ETelemetryMapper
             Speed = raw.CarSpeed,
             Throttle = NullIfNegative(raw.Throttle),
             Brake = NullIfNegative(raw.Brake),
+            // Same -1.0 = N/A sentinel as throttle and brake, and it is reported far more often
+            // here: RaceRoom leaves clutch at -1 for a car with an automatic clutch, so a car that
+            // simply has nothing to say must arrive as null rather than as "clutch fully up".
+            Clutch = NullIfNegative(raw.Clutch),
             Steering = raw.SteerInputRaw, // -1..1 is a legitimate range, not an N/A sentinel.
             // Not NullIfNegative: -1 is reverse, a real gear. Only -2 means "not available".
             Gear = raw.Gear == GearNotAvailable ? null : raw.Gear,

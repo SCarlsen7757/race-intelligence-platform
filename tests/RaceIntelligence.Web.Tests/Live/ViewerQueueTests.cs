@@ -18,7 +18,7 @@ public sealed class ViewerQueueTests
         null, null, null, null, [], [], [], null, null, null, -1, null, -1, null, LiveDataTier.Observed);
 
     private static FocusFrameMessage Focus(int lap) => new(
-        "room", "id:1", DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, 0, null, 0, 0, [], [], []);
+        "room", "id:1", DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, null, 0, null, 0, 0, [], [], []);
 
     /// <summary>
     /// The reason each stream keeps a single slot: a viewer that stalls for two seconds must be

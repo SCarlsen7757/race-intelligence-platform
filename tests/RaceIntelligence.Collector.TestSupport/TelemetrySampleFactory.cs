@@ -17,6 +17,7 @@ public static class TelemetrySampleFactory
         Speed = 45f,
         Throttle = 1f,
         Brake = 0f,
+        Clutch = 0.5f,
         Steering = 0f,
         Gear = 4,
         EngineRpm = 6500f,
