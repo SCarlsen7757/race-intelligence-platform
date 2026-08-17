@@ -14,15 +14,15 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
-| Command | Purpose |
-|---|---|
-| `npm run dev` | Vite dev server with hot reload |
-| `npm run build` | Typecheck, then build the client and server bundles into `dist/` |
-| `npm start` | Run the built server |
-| `npm run typecheck` | Types only |
-| `npm run lint` | ESLint, then a Prettier formatting check |
-| `npm run format` | Rewrite files to Prettier's formatting |
-| `npm test` | Vitest |
+| Command             | Purpose                                                          |
+| ------------------- | ---------------------------------------------------------------- |
+| `npm run dev`       | Vite dev server with hot reload                                  |
+| `npm run build`     | Typecheck, then build the client and server bundles into `dist/` |
+| `npm start`         | Run the built server                                             |
+| `npm run typecheck` | Types only                                                       |
+| `npm run lint`      | ESLint, then a Prettier formatting check                         |
+| `npm run format`    | Rewrite files to Prettier's formatting                           |
+| `npm test`          | Vitest                                                           |
 
 ## Where the hub is
 
