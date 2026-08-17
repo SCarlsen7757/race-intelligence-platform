@@ -22,6 +22,7 @@ namespace RaceIntelligence.Live.Contracts.Publish;
 [Union(2, typeof(LiveStandingsFrame))]
 [Union(3, typeof(LiveSelfFrame))]
 [Union(4, typeof(LiveGoodbye))]
+[Union(5, typeof(LiveExtrasFrame))]
 public abstract record LivePublisherMessage;
 
 /// <summary>
@@ -203,6 +204,39 @@ public sealed record LiveWheelValues(
     [property: Key(1)] float? FrontRight,
     [property: Key(2)] float? RearLeft,
     [property: Key(3)] float? RearRight);
+
+/// <summary>
+/// The local car's simulator-specific channels, at their own slow rate.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A channel of its own rather than a member of <see cref="LiveSelfFrame"/>. The payload is a JSON
+/// document, and the values in it — car damage, push-to-pass state, tyre subtypes — move on the
+/// scale of a race rather than of a frame. Riding it on the 60 Hz stream would mean parsing a
+/// document sixty times a second to watch a number that changes after contact, spending the
+/// high-rate channel's budget on the low-rate one's data.
+/// </para>
+/// <para>
+/// <b>Sentinels are not translated.</b> The connector writes this raw, so a simulator's "not
+/// available" encoding arrives intact — RaceRoom uses <c>-1</c>, which is emphatically not zero. A
+/// dashboard that renders <c>damage.engine == -1</c> as an undamaged engine reports the opposite of
+/// the truth, and this is the contract that says so.
+/// </para>
+/// </remarks>
+/// <param name="SessionId">The publishing client's session id.</param>
+/// <param name="SimDriverId">
+/// Which driver this describes, in the same identity space as <see cref="LiveDriverDto.SimDriverId"/>.
+/// <see langword="null"/> when the simulator reports no usable identity, in which case the hub falls
+/// back to the session announcement the same way it does for a self frame.
+/// </param>
+/// <param name="CapturedAtUtc">Wall-clock capture time on the publishing machine.</param>
+/// <param name="ExtrasJson">The connector's raw JSON document. Never null; may be empty.</param>
+[MessagePackObject]
+public sealed record LiveExtrasFrame(
+    [property: Key(0)] Guid SessionId,
+    [property: Key(1)] string? SimDriverId,
+    [property: Key(2)] DateTimeOffset CapturedAtUtc,
+    [property: Key(3)] string ExtrasJson) : LivePublisherMessage;
 
 /// <summary>Sent when a client stops publishing a session cleanly, so the hub need not wait for a timeout.</summary>
 /// <param name="SessionId">The session being closed.</param>

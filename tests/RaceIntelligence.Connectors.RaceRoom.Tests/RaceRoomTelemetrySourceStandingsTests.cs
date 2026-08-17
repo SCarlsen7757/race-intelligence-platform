@@ -25,6 +25,10 @@ public class RaceRoomTelemetrySourceStandingsTests
         // Read the field on every poll, so a test does not have to wait out a rate limit to see
         // the next snapshot. The default rate is a bandwidth decision, not a behavioural one.
         StandingsInterval = TimeSpan.Zero,
+
+        // Off: this suite is about when standings are and are not emitted, and its walk over the
+        // stream tolerates only samples in between. Extras have their own suite.
+        ExtrasInterval = Timeout.InfiniteTimeSpan,
     };
 
     private static R3EDriverData[] Field() =>

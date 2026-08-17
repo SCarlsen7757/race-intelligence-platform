@@ -35,11 +35,13 @@ public sealed class TelemetryCollectorService(
     IEnumerable<ISessionObserver> sessionObservers,
     IEnumerable<ISampleObserver> sampleObservers,
     IEnumerable<IStandingsObserver> standingsObservers,
+    IEnumerable<IExtrasObserver> extrasObservers,
     ILogger<TelemetryCollectorService> logger) : BackgroundService
 {
     private readonly ISessionObserver[] _sessionObservers = [.. sessionObservers];
     private readonly ISampleObserver[] _sampleObservers = [.. sampleObservers];
     private readonly IStandingsObserver[] _standingsObservers = [.. standingsObservers];
+    private readonly IExtrasObserver[] _extrasObservers = [.. extrasObservers];
 
     private Guid? _currentSessionId;
 
@@ -90,6 +92,7 @@ public sealed class TelemetryCollectorService(
         SessionStarted started => HandleSessionStartedAsync(started, cancellationToken),
         TelemetrySampleReceived sample => HandleSampleReceived(sample, cancellationToken),
         StandingsUpdated standings => HandleStandingsUpdated(standings),
+        ExtrasUpdated extras => HandleExtrasUpdated(extras),
         LapCompleted lap => DispatchSessionAsync(
             observer => observer.OnLapCompletedAsync(lap.Lap, cancellationToken),
             nameof(ISessionObserver.OnLapCompletedAsync)),
@@ -162,6 +165,23 @@ public sealed class TelemetryCollectorService(
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 LogObserverFailure(ex, observer, nameof(IStandingsObserver.OnStandings));
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task HandleExtrasUpdated(ExtrasUpdated extrasUpdated)
+    {
+        foreach (var observer in _extrasObservers)
+        {
+            try
+            {
+                observer.OnExtras(extrasUpdated.SessionId, extrasUpdated.ExtrasJson);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                LogObserverFailure(ex, observer, nameof(IExtrasObserver.OnExtras));
             }
         }
 

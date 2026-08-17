@@ -154,6 +154,10 @@ public sealed class PublisherSession(
                 rooms.ApplySelf(identity.ClientId, self);
                 break;
 
+            case LiveExtrasFrame extras:
+                rooms.ApplyExtras(identity.ClientId, extras);
+                break;
+
             case LiveGoodbye goodbye:
                 // The publisher is leaving the session, not the connection: it stays connected and
                 // will announce the next session on the same socket.

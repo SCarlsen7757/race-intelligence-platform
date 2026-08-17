@@ -73,10 +73,21 @@ builder.Services.AddSingleton<ITelemetrySource>(sp =>
         ? Timeout.InfiniteTimeSpan
         : standingsObservers.Min(observer => observer.StandingsInterval);
 
+    // Same question asked of the extras channel, and the same answer: with nothing consuming the
+    // simulator-specific document the connector is told not to publish one at all, and the fastest
+    // consumer sets the rate for everybody. Extras cost almost nothing to produce — the sample
+    // already carries the string — but every consumer downstream parses JSON, which is what the
+    // rate is really limiting.
+    var extrasObservers = sp.GetServices<IExtrasObserver>().ToArray();
+    var extrasInterval = extrasObservers.Length == 0
+        ? Timeout.InfiniteTimeSpan
+        : extrasObservers.Min(observer => observer.ExtrasInterval);
+
     return new RaceRoomTelemetrySource(new RaceRoomConnectorOptions
     {
         PollInterval = options.PollInterval,
         StandingsInterval = standingsInterval,
+        ExtrasInterval = extrasInterval,
     });
 });
 #pragma warning restore CA1416

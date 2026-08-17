@@ -66,6 +66,17 @@ public sealed class LiveViewerRegistry
         }
     }
 
+    /// <summary>Offers an extras document to every viewer following that driver in that room.</summary>
+    public void BroadcastExtras(ExtrasFrameMessage frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        foreach (var viewer in _viewers.Keys)
+        {
+            viewer.OfferExtras(frame);
+        }
+    }
+
     /// <summary>Offers a driver's completed laps to every viewer subscribed to them in that room.</summary>
     public void BroadcastLapHistory(LapHistoryMessage message)
     {

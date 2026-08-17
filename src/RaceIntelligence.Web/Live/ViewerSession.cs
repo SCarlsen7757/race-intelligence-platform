@@ -209,6 +209,15 @@ public sealed class ViewerSession(
         {
             case DriverFocusAvailability.Available:
                 viewer.Focus(driverKey);
+
+                // Answered from what the hub already holds rather than waiting out an extras
+                // interval. At roughly 1 Hz that is a second of an empty damage panel, which a race
+                // engineer reads as "no damage" rather than as "not known yet".
+                if (room.LatestExtrasFor(driverKey) is { } extras)
+                {
+                    viewer.Queue.OfferExtras(extras);
+                }
+
                 break;
 
             case DriverFocusAvailability.ObservedOnly:

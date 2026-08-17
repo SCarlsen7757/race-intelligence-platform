@@ -24,6 +24,7 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
     private readonly List<(SessionInfo Session, string RosterFingerprint, int RosterSize)> _startedSessions = [];
     private readonly List<SessionStandings> _publishedStandings = [];
     private readonly List<(TelemetrySample Sample, string? SimDriverId)> _publishedSelfFrames = [];
+    private readonly List<(Guid SessionId, string ExtrasJson, DateTimeOffset CapturedAtUtc, string? SimDriverId)> _publishedExtras = [];
     private readonly List<(Guid SessionId, string? Reason)> _endedSessions = [];
 
     /// <inheritdoc />
@@ -65,6 +66,18 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
         }
     }
 
+    /// <summary>Extras documents published, in order.</summary>
+    public IReadOnlyList<(Guid SessionId, string ExtrasJson, DateTimeOffset CapturedAtUtc, string? SimDriverId)> PublishedExtras
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _publishedExtras];
+            }
+        }
+    }
+
     /// <summary>Sessions announced as finished via <see cref="PublishSessionEnded"/>, in order.</summary>
     public IReadOnlyList<(Guid SessionId, string? Reason)> EndedSessions
     {
@@ -101,6 +114,15 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
         lock (_gate)
         {
             _publishedSelfFrames.Add((sample, simDriverId));
+        }
+    }
+
+    /// <inheritdoc />
+    public void PublishExtras(Guid sessionId, string extrasJson, DateTimeOffset capturedAtUtc, string? simDriverId)
+    {
+        lock (_gate)
+        {
+            _publishedExtras.Add((sessionId, extrasJson, capturedAtUtc, simDriverId));
         }
     }
 

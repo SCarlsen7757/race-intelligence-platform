@@ -117,6 +117,24 @@ public sealed class LiveViewer
         }
     }
 
+    /// <summary>Offers an extras document, if this viewer is following the driver it describes.</summary>
+    /// <remarks>
+    /// Gated on the focus rather than on a subscription of its own. Extras describe the car a race
+    /// engineer has open — damage belongs beside the pedal traces, not beside a timing tower — and a
+    /// second subscription for a channel that always accompanies the focus would be two things to
+    /// keep in step for no gain.
+    /// </remarks>
+    public void OfferExtras(ExtrasFrameMessage frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        if (string.Equals(RoomId, frame.RoomId, StringComparison.Ordinal)
+            && string.Equals(FocusDriverKey, frame.DriverKey, StringComparison.Ordinal))
+        {
+            Queue.OfferExtras(frame);
+        }
+    }
+
     /// <summary>Offers a lap history, if this viewer has subscribed to that driver in that room.</summary>
     public void OfferLapHistory(LapHistoryMessage message)
     {

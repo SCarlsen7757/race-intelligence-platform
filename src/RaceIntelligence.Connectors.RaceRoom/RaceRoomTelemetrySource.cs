@@ -480,7 +480,41 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
 
         _run.LastTicks = raw.Player.GameSimulationTicks;
 
+        EmitExtrasIfDue(events, now, sample);
         EmitStandingsIfDue(events, now, in raw);
+    }
+
+    /// <summary>
+    /// Re-publishes the local car's extras document, no more often than
+    /// <see cref="RaceRoomConnectorOptions.ExtrasInterval"/>.
+    /// </summary>
+    /// <remarks>
+    /// Takes the string off the sample that was just mapped rather than building a second one. The
+    /// mapper writes it for every sample regardless — the archive path stores it per row — so
+    /// reusing it makes this channel free to produce and leaves the rate limit purely about how
+    /// often anything downstream has to parse it.
+    /// </remarks>
+    private void EmitExtrasIfDue(List<TelemetryEvent> events, DateTimeOffset now, TelemetrySample sample)
+    {
+        // Any negative interval disables extras, not only Timeout.InfiniteTimeSpan — see the same
+        // reasoning spelled out on EmitStandingsIfDue.
+        if (_options.ExtrasInterval < TimeSpan.Zero)
+        {
+            return;
+        }
+
+        if (now - _run.LastExtrasAtUtc < _options.ExtrasInterval)
+        {
+            return;
+        }
+
+        _run.LastExtrasAtUtc = now;
+        events.Add(new ExtrasUpdated
+        {
+            OccurredAtUtc = now,
+            SessionId = sample.SessionId,
+            ExtrasJson = sample.Extras,
+        });
     }
 
     /// <summary>
@@ -726,6 +760,13 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         public DateTimeOffset LastStandingsAtUtc;
 
         /// <summary>
+        /// When the extras document was last published — the clock behind
+        /// <see cref="RaceRoomConnectorOptions.ExtrasInterval"/>. Never set reads as due, so the
+        /// first sample of a session always carries one.
+        /// </summary>
+        public DateTimeOffset LastExtrasAtUtc;
+
+        /// <summary>
         /// How this game fills its sector triples. Held per session and re-established each time,
         /// since a session boundary is also where a game update could take effect.
         /// </summary>
@@ -741,6 +782,7 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             SequenceNumber = 0;
             SuspendedAtUtc = default;
             LastStandingsAtUtc = default;
+            LastExtrasAtUtc = default;
             SectorTimeConvention = R3ESectorTimeConvention.Cumulative;
         }
 

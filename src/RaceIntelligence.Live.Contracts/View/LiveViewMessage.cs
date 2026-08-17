@@ -32,6 +32,7 @@ namespace RaceIntelligence.Live.Contracts.View;
 [JsonDerivedType(typeof(TowerSnapshotMessage), "towerSnapshot")]
 [JsonDerivedType(typeof(FocusFrameMessage), "focusFrame")]
 [JsonDerivedType(typeof(LapHistoryMessage), "lapHistory")]
+[JsonDerivedType(typeof(ExtrasFrameMessage), "extrasFrame")]
 [JsonDerivedType(typeof(LiveErrorMessage), "error")]
 public abstract record LiveViewMessage;
 
@@ -233,6 +234,42 @@ public sealed record FocusFrameMessage(
     IReadOnlyList<float?> TyrePressureKpa,
     IReadOnlyList<float?> TyreWear,
     IReadOnlyList<float?> TyreTemperatureCelsius) : LiveViewMessage;
+
+/// <summary>
+/// The simulator-specific channels for the focused driver, at roughly 1 Hz.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This is what makes <c>SimCapabilities.Damage</c> mean something: the collector has always
+/// advertised it in its hello while no damage value ever crossed the wire, because the connector
+/// wrote damage into a sample's extras and the live mapper dropped it. It now travels on a channel
+/// sized for it.
+/// </para>
+/// <para>
+/// <b>The payload is opaque to the hub</b> — carried through as the string the connector wrote,
+/// never parsed here. That is the "flexible metadata" half of the platform's data model working as
+/// intended: a simulator exposing a field nobody anticipated costs a connector and a dashboard
+/// panel, not a change to this contract.
+/// </para>
+/// <para>
+/// <b>Sentinels are not translated.</b> RaceRoom reports <c>-1</c> for a value it does not have, and
+/// a panel that renders that as zero damage says the car is fine when the truth is that nobody
+/// knows.
+/// </para>
+/// </remarks>
+/// <param name="RoomId">The room this belongs to.</param>
+/// <param name="DriverKey">Which driver, matching <see cref="TowerRow.DriverKey"/>.</param>
+/// <param name="CapturedAtUtc">Capture time on the publishing machine.</param>
+/// <param name="Extras">
+/// The simulator's own document, as raw JSON text. For RaceRoom this carries
+/// <c>damage.engine</c>, <c>damage.transmission</c>, <c>damage.aerodynamics</c> and
+/// <c>damage.suspension</c>, each 0..1 or <c>-1</c> for unavailable.
+/// </param>
+public sealed record ExtrasFrameMessage(
+    string RoomId,
+    string DriverKey,
+    DateTimeOffset CapturedAtUtc,
+    string Extras) : LiveViewMessage;
 
 /// <summary>
 /// Every completed lap the hub has watched one driver finish.

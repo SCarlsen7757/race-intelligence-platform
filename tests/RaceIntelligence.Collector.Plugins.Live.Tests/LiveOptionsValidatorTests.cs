@@ -27,12 +27,14 @@ public class LiveOptionsValidatorTests
 
     private static LiveOptions Configured(
         TimeSpan? standingsInterval = null,
+        TimeSpan? extrasInterval = null,
         string baseUrl = "https://home-server:5444/",
         string apiKey = "key") => new()
     {
         BaseUrl = baseUrl,
         ApiKey = apiKey,
         StandingsInterval = standingsInterval ?? TimeSpan.FromMilliseconds(100),
+        ExtrasInterval = extrasInterval ?? TimeSpan.FromSeconds(1),
     };
 
     [Fact]
@@ -92,5 +94,27 @@ public class LiveOptionsValidatorTests
             Configured(standingsInterval: TimeSpan.FromMilliseconds(100)),
             pollInterval: TimeSpan.FromMilliseconds(100))
             .Succeeded.ShouldBeTrue();
+    }
+
+    /// <summary>Same rule as standings, and for the same reason: nothing is published faster than it is read.</summary>
+    [Fact]
+    public void Extras_published_faster_than_the_poll_rate_is_rejected()
+    {
+        var result = Validate(
+            Configured(extrasInterval: TimeSpan.FromMilliseconds(50)),
+            pollInterval: TimeSpan.FromMilliseconds(100));
+
+        result.Failed.ShouldBeTrue();
+        result.FailureMessage.ShouldContain("Collector:Live:ExtrasInterval");
+        result.FailureMessage.ShouldContain("Collector:PollInterval");
+    }
+
+    [Fact]
+    public void The_default_extras_rate_is_far_slower_than_the_poll_rate()
+    {
+        var options = Configured();
+
+        options.ExtrasInterval.ShouldBe(TimeSpan.FromSeconds(1));
+        Validate(options).Succeeded.ShouldBeTrue();
     }
 }

@@ -64,4 +64,23 @@ public sealed record RaceRoomConnectorOptions
     /// </para>
     /// </remarks>
     public TimeSpan StandingsInterval { get; init; } = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// How often to re-publish the local car's simulator-specific channels — the source of
+    /// <see cref="RaceIntelligence.Core.Telemetry.ExtrasUpdated"/>. Default: 1 Hz.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Slower again than <see cref="StandingsInterval"/>, and for a different reason. The document
+    /// costs nothing extra to produce — the sample already carries it — but everything downstream of
+    /// it is a JSON parse, and the values inside move on the scale of a whole race: damage after
+    /// contact, push-to-pass once a lap. Publishing it at the sample rate would spend the
+    /// dashboard's parsing budget watching numbers that do not change.
+    /// </para>
+    /// <para>
+    /// Set to <see cref="TimeSpan.Zero"/> to publish on every poll, or to
+    /// <see cref="Timeout.InfiniteTimeSpan"/> to disable extras entirely.
+    /// </para>
+    /// </remarks>
+    public TimeSpan ExtrasInterval { get; init; } = TimeSpan.FromSeconds(1);
 }

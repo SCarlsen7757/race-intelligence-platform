@@ -67,6 +67,23 @@ public sealed class LiveWireRoundTripTests
     }
 
     /// <summary>
+    /// The extras document crosses as an opaque string, so it must arrive byte for byte — including
+    /// the <c>-1</c> a simulator writes for a channel it does not report. Anything that "helpfully"
+    /// normalised that in transit would turn "not reported" into "undamaged".
+    /// </summary>
+    [Fact]
+    public void ExtrasFrame_survives_the_round_trip_with_its_sentinels_intact()
+    {
+        var frame = new LiveExtrasFrame(
+            SessionId: Guid.Parse("11111111-2222-3333-4444-555555555555"),
+            SimDriverId: "4242",
+            CapturedAtUtc: new DateTimeOffset(2026, 8, 16, 12, 0, 0, TimeSpan.Zero),
+            ExtrasJson: """{"damage":{"engine":0.5,"transmission":-1.0,"aerodynamics":1.0,"suspension":-1.0}}""");
+
+        RoundTrip(frame).ShouldBe(frame);
+    }
+
+    /// <summary>
     /// The union is what makes a single socket carry five message shapes, and its keys are
     /// permanent — reusing one would decode an old client's frames as the wrong type instead of
     /// failing. This pins that each type still arrives as itself.
@@ -81,6 +98,7 @@ public sealed class LiveWireRoundTripTests
             LiveStandingsContractMapper.ToFrame(LiveDtoFactory.FullyPopulatedStandings()),
             LiveStandingsContractMapper.ToSelfFrame(LiveDtoFactory.FullyPopulatedSample(), "4242"),
             new LiveGoodbye(Guid.NewGuid(), null),
+            new LiveExtrasFrame(Guid.NewGuid(), "4242", DateTimeOffset.UnixEpoch, "{}"),
         ];
 
         var cancellationToken = TestContext.Current.CancellationToken;

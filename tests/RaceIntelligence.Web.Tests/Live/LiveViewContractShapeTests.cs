@@ -194,6 +194,33 @@ public sealed class LiveViewContractShapeTests
         json.GetProperty("tyrePressureKpa").GetArrayLength().ShouldBe(4);
     }
 
+    /// <summary>
+    /// The payload is a string, not an object. The hub does not parse it and neither does this
+    /// contract — a simulator exposing a field nobody anticipated costs a connector and a dashboard
+    /// panel, not a change here.
+    /// </summary>
+    [Fact]
+    public void An_extras_frame_carries_the_names_the_dashboard_reads()
+    {
+        var message = new ExtrasFrameMessage(
+            "room-1",
+            "id:1",
+            DateTimeOffset.UnixEpoch,
+            """{"damage":{"engine":0.5,"transmission":-1.0}}""");
+
+        var json = Serialize(message);
+        json.GetProperty("type").GetString().ShouldBe("extrasFrame");
+
+        PropertyNames(json).ShouldBe(
+            ["type", "roomId", "driverKey", "capturedAtUtc", "extras"],
+            ignoreOrder: true);
+
+        // Verbatim, sentinel and all. A dashboard that reads -1 as zero damage says the car is fine
+        // when the truth is that nobody knows.
+        json.GetProperty("extras").GetString()
+            .ShouldBe("""{"damage":{"engine":0.5,"transmission":-1.0}}""");
+    }
+
     [Fact]
     public void A_lap_history_carries_the_names_the_dashboard_reads()
     {

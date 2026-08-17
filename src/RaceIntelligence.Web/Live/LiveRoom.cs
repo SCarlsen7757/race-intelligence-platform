@@ -161,6 +161,72 @@ public sealed class LiveRoom
         }
     }
 
+    /// <summary>
+    /// Turns a publisher's extras document into the message for the row it belongs to.
+    /// </summary>
+    /// <returns>
+    /// The message to broadcast, or <see langword="null"/> under exactly the same conditions as
+    /// <see cref="ApplySelf"/> — an unknown publisher, or a simulator that reports no identity for
+    /// the car it is driving, since there is no tower row to attach the document to and guessing one
+    /// would show a race engineer another driver's damage.
+    /// </returns>
+    public ExtrasFrameMessage? ApplyExtras(Guid clientId, LiveExtrasFrame frame, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        lock (_gate)
+        {
+            if (!_publishers.TryGetValue(clientId, out var state))
+            {
+                return null;
+            }
+
+            // Kept per publisher, so a viewer that focuses a driver mid-session is answered from
+            // what the hub already holds rather than waiting out an extras interval — a second of a
+            // blank damage panel that would read as "no damage".
+            state.Extras = frame;
+            _lastUpdatedAtUtc = nowUtc;
+
+            string? driverKey =
+                LiveTowerProjector.DriverKeyForSimDriverId(frame.SimDriverId)
+                ?? LiveTowerProjector.DriverKeyForSimDriverId(state.Session?.LocalSimDriverId);
+
+            return driverKey is null
+                ? null
+                : new ExtrasFrameMessage(RoomId, driverKey, frame.CapturedAtUtc, frame.ExtrasJson);
+        }
+    }
+
+    /// <summary>
+    /// The most recent extras document for a driver, for a viewer that has just focused them.
+    /// </summary>
+    public ExtrasFrameMessage? LatestExtrasFor(string driverKey)
+    {
+        ArgumentNullException.ThrowIfNull(driverKey);
+
+        lock (_gate)
+        {
+            foreach (var state in _publishers.Values)
+            {
+                if (state.Extras is not { } frame)
+                {
+                    continue;
+                }
+
+                string? key =
+                    LiveTowerProjector.DriverKeyForSimDriverId(frame.SimDriverId)
+                    ?? LiveTowerProjector.DriverKeyForSimDriverId(state.Session?.LocalSimDriverId);
+
+                if (string.Equals(key, driverKey, StringComparison.Ordinal))
+                {
+                    return new ExtrasFrameMessage(RoomId, driverKey, frame.CapturedAtUtc, frame.ExtrasJson);
+                }
+            }
+
+            return null;
+        }
+    }
+
     /// <summary>Removes a publisher, returning the tower without it.</summary>
     /// <remarks>
     /// The room itself survives losing its last publisher, and is swept later by
@@ -478,6 +544,16 @@ internal sealed class LivePublisherState(LivePublisherIdentity identity)
 
     /// <summary>This publisher's most recent view of the field.</summary>
     public SessionStandings? Standings { get; set; }
+
+    /// <summary>
+    /// This publisher's most recent simulator-specific document, or null before the first arrives.
+    /// </summary>
+    /// <remarks>
+    /// Retained rather than forwarded and forgotten, so a viewer focusing a driver is answered from
+    /// what the hub holds instead of waiting out an extras interval. At roughly 1 Hz that wait is a
+    /// second of an empty damage panel, which reads as "no damage" rather than "not known yet".
+    /// </remarks>
+    public LiveExtrasFrame? Extras { get; set; }
 
     /// <summary>
     /// Server time <see cref="Standings"/> arrived.

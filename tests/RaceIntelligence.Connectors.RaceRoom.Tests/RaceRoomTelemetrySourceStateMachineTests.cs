@@ -30,6 +30,12 @@ public class RaceRoomTelemetrySourceStateMachineTests
         // otherwise spend the debounce window on every session start; the debounce has its own
         // test below.
         SessionStartDebounce = TimeSpan.Zero,
+
+        // Off, because these tests assert the exact event sequence and extras are not part of the
+        // session lifecycle they describe. Weakening the assertions to tolerate a third event type
+        // would cost the divergence detection that makes this suite worth having; the extras
+        // channel has its own suite in RaceRoomTelemetrySourceExtrasTests.
+        ExtrasInterval = Timeout.InfiniteTimeSpan,
     };
 
     /// <summary>Advances the enumerator once and asserts the event produced is of the expected type.</summary>

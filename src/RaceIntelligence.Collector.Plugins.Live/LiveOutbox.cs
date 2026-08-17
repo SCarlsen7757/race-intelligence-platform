@@ -69,6 +69,7 @@ public sealed class LiveOutbox : ILiveOutbox
 
     private LiveStandingsFrame? _latestStandings;
     private LiveSelfFrame? _latestSelf;
+    private LiveExtrasFrame? _latestExtras;
     private LiveSessionFrame? _currentSession;
 
     /// <summary>
@@ -185,6 +186,23 @@ public sealed class LiveOutbox : ILiveOutbox
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// No drop counter, unlike standings and self. Those count frames at a rate worth knowing you
+    /// are behind on; extras arrive about once a second, so a superseded one says nothing a
+    /// backed-up socket has not already said through the other two.
+    /// </remarks>
+    public void PublishExtras(Guid sessionId, string extrasJson, DateTimeOffset capturedAtUtc, string? simDriverId)
+    {
+        ArgumentNullException.ThrowIfNull(extrasJson);
+
+        Interlocked.Exchange(
+            ref _latestExtras,
+            new LiveExtrasFrame(sessionId, simDriverId, capturedAtUtc, extrasJson));
+
+        Wake();
+    }
+
+    /// <inheritdoc />
     public void PublishSessionEnded(Guid sessionId, string? reason)
     {
         // The session is over, so any data frame still waiting describes a session the hub is about
@@ -192,6 +210,7 @@ public sealed class LiveOutbox : ILiveOutbox
         // snapshot of a race that is no longer running.
         Interlocked.Exchange(ref _latestStandings, null);
         Interlocked.Exchange(ref _latestSelf, null);
+        Interlocked.Exchange(ref _latestExtras, null);
 
         // Stop re-announcing it on reconnect — but only if it is still the session being published.
         // The next session can start before the previous one's end is processed, and clearing that
@@ -210,10 +229,19 @@ public sealed class LiveOutbox : ILiveOutbox
     /// </summary>
     /// <remarks>
     /// Priority is control, then the session announcement, then standings, then the local car's
-    /// channels. The session comes before any data because the hub cannot place standings for a
-    /// session it has not been told about. Standings ahead of self because they arrive at a tenth of
-    /// the rate: preferring the 60 Hz stream would let a backed-up socket starve the timing tower
-    /// entirely, whereas a self frame skipped now is replaced within milliseconds.
+    /// channels, then extras. The session comes before any data because the hub cannot place
+    /// standings for a session it has not been told about. Standings ahead of self because they
+    /// arrive at a tenth of the rate: preferring the 60 Hz stream would let a backed-up socket
+    /// starve the timing tower entirely, whereas a self frame skipped now is replaced within
+    /// milliseconds.
+    /// <para>
+    /// Extras go <b>last</b>, below even the 60 Hz stream, and that is the one place this ladder
+    /// stops being "slowest first". The reasoning changes because the two channels are not competing
+    /// for the same thing: the focus stream's value is its continuity, and a damage reading is worth
+    /// having within a second or two of the truth. Putting extras above self would let a once-a-
+    /// second document interrupt the trace a race engineer is reading, to deliver a number that will
+    /// look the same next second.
+    /// </para>
     /// </remarks>
     public async ValueTask<LivePublisherMessage> ReadAsync(CancellationToken cancellationToken)
     {
@@ -247,7 +275,12 @@ public sealed class LiveOutbox : ILiveOutbox
             return standings;
         }
 
-        return Interlocked.Exchange(ref _latestSelf, null);
+        if (Interlocked.Exchange(ref _latestSelf, null) is { } self)
+        {
+            return self;
+        }
+
+        return Interlocked.Exchange(ref _latestExtras, null);
     }
 
     private void PublishControl(LivePublisherMessage message)

@@ -22,8 +22,8 @@ namespace RaceIntelligence.Collector.Plugins.Live;
 /// job is absorbing that.
 /// </para>
 /// </remarks>
-public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> options)
-    : ISessionObserver, ISampleObserver, IStandingsObserver
+public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> options, TimeProvider timeProvider)
+    : ISessionObserver, ISampleObserver, IStandingsObserver, IExtrasObserver
 {
     /// <summary>
     /// The current session's driver identity, carried so live frames for the local car can say whose
@@ -44,6 +44,9 @@ public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> optio
 
     /// <inheritdoc />
     public TimeSpan StandingsInterval => options.Value.StandingsInterval;
+
+    /// <inheritdoc />
+    public TimeSpan ExtrasInterval => options.Value.ExtrasInterval;
 
     /// <inheritdoc />
     public ValueTask OnSessionStartedAsync(SessionInfo session, CancellationToken cancellationToken)
@@ -92,6 +95,16 @@ public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> optio
     public void OnSampleStreamCompleted()
     {
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The capture time is taken here rather than carried on the event, because this is the last
+    /// point that is still on the publishing machine's own clock — the same clock every other frame
+    /// this collector sends is stamped with, which is what makes a hub's latency readout mean
+    /// anything.
+    /// </remarks>
+    public void OnExtras(Guid sessionId, string extrasJson) =>
+        outbox.PublishExtras(sessionId, extrasJson, timeProvider.GetUtcNow(), _currentSimDriverId);
 
     /// <inheritdoc />
     public void OnStandings(SessionStandings standings)
