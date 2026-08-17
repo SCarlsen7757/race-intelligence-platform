@@ -132,6 +132,7 @@ public sealed class LiveViewJsonTests
         GapToCarAheadMs: null,
         GapToCarBehindMs: null,
         InPitLane: null,
+        PitLaneState: (int)Core.Sessions.PitLaneState.Unavailable,
         PitStopStatus: (int)Core.Sessions.PitStopStatus.Unavailable,
         PitStopCount: null,
         FinishStatus: (int)Core.Sessions.DriverFinishStatus.Unavailable,

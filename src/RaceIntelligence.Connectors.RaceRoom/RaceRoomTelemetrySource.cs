@@ -580,7 +580,7 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         _run.SectorTimeConvention = R3ESectorTimeConventionDetector.Detect(in raw, _run.SectorTimeConvention);
 
         var standings = R3ETelemetryMapper.ToSessionStandings(
-            drivers, in raw, _run.SessionId, now, _run.SectorTimeConvention);
+            drivers, in raw, _run.SessionId, now, _run.SectorTimeConvention, _run.PitLane);
         events.Add(new StandingsUpdated { OccurredAtUtc = now, Standings = standings });
     }
 
@@ -772,8 +772,16 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         /// </summary>
         public R3ESectorTimeConvention SectorTimeConvention;
 
+        /// <summary>
+        /// What earlier frames showed about each car's pit lane visit. Held for the run rather than
+        /// rebuilt per snapshot — its entire value is that it remembers, and cleared at a session
+        /// boundary because slot numbers are reused across sessions.
+        /// </summary>
+        public readonly R3EPitLaneTracker PitLane = new();
+
         public void ClearSession()
         {
+            PitLane.Clear();
             SessionId = default;
             CurrentKey = null;
             LastCompletedLaps = 0;

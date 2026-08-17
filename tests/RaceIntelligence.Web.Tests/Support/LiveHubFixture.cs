@@ -180,6 +180,7 @@ public static class LiveDtoFactory
             PreviousLapTime = previousLapTime,
             PreviousSectorTimes = previousSectorTimes,
             CurrentLapValid = currentLapValid,
+            PitLaneState = (int)Core.Sessions.PitLaneState.Unavailable,
             PitStopStatus = (int)Core.Sessions.PitStopStatus.Unavailable,
             FinishStatus = (int)DriverFinishStatus.Unavailable,
         };

@@ -15,7 +15,7 @@ public sealed class ViewerQueueTests
 
     private static TowerRow Row(int index) => new(
         $"id:{index}", $"Driver {index}", null, null, null, index + 1, null, null, null, null, null,
-        null, null, null, null, [], [], [], null, null, null, -1, null, -1, null, LiveDataTier.Observed);
+        null, null, null, null, [], [], [], null, null, null, -1, -1, null, -1, null, LiveDataTier.Observed);
 
     private static FocusFrameMessage Focus(int lap) => new(
         "room", "id:1", DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, null, 0, null, 0, 0, [], [], []);

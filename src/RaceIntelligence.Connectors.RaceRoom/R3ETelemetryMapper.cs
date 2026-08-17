@@ -201,6 +201,10 @@ internal static class R3ETelemetryMapper
             // session of every driver into a single identity. That is why NullIfNegative, which
             // deliberately lets 0 through for genuine numeric fields, is not used here.
             SimDriverId = (NullIfNotPositive(raw.VehicleInfo.UserId) ?? NullIfNotPositive(raw.Player.UserId))?.ToString(),
+            // NullIfNegative, not NullIfNotPositive: slot 0 is a real slot — the first car in the
+            // field — whereas user id 0 is RaceRoom's "no account" filler. Only -1 means N/A here.
+            // This is what identifies the local car offline, where the ids above are always null.
+            SimSlotId = NullIfNegative(raw.VehicleInfo.SlotId),
             // Likewise, RaceRoom's shared memory exposes only numeric car/class/manufacturer ids
             // (VehicleInfo.ClassId/ModelId/ManufacturerId) — never human-readable names, and there
             // is no in-memory lookup table. These stay null; the raw ids are carried below instead.
@@ -302,11 +306,21 @@ internal static class R3ETelemetryMapper
     /// pedal inputs, tyre state, fuel or damage for anyone. Those exist only in the root of the
     /// block, describing the car this machine is running — see <see cref="DriverStanding"/>.
     /// </remarks>
-    internal static DriverStanding ToDriverStanding(in R3EDriverData driver, R3ESectorTimeConvention convention)
+    /// <param name="pitLaneState">
+    /// The car's graded pit-lane stage, which this function cannot work out on its own: the driver
+    /// array carries a bare in-pit-lane flag, and telling entering from exiting needs the memory
+    /// <see cref="R3EPitLaneTracker"/> holds across frames. Defaults to the ungraded reading so a
+    /// caller with no tracker still gets an honest answer rather than a wrong one.
+    /// </param>
+    internal static DriverStanding ToDriverStanding(
+        in R3EDriverData driver,
+        R3ESectorTimeConvention convention,
+        PitLaneState? pitLaneState = null)
     {
         var currentSectors = MapSectorTimes(driver.SectorTimeCurrentSelf, convention);
         var previousSectors = MapSectorTimes(driver.SectorTimePreviousSelf, convention);
         var bestSectors = MapSectorTimes(driver.SectorTimeBestSelf, convention);
+        bool? inPitLane = driver.InPitlane < 0 ? null : driver.InPitlane == 1;
 
         return new DriverStanding
         {
@@ -352,7 +366,16 @@ internal static class R3ETelemetryMapper
             BestSectorTimes = bestSectors,
             GapToCarAhead = SecondsToTimeSpan(driver.TimeDeltaFront),
             GapToCarBehind = SecondsToTimeSpan(driver.TimeDeltaBehind),
-            InPitLane = driver.InPitlane < 0 ? null : driver.InPitlane == 1,
+            InPitLane = inPitLane,
+            // Ungraded unless a tracker graded it: knowing a car is in the pit lane is not knowing
+            // whether it is on its way in or on its way out.
+            PitLaneState = pitLaneState
+                ?? (inPitLane switch
+                {
+                    null => PitLaneState.Unavailable,
+                    false => PitLaneState.OnTrack,
+                    true => PitLaneState.InPitLane,
+                }),
             PitStopStatus = Enum.IsDefined((PitStopStatus)driver.PitStopStatus)
                 ? (PitStopStatus)driver.PitStopStatus
                 : PitStopStatus.Unavailable,
@@ -374,17 +397,41 @@ internal static class R3ETelemetryMapper
     /// <see cref="R3ESectorTimeConventionDetector"/>. Applies to every car, since one game publishes
     /// one convention.
     /// </param>
-    public static SessionStandings ToSessionStandings(
+    /// <param name="pitLane">
+    /// Carries what earlier frames showed about each car's pit lane visit, which is what separates a
+    /// car entering from one leaving. Optional: without it every car in the lane is reported as
+    /// <see cref="PitLaneState.InPitLane"/>, ungraded but never wrong.
+    /// </param>
+    internal static SessionStandings ToSessionStandings(
         ReadOnlySpan<R3EDriverData> drivers,
         in R3ESharedRaw raw,
         Guid sessionId,
         DateTimeOffset capturedAtUtc,
-        R3ESectorTimeConvention convention)
+        R3ESectorTimeConvention convention,
+        R3EPitLaneTracker? pitLane = null)
     {
         var standings = new DriverStanding[drivers.Length];
         for (int i = 0; i < drivers.Length; i++)
         {
-            standings[i] = ToDriverStanding(in drivers[i], convention);
+            ref readonly var driver = ref drivers[i];
+
+            PitLaneState? pitLaneState = null;
+            if (pitLane is not null)
+            {
+                pitLaneState = pitLane.Observe(
+                    NullIfNegative(driver.DriverInfo.SlotId),
+                    driver.InPitlane < 0 ? null : driver.InPitlane == 1,
+                    NullIfNegative(driver.CarSpeed));
+
+                // The local car needs no inferring — RaceRoom publishes its stage outright, and a
+                // reported "requested stop" is a rung the driver array cannot express at all.
+                if (R3EPitLaneTracker.IsLocalCar(in driver, in raw))
+                {
+                    pitLaneState = R3EPitLaneTracker.FromLocalPitState(raw.PitState, pitLaneState.Value);
+                }
+            }
+
+            standings[i] = ToDriverStanding(in driver, convention, pitLaneState);
         }
 
         return new SessionStandings

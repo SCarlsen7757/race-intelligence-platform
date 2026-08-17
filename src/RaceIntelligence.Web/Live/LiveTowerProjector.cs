@@ -113,6 +113,7 @@ public static class LiveTowerProjector
         ToMilliseconds(driver.GapToCarAhead),
         ToMilliseconds(driver.GapToCarBehind),
         driver.InPitLane,
+        (int)driver.PitLaneState,
         (int)driver.PitStopStatus,
         driver.PitStopCount,
         (int)driver.FinishStatus,

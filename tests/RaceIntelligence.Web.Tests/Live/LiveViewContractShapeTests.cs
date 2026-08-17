@@ -110,6 +110,7 @@ public sealed class LiveViewContractShapeTests
         PropertyNames(row).ShouldContain("bestLapMs");
         PropertyNames(row).ShouldContain("currentSectorMs");
         PropertyNames(row).ShouldContain("pitStopStatus");
+        PropertyNames(row).ShouldContain("pitLaneState");
         PropertyNames(row).ShouldContain("finishStatus");
     }
 

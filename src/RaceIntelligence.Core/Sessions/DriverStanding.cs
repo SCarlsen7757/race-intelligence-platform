@@ -16,6 +16,51 @@ public enum PitStopStatus
     Served = 2,
 }
 
+/// <summary>Where a car is in the act of pitting, from the track to the box and back out.</summary>
+/// <remarks>
+/// <para>
+/// A ladder rather than a boolean because "in the pit lane" is four different things to a race
+/// engineer: a car that has just committed, one sitting on the jacks, and one rejoining are each a
+/// different number of seconds away from being back in the fight.
+/// </para>
+/// <para>
+/// <b>Not every rung is knowable for every car.</b> Simulators publish the full progression for the
+/// car being driven locally and, typically, a bare in-pit-lane flag for everyone else. A connector
+/// that can only tell the pit lane from the track reports <see cref="InPitLane"/> — which is a
+/// weaker claim than <see cref="Entering"/>, not a synonym for it, and must not be rendered as one.
+/// </para>
+/// <para>
+/// The 0-4 values line up with RaceRoom's <c>pit_state</c> by construction, since that connector is
+/// the only one so far and a translation table with one entry is a translation table nobody reads.
+/// <see cref="InPitLane"/> is this platform's own addition and has no RaceRoom counterpart.
+/// </para>
+/// </remarks>
+public enum PitLaneState
+{
+    /// <summary>The simulator does not report where this car is relative to the pit lane.</summary>
+    Unavailable = -1,
+
+    /// <summary>On track, with no stop under way.</summary>
+    OnTrack = 0,
+
+    /// <summary>A stop has been requested; the car is still on track.</summary>
+    Requested = 1,
+
+    /// <summary>In the pit lane, heading for the box.</summary>
+    Entering = 2,
+
+    /// <summary>Stationary in the pit box.</summary>
+    Stopped = 3,
+
+    /// <summary>In the pit lane, heading back out.</summary>
+    Exiting = 4,
+
+    /// <summary>
+    /// In the pit lane, at a stage the simulator does not report and the connector cannot infer.
+    /// </summary>
+    InPitLane = 5,
+}
+
 /// <summary>How a car's race ended, as reported by the simulator.</summary>
 public enum DriverFinishStatus
 {
@@ -150,6 +195,18 @@ public sealed record DriverStanding
 
     /// <summary>Whether the car is currently in the pit lane.</summary>
     public bool? InPitLane { get; init; }
+
+    /// <summary>
+    /// Where the car is in the act of pitting — the graded version of <see cref="InPitLane"/>.
+    /// </summary>
+    /// <remarks>
+    /// Kept alongside the boolean rather than replacing it, because the two answer different
+    /// questions and one of them is always cheap and always true. <see cref="InPitLane"/> is what a
+    /// gap calculation and a row's dimming want; this is what a strategist reading the tower wants.
+    /// A connector that cannot grade the stage still reports <see cref="PitLaneState.InPitLane"/>
+    /// here, so a consumer never has to fall back to reading the boolean itself.
+    /// </remarks>
+    public PitLaneState PitLaneState { get; init; } = PitLaneState.Unavailable;
 
     /// <summary>Progress of the current pit stop, when one is under way.</summary>
     public PitStopStatus PitStopStatus { get; init; } = PitStopStatus.Unavailable;

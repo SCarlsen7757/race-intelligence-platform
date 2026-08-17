@@ -68,22 +68,62 @@ export function formatGear(gear: number | null | undefined): string {
   return gear === 0 ? 'N' : String(gear);
 }
 
-/** Mirrors `PitStopStatus`. -1 means the simulator reports nothing, which is not "not pitting". */
-export function formatPitStatus(status: number, inPitLane: boolean | null | undefined): string {
-  if (inPitLane === true) {
-    return 'PIT';
+/**
+ * Mirrors `PitLaneState`: where a car is in the act of pitting.
+ *
+ * Empty for a car on track, and for one whose simulator says nothing — a tower marks the exceptions,
+ * so a blank status column reads as "running normally" and twenty rows of ON TRACK would read as
+ * noise. The rungs that do appear are the ones worth glancing at mid-stint.
+ */
+export function formatPitLaneState(state: number): string {
+  switch (state) {
+    case 1:
+      return 'PIT REQ';
+    case 2:
+      return 'PIT IN';
+    case 3:
+      return 'IN BOX';
+    case 4:
+      return 'PIT OUT';
+    // In the pit lane, stage unknown — every simulator can say this much about every car.
+    case 5:
+      return 'PIT';
+    default:
+      return '';
   }
+}
 
+/**
+ * Mirrors `PitStopStatus`: what the crew still has left to do.
+ *
+ * **Only meaningful while a stop is under way.** RaceRoom leaves the field at 0 — "two tyres
+ * unserved" — for cars that are not pitting and never will be this session, so rendering it
+ * unconditionally puts PIT 2T against a full field of cars lapping in practice. The caller decides
+ * whether a stop is happening; this only names it.
+ */
+export function formatPitStopStatus(status: number): string {
   switch (status) {
     case 0:
-      return 'PIT 2T';
+      return '2T LEFT';
     case 1:
-      return 'PIT 4T';
+      return '4T LEFT';
     case 2:
       return 'SERVED';
     default:
       return '';
   }
+}
+
+/**
+ * Whether a session is a race, which is the only kind where pit state is worth column space.
+ *
+ * Takes a game key for the same reason `formatSessionType` does: the value is the simulator's own
+ * raw code and RaceRoom's numbering is not the canonical one. An unrecognised simulator gets
+ * `false` — showing no pit state is a smaller error than showing a practice session's stale flags
+ * as though they were a race's.
+ */
+export function isRaceSession(gameKey: string, sessionType: number): boolean {
+  return gameKey === 'raceroom' && sessionType === 2;
 }
 
 /** Mirrors `DriverFinishStatus`. Empty for a car still running. */
