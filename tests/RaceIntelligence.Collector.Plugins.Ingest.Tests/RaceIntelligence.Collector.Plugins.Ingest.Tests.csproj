@@ -4,8 +4,7 @@
     <!-- xUnit1051 wants every async call to thread TestContext.Current.CancellationToken through
          directly. These tests instead link a per-test timeout CancellationTokenSource (so a hung
          background service fails fast) to TestContext.Current.CancellationToken, which the
-         analyzer can't see through — same precedent as RaceIntelligence.Connectors.RaceRoom.Tests
-         and RaceIntelligence.Persistence.Tests. -->
+         analyzer can't see through. -->
     <NoWarn>$(NoWarn);xUnit1051</NoWarn>
   </PropertyGroup>
 
@@ -14,7 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\RaceIntelligence.Collector\RaceIntelligence.Collector.csproj" />
+    <ProjectReference Include="..\..\src\RaceIntelligence.Collector.Plugins.Ingest\RaceIntelligence.Collector.Plugins.Ingest.csproj" />
     <ProjectReference Include="..\RaceIntelligence.Collector.TestSupport\RaceIntelligence.Collector.TestSupport.csproj" />
   </ItemGroup>
 

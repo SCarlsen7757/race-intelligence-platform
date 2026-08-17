@@ -17,6 +17,17 @@ namespace RaceIntelligence.Collector.Abstractions;
 /// </remarks>
 public interface IStandingsObserver
 {
+    /// <summary>How often this observer wants a snapshot.</summary>
+    /// <remarks>
+    /// Declared by the observer rather than imposed by the collector, because reading the
+    /// simulator's whole driver array is the single most expensive thing the connector does. The
+    /// connector reads at the shortest interval any observer asks for, and — when nothing implements
+    /// this interface — does not read the array at all rather than reading it and discarding the
+    /// result. That is what makes an archive-only collector pay nothing for a feature it is not
+    /// using.
+    /// </remarks>
+    TimeSpan StandingsInterval { get; }
+
     /// <summary>
     /// A standings snapshot has been read. Always a whole snapshot, never a delta: positions and
     /// gaps are only internally consistent as a set.

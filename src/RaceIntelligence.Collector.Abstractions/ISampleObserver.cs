@@ -27,4 +27,17 @@ public interface ISampleObserver
     /// that merely enqueues has nothing to observe it with.
     /// </param>
     void OnSample(TelemetrySample sample, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// No further samples will arrive. Called once when the source stops, and again as shutdown
+    /// begins, so it must be safe to call more than once.
+    /// </summary>
+    /// <remarks>
+    /// This exists for the backpressure case above, and is the reason it is on this interface rather
+    /// than on the plugin. An observer parked inside <see cref="OnSample"/> holds the collect loop's
+    /// thread and therefore cannot observe a cancellation token — the only thing that can release it
+    /// is being told no more samples are coming. Without this, shutting down a collector whose
+    /// buffer is full would wait out the host's whole shutdown timeout.
+    /// </remarks>
+    void OnSampleStreamCompleted();
 }

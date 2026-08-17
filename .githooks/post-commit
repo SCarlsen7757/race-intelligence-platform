@@ -37,7 +37,11 @@ CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null | grep -v
 PY=""
 PY_FILE="$REPO/graphify-out/.graphify_python"
 if [ -f "$PY_FILE" ]; then
-    CANDIDATE=$(tr -d '\r\n' < "$PY_FILE")
+    # graphify writes this file UTF-8 with a BOM. Left in place the BOM becomes part of the path,
+    # every -x test fails, and the hook silently falls back to whatever `python` resolves to — which
+    # on Windows is the App Execution Alias stub that prints "Python was not found" and exits. The
+    # graph then stops updating with no visible error anywhere except this hook's own log.
+    CANDIDATE=$(sed 's/^\xEF\xBB\xBF//' "$PY_FILE" | tr -d '\r\n')
     [ -n "$CANDIDATE" ] && [ -x "$CANDIDATE" ] && PY="$CANDIDATE"
 fi
 [ -z "$PY" ] && PY=$(command -v python3 2>/dev/null)

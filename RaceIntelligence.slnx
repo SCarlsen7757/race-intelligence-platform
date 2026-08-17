@@ -15,6 +15,8 @@
     <Project Path="src/RaceIntelligence.Web/RaceIntelligence.Web.csproj" />
   </Folder>
   <Folder Name="/Infrastructure/">
+    <Project Path="src/RaceIntelligence.Collector.Plugins.Ingest/RaceIntelligence.Collector.Plugins.Ingest.csproj" />
+    <Project Path="src/RaceIntelligence.Collector.Plugins.Live/RaceIntelligence.Collector.Plugins.Live.csproj" />
     <Project Path="src/RaceIntelligence.Connectors.RaceRoom/RaceIntelligence.Connectors.RaceRoom.csproj" />
     <Project Path="src/RaceIntelligence.Persistence/RaceIntelligence.Persistence.csproj" />
   </Folder>
@@ -26,6 +28,9 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="tests/RaceIntelligence.Analysis.Tests/RaceIntelligence.Analysis.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Collector.Plugins.Ingest.Tests/RaceIntelligence.Collector.Plugins.Ingest.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Collector.Plugins.Live.Tests/RaceIntelligence.Collector.Plugins.Live.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Collector.TestSupport/RaceIntelligence.Collector.TestSupport.csproj" />
     <Project Path="tests/RaceIntelligence.Collector.Tests/RaceIntelligence.Collector.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Connectors.RaceRoom.Tests/RaceIntelligence.Connectors.RaceRoom.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj" />

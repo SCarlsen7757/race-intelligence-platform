@@ -9,18 +9,26 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MessagePack" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
-    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
     <PackageReference Include="Serilog.AspNetCore" />
   </ItemGroup>
 
+  <!--
+    The collector references every plugin it can compose, which is what "config-driven composition"
+    means here: the set is fixed at build time and chosen at startup. Adding a destination is a
+    reference plus a line in Program.cs, not a rebuild of the collect loop.
+
+    It deliberately does NOT reference Ingest.Contracts or Live.Contracts. Those are each one
+    plugin's business, and keeping them out is what stops the collect loop growing a dependency on
+    where the data happens to go.
+  -->
   <ItemGroup>
+    <ProjectReference Include="..\RaceIntelligence.Collector.Abstractions\RaceIntelligence.Collector.Abstractions.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Collector.Plugins.Ingest\RaceIntelligence.Collector.Plugins.Ingest.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Collector.Plugins.Live\RaceIntelligence.Collector.Plugins.Live.csproj" />
     <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
     <ProjectReference Include="..\RaceIntelligence.Connectors.RaceRoom\RaceIntelligence.Connectors.RaceRoom.csproj" />
-    <ProjectReference Include="..\RaceIntelligence.Ingest.Contracts\RaceIntelligence.Ingest.Contracts.csproj" />
-    <ProjectReference Include="..\RaceIntelligence.Live.Contracts\RaceIntelligence.Live.Contracts.csproj" />
     <ProjectReference Include="..\RaceIntelligence.ServiceDefaults\RaceIntelligence.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>
