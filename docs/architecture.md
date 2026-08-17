@@ -238,6 +238,14 @@ Example
 
 A new simulator with fields nobody anticipated should cost a connector, not a migration.
 
+That still holds for the **wire**: the collector posts the canonical model plus this JSON, whatever
+the simulator is. What is changing is the far side of it. With storage moving per simulator
+([0001](decisions/0001-per-sim-storage.md)), a channel that is first-class to a simulator gets
+promoted out of this blob into a typed column in *that simulator's* schema — push-to-pass is not
+exotic metadata to RaceRoom, it is a strategy input, and buried in JSON it can be neither indexed
+nor constrained. The JSON stays as the escape hatch for everything not yet promoted, so a brand-new
+channel still costs nothing.
+
 ---
 
 ## Capability System
@@ -373,6 +381,12 @@ So identity is the **sim's own stable driver id**, not the display name:
 - The **display name** — a mutable label, tracking the most recently seen name.
   The name used during a given session is recorded on the session itself, so
   renaming loses nothing.
+
+> **Changing.** Storage is moving to one database per simulator, so the **game** scope above
+> disappears — inside RaceRoom's database, a RaceRoom driver id is already unique. What that scope
+> bought, one human recognisable across simulators, moves to a separately held identity registry.
+> See [0001](decisions/0001-per-sim-storage.md) and [0002](decisions/0002-cross-sim-translator.md).
+> The other two bullets are unaffected.
 
 Sims that expose no driver id fall back to name matching within a game — worse, but
 the only option available for that source.
@@ -667,18 +681,20 @@ work can start before multi-simulator support is finished, and probably will.
 ### In progress — the platform
 
 - Collector plugin host: the collect loop dispatches, plugins deliver *(built)*
-- Per-sim storage images and the translator layer that restores cross-sim comparison
+- Per-sim storage images and the translator layer that restores cross-sim comparison *(designed —
+  [0001](decisions/0001-per-sim-storage.md), [0002](decisions/0002-cross-sim-translator.md))*
+- The cross-simulator identity registry, which must exist **before** the second simulator's database
+  rather than after it
 
 ### In progress — the live dashboard
 
 - Whole-field standings from the connector, and the live wire contracts *(built)*
 - Collector live publishing, independently switchable from archiving *(built)*
-- Server-side lap history, so a race engineer sees a whole stint rather than the last lap
-- A low-rate channel for slow-moving sim-specific values such as car damage
+- Server-side lap history, so a race engineer sees a whole stint rather than the last lap *(built)*
+- A low-rate channel for slow-moving sim-specific values such as car damage *(built)*
 - Live hub: publisher and viewer sockets, room registry, timing tower *(built)*
 - Dashboard: TanStack Start on its own origin, room and driver in the URL, timing tower with
-  expandable per-lap rows, focus panel with pedal bars and a capability-gated damage panel *(built;
-  the lap-history, damage and clutch channels it reads are the two items above)*
+  expandable per-lap rows, focus panel with pedal bars and a capability-gated damage panel *(built)*
 - Merging several collectors in one session into one enriched view
 - Head-to-head comparison and a historical read API
 - RaceRoom-specific channels on the live wire: push-to-pass, DRS, virtual energy, cut-track
@@ -718,8 +734,20 @@ strategy engine existing, so it comes after it — not because of a fixed slot i
 ### Ongoing — more simulators
 
 Connectors for Assetto Corsa Competizione, iRacing, Automobilista 2, Le Mans Ultimate, rFactor 2 and
-whatever comes next. No backend changes should be required — only new connectors — so this can
-happen at any point rather than waiting its turn.
+whatever comes next. A new simulator costs a connector and a storage image; the collector, the wire
+and the live hub are unchanged, so this can happen at any point rather than waiting its turn.
+
+---
+
+## Decision records
+
+Design decisions that changed something written above, kept as their own records rather than folded
+in silently:
+
+| | |
+|---|---|
+| [0001](decisions/0001-per-sim-storage.md) | Storage becomes one database per simulator |
+| [0002](decisions/0002-cross-sim-translator.md) | The translator that restores cross-simulator comparison |
 
 ---
 
@@ -727,10 +755,12 @@ happen at any point rather than waiting its turn.
 
 1. **Collect first, analyse later.**
 2. **Raw telemetry is immutable.**
-3. **The database is the single source of truth.**
-4. **Algorithms are replaceable and versioned.**
-5. **Every session records the game, game version, telemetry API version and connector version that produced it.**
+3. **The per-simulator databases are the single source of truth.** Everything cross-simulator is
+   derived from them and can be rebuilt.
+4. **Algorithms are replaceable and versioned** — including the translator.
+5. **Every session records the game version, telemetry API version and connector version that produced it.**
 6. **Machine learning is an enhancement, not a requirement.**
-7. **The backend is simulator-agnostic.**
+7. **The collector, the wire and the live hub are simulator-agnostic.** Storage is deliberately not:
+   it is shaped to the simulator it holds, and the translator is what puts the pieces back together.
 8. **The AI explains decisions instead of making opaque calculations.**
 9. **Design for extensibility without overengineering the first implementation.**
