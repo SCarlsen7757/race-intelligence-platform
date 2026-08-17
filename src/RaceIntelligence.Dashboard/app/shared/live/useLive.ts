@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
-import type { LapHistoryMessage } from './contracts';
+import type { ExtrasFrameMessage, LapHistoryMessage } from './contracts';
 import type { LiveConnection } from './connection';
 import type { LiveStore } from './store';
 
@@ -69,8 +69,15 @@ export function useLapHistory(driverKey: string): LapHistoryMessage | null {
   return useStoreSlice(store, read);
 }
 
-/** The latest extras frame for the focused driver, at roughly 1 Hz. */
-export function useExtras() {
+/**
+ * The latest extras frame for one focused driver, at roughly 1 Hz.
+ *
+ * Per driver for the same reason lap history is: two cars can be compared at once, and a single
+ * slot would have both damage panels showing whichever frame arrived last.
+ */
+export function useExtras(driverKey: string): ExtrasFrameMessage | null {
   const { store } = useLive();
-  return useStoreSlice(store, store.getExtras);
+  const read = useCallback(() => store.getExtras()[driverKey] ?? null, [store, driverKey]);
+
+  return useStoreSlice(store, read);
 }

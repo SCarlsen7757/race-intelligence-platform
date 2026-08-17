@@ -1,9 +1,16 @@
 import type { ComponentType } from 'react';
 import type { LiveStore } from '../shared/live/store';
 
-/** Props every focus panel receives. */
+/**
+ * Props every focus panel receives.
+ *
+ * The driver key is explicit rather than implied by the store because two drivers can be compared
+ * side by side: the same panel type is mounted twice, against one store, and nothing about it may
+ * assume there is only one car being watched.
+ */
 export interface SimPanelProps {
   store: LiveStore;
+  driverKey: string;
 }
 
 /**

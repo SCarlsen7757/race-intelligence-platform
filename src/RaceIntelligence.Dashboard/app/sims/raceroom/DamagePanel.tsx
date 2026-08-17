@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { RaceRoomExtras } from '../../shared/live/contracts';
 import { NOT_REPORTED } from '../../shared/format/format';
 import { useExtras } from '../../shared/live/useLive';
+import type { SimPanelProps } from '../registry';
 
 /**
  * The four damage channels RaceRoom reports, in the order a race engineer triages them.
@@ -56,9 +57,14 @@ function parseExtras(extrasJson: string | null): RaceRoomExtras | null {
  * Updated at roughly 1 Hz and rendered through React on purpose: damage changes on contact, not
  * per frame, and giving it its own slow channel is precisely what keeps the 60 Hz path free of a
  * JSON parse.
+ *
+ * A meter is a glanceable state, not a measurement, so the bars are a fixed width rather than the
+ * panel's. Four of them stretched across a full-width strip is a great deal of green to say "100%",
+ * and no more legible for it — what has to be readable is the difference between fine, hurt, and
+ * about to end the race.
  */
-export function DamagePanel() {
-  const extras = useExtras();
+export function DamagePanel({ driverKey }: SimPanelProps) {
+  const extras = useExtras(driverKey);
   const damage = useMemo(() => parseExtras(extras?.extras ?? null)?.damage, [extras]);
 
   return (

@@ -19,7 +19,9 @@ import type { TowerRow } from '../../shared/live/contracts';
 
 interface TimingTowerProps {
   rows: TowerRow[];
-  focusedDriverKey: string | null;
+  /** Drivers whose telemetry is open. Up to two at once, so this is a list rather than a key. */
+  focusedDriverKeys: readonly string[];
+  /** Adds the driver to the comparison, or removes them if they are already open. */
   onFocus: (driverKey: string) => void;
   /** Driver keys whose detail row is open. Several at once, on purpose. */
   expandedDriverKeys: ReadonlySet<string>;
@@ -47,7 +49,7 @@ const COLUMN_COUNT = 11;
 
 export function TimingTower({
   rows,
-  focusedDriverKey,
+  focusedDriverKeys,
   onFocus,
   expandedDriverKeys,
   onToggleExpand,
@@ -87,7 +89,7 @@ export function TimingTower({
           const personalBest = toPerSector(row.bestSectorMs);
           const sessionBestSectors = bests.sectorMs;
           const isRich = row.tier === 'Self';
-          const isFocused = row.driverKey === focusedDriverKey;
+          const isFocused = focusedDriverKeys.includes(row.driverKey);
           const isExpanded = expandedDriverKeys.has(row.driverKey);
           const finish = formatFinishStatus(row.finishStatus);
           const detailId = `laps-${row.driverKey}`;

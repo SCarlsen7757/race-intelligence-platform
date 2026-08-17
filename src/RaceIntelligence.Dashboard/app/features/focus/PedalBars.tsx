@@ -1,21 +1,19 @@
 import { useEffect, useRef } from 'react';
-import type { LiveStore } from '../../shared/live/store';
+import type { FocusTraces, LiveStore } from '../../shared/live/store';
 import { TRACE_COLOURS } from './traceColours';
 
 interface PedalBarsProps {
   store: LiveStore;
+  /** Which driver's stream to paint. Two can be on screen at once. */
+  driverKey: string;
   height?: number;
 }
 
 /** The three pedals, left to right in the order they sit in a footwell. */
 const PEDALS = [
-  { label: 'CLU', colour: TRACE_COLOURS.clutch, read: (s: LiveStore) => s.traces.clutch.last() },
-  { label: 'BRK', colour: TRACE_COLOURS.brake, read: (s: LiveStore) => s.traces.brake.last() },
-  {
-    label: 'THR',
-    colour: TRACE_COLOURS.throttle,
-    read: (s: LiveStore) => s.traces.throttle.last(),
-  },
+  { label: 'CLU', colour: TRACE_COLOURS.clutch, read: (t: FocusTraces) => t.clutch.last() },
+  { label: 'BRK', colour: TRACE_COLOURS.brake, read: (t: FocusTraces) => t.brake.last() },
+  { label: 'THR', colour: TRACE_COLOURS.throttle, read: (t: FocusTraces) => t.throttle.last() },
 ] as const;
 
 const BAR_WIDTH = 26;
@@ -40,7 +38,7 @@ const STEER_GAP = 10;
  * store pushes NaN for exactly that case, and an empty bar would claim the driver's foot is off
  * the pedal — the same lie the trace avoids with `spanGaps: false`.
  */
-export function PedalBars({ store, height = 132 }: PedalBarsProps) {
+export function PedalBars({ store, driverKey, height = 108 }: PedalBarsProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -53,6 +51,10 @@ export function PedalBars({ store, height = 132 }: PedalBarsProps) {
     if (context === null) {
       return;
     }
+
+    // Resolved once: the rings for a driver are created on demand and then live as long as the
+    // subscription does, so the paint loop never has to look them up again.
+    const traces = store.tracesFor(driverKey);
 
     let frame = 0;
     let cssWidth = 0;
@@ -102,7 +104,7 @@ export function PedalBars({ store, height = 132 }: PedalBarsProps) {
 
       PEDALS.forEach((pedal, index) => {
         const x = left + index * (BAR_WIDTH + BAR_GAP);
-        const value = pedal.read(store);
+        const value = pedal.read(traces);
 
         context.fillStyle = TRACE_COLOURS.track;
         context.fillRect(x, 0, BAR_WIDTH, barHeight);
@@ -130,7 +132,7 @@ export function PedalBars({ store, height = 132 }: PedalBarsProps) {
       context.fillStyle = TRACE_COLOURS.track;
       context.fillRect(steerLeft, steerY, steerWidth, STEER_HEIGHT);
 
-      const steering = store.traces.steering.last();
+      const steering = traces.steering.last();
       if (Number.isNaN(steering)) {
         paintHatch(steerLeft, steerY, steerWidth, STEER_HEIGHT);
       } else {
@@ -160,7 +162,7 @@ export function PedalBars({ store, height = 132 }: PedalBarsProps) {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', resize);
     };
-  }, [store, height]);
+  }, [store, driverKey, height]);
 
   return (
     <canvas

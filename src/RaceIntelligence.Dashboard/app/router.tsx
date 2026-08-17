@@ -6,10 +6,12 @@ import { routeTree } from './routeTree.gen';
  *
  * `pathParamsAllowedCharacters` is the one that matters: driver keys are `id:4242`, `slot:7` and
  * the like, and percent-encoding the colon turns a shareable URL into `/rooms/abc/id%3A4242`. It
- * still works, it just stops being something anyone would paste into a message.
+ * still works, it just stops being something anyone would paste into a message. The comma is there
+ * for the same reason — it separates the two drivers of a comparison, so
+ * `/rooms/abc/id:4242,id:7` stays legible.
  */
 export const ROUTER_DEFAULTS = {
-  pathParamsAllowedCharacters: [':'] as Array<':'>,
+  pathParamsAllowedCharacters: [':', ','] as Array<':' | ','>,
 };
 
 /**

@@ -198,6 +198,7 @@ export type LiveErrorCode =
   | 'roomClosed'
   | 'unknownDriver'
   | 'noTelemetryForDriver'
+  | 'tooManyFocusDrivers'
   | 'notWatchingRoom'
   | 'malformedCommand';
 
@@ -207,10 +208,24 @@ export interface WatchRoomCommand {
   roomId: string | null;
 }
 
-/** Follows one driver's full-rate channels, or stops with `driverKey: null`. */
+/**
+ * Adds a driver to the set whose full-rate channels this viewer receives, or drops **all** of them
+ * with `driverKey: null`.
+ *
+ * Additive and capped, following the same pattern `subscribeLapHistory` does — two cars on screen at
+ * once is what a comparison is. The cap lives on the hub (`LiveViewer.MaxFocusDrivers`) because
+ * focus frames are the 60 Hz channel and the viewing endpoint is open; asking for one too many is
+ * answered with `tooManyFocusDrivers` rather than by evicting a driver already being watched.
+ */
 export interface FocusDriverCommand {
   type: 'focusDriver';
   driverKey: string | null;
+}
+
+/** Drops one driver's full-rate stream, leaving every other focus untouched. */
+export interface UnfocusDriverCommand {
+  type: 'unfocusDriver';
+  driverKey: string;
 }
 
 /**
@@ -233,7 +248,11 @@ export interface UnsubscribeLapHistoryCommand {
 }
 
 export type LiveViewCommand =
-  WatchRoomCommand | FocusDriverCommand | SubscribeLapHistoryCommand | UnsubscribeLapHistoryCommand;
+  | WatchRoomCommand
+  | FocusDriverCommand
+  | UnfocusDriverCommand
+  | SubscribeLapHistoryCommand
+  | UnsubscribeLapHistoryCommand;
 
 /** Wheel order on every per-wheel array crossing the wire. */
 export const WHEELS = ['FL', 'FR', 'RL', 'RR'] as const;

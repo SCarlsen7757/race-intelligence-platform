@@ -18,3 +18,16 @@ export const TRACE_COLOURS = {
   grid: '#1e2433',
   track: '#1d2432',
 } as const;
+
+/**
+ * One colour per wheel, in the wire's order — FL, FR, RL, RR.
+ *
+ * They live here under the same constraint the input colours do, and mirror the `--wheel-*` tokens
+ * in `styles.css` for the same reason: the numbers beside a tyre chart are DOM and take their
+ * colour from the stylesheet, while the lines are canvas and cannot read a custom property. A wheel
+ * whose label and line disagreed would be worse than no colour at all.
+ *
+ * Chosen so the two ends of an axle are far apart in hue rather than merely in lightness, because
+ * the thing being read off these charts is one corner diverging from the others.
+ */
+export const WHEEL_COLOURS = ['#6fa8ff', '#ffb454', '#4fd1c5', '#f472b6'] as const;

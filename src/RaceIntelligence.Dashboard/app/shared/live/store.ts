@@ -73,13 +73,81 @@ export class TraceBuffer {
   }
 }
 
-/** The traces the focus panel plots, all sharing one sample index. */
+/**
+ * How many decimated samples the tyre traces keep, and how far apart they are taken.
+ *
+ * A tyre asks a different question from a pedal. Throttle and brake are read a corner at a time, so
+ * a minute of samples at full rate is the right window; pressure, wear and temperature move over a
+ * stint, and sixty seconds of them is a flat line that says nothing. Sampling once a second and
+ * keeping the same number of slots turns the same memory into an hour — long enough that a stint's
+ * whole shape is on screen at once.
+ *
+ * Decimated by elapsed time rather than by counting frames, because the collector's poll rate is
+ * not a constant: a machine under load reports fewer frames per second, and a fixed "every 60th"
+ * would silently stretch the window whenever the game got busy.
+ */
+export const TYRE_TRACE_CAPACITY = 3600;
+export const TYRE_SAMPLE_INTERVAL_MS = 1000;
+
+/** One per-wheel channel over time, in the wire's wheel order — FL, FR, RL, RR. */
+export type WheelTraces = readonly [TraceBuffer, TraceBuffer, TraceBuffer, TraceBuffer];
+
+/**
+ * The tyre channels over a stint, sampled at {@link TYRE_SAMPLE_INTERVAL_MS}.
+ *
+ * Held apart from the input traces rather than alongside them because the two share no sample
+ * index: plotting a 1 Hz series against a 60 Hz one on the same x axis would put a tyre reading
+ * sixty times further back than it belongs.
+ */
+export interface TyreTraces {
+  pressureKpa: WheelTraces;
+  wear: WheelTraces;
+  temperatureCelsius: WheelTraces;
+}
+
+/** The traces the focus panel plots for one driver. */
 export interface FocusTraces {
+  /** Input channels, one sample per focus frame, all sharing one sample index. */
   throttle: TraceBuffer;
   brake: TraceBuffer;
   clutch: TraceBuffer;
   steering: TraceBuffer;
   speed: TraceBuffer;
+  /** Tyre channels, on their own slower sample index. */
+  tyres: TyreTraces;
+}
+
+function wheelTraces(): WheelTraces {
+  return [
+    new TraceBuffer(TYRE_TRACE_CAPACITY),
+    new TraceBuffer(TYRE_TRACE_CAPACITY),
+    new TraceBuffer(TYRE_TRACE_CAPACITY),
+    new TraceBuffer(TYRE_TRACE_CAPACITY),
+  ];
+}
+
+function newTraces(): FocusTraces {
+  return {
+    throttle: new TraceBuffer(),
+    brake: new TraceBuffer(),
+    clutch: new TraceBuffer(),
+    steering: new TraceBuffer(),
+    speed: new TraceBuffer(),
+    tyres: {
+      pressureKpa: wheelTraces(),
+      wear: wheelTraces(),
+      temperatureCelsius: wheelTraces(),
+    },
+  };
+}
+
+/** Everything held for one followed driver. Plain fields — none of this goes through React. */
+interface DriverFocus {
+  frame: FocusFrameMessage | null;
+  traces: FocusTraces;
+  framesReceived: number;
+  /** When the tyre rings last took a sample, so the decimation is by time and not by frame count. */
+  lastTyreSampleAtMs: number;
 }
 
 /**
@@ -96,20 +164,23 @@ export interface FocusTraces {
  * focus frames.
  */
 export class LiveStore {
-  /** Latest focus frame. Read by the paint loop, never by a component's render. */
-  focusFrame: FocusFrameMessage | null = null;
+  /**
+   * Everything held per followed driver, keyed by driver key.
+   *
+   * A map rather than a single slot because two drivers can be compared side by side, and the two
+   * streams must never mix: one set of rings per car is what makes "the same row means the same
+   * channel in both" true of the data and not only of the layout.
+   */
+  private readonly focus = new Map<string, DriverFocus>();
 
-  /** Rolling traces for the focused driver. */
-  readonly traces: FocusTraces = {
-    throttle: new TraceBuffer(),
-    brake: new TraceBuffer(),
-    clutch: new TraceBuffer(),
-    steering: new TraceBuffer(),
-    speed: new TraceBuffer(),
-  };
-
-  /** Frames received since the last paint — a dropped-frame readout for the debug corner. */
-  focusFramesReceived = 0;
+  /**
+   * The drivers the connection has actually subscribed to.
+   *
+   * Frames for anyone else are dropped. A frame for a driver just unfollowed can still be in flight
+   * when the subscription changes, and admitting it would leave a car on screen that nobody asked
+   * for — with rings that then never advance again.
+   */
+  private followedDriverKeys: ReadonlySet<string> = new Set();
 
   private rooms: LiveRoomSummary[] = [];
   private tower: TowerSnapshotMessage | null = null;
@@ -121,9 +192,17 @@ export class LiveStore {
   // changed.
   private lapHistories: Readonly<Record<string, LapHistoryMessage>> = {};
 
-  private extras: ExtrasFrameMessage | null = null;
+  // Per driver, and replaced rather than mutated, for exactly the reasons lap histories are: two
+  // damage panels can be on screen at once, and useSyncExternalStore compares by identity.
+  private extras: Readonly<Record<string, ExtrasFrameMessage>> = {};
 
   private readonly listeners = new Set<() => void>();
+
+  /**
+   * @param now Reads the clock the tyre decimation measures against. Injected so a test can drive
+   * an hour of stint through the store without waiting for one.
+   */
+  constructor(private readonly now: () => number = Date.now) {}
 
   /** Subscribes to slow-changing state. Never fires for focus frames — that is the whole point. */
   subscribe = (listener: () => void): (() => void) => {
@@ -139,8 +218,70 @@ export class LiveStore {
   getTower = (): TowerSnapshotMessage | null => this.tower;
   getLastError = (): LiveErrorMessage | null => this.lastError;
   getLapHistories = (): Readonly<Record<string, LapHistoryMessage>> => this.lapHistories;
-  getExtras = (): ExtrasFrameMessage | null => this.extras;
+  getExtras = (): Readonly<Record<string, ExtrasFrameMessage>> => this.extras;
   isConnected = (): boolean => this.connected;
+
+  /**
+   * One driver's latest focus frame, or null before the first has arrived.
+   *
+   * Read from a paint loop, never from a render — see the class remarks. Returns null rather than
+   * throwing for a driver nobody is following, because a panel can outlive its subscription by a
+   * frame while React catches up with the URL.
+   */
+  frameFor(driverKey: string): FocusFrameMessage | null {
+    return this.focus.get(driverKey)?.frame ?? null;
+  }
+
+  /**
+   * One driver's rolling traces, created on demand.
+   *
+   * Created rather than returned-or-null because the panels mount before the first frame arrives and
+   * hold the reference for their lifetime: handing out a placeholder that was later replaced would
+   * leave every paint loop reading rings nothing writes to.
+   */
+  tracesFor(driverKey: string): FocusTraces {
+    return this.ensureFocus(driverKey).traces;
+  }
+
+  /** Frames received for one driver — a dropped-frame readout for the debug corner. */
+  framesReceivedFor(driverKey: string): number {
+    return this.focus.get(driverKey)?.framesReceived ?? 0;
+  }
+
+  /**
+   * States which drivers the connection is following, dropping the rest.
+   *
+   * Called by the connection whenever the set changes, and it is what makes dropping one half of a
+   * comparison leave the other half alone: only the keys that actually went away lose their rings.
+   */
+  setFollowedDrivers(driverKeys: Iterable<string>): void {
+    const followed = new Set(driverKeys);
+    this.followedDriverKeys = followed;
+
+    let droppedExtras = false;
+    const remainingExtras = { ...this.extras };
+
+    for (const driverKey of [...this.focus.keys()]) {
+      if (!followed.has(driverKey)) {
+        this.focus.delete(driverKey);
+      }
+    }
+
+    for (const driverKey of Object.keys(remainingExtras)) {
+      if (!followed.has(driverKey)) {
+        delete remainingExtras[driverKey];
+        droppedExtras = true;
+      }
+    }
+
+    // Extras are the one part of the focus stream React can see, so dropping them is the one part
+    // of this that has to be announced — and only when there was something to drop, or every
+    // subscription change would emit for nothing.
+    if (droppedExtras) {
+      this.extras = remainingExtras;
+      this.emit();
+    }
+  }
 
   setConnected(connected: boolean): void {
     if (this.connected !== connected) {
@@ -174,7 +315,7 @@ export class LiveStore {
       case 'extrasFrame':
         // Roughly 1 Hz, so this one *does* go through React. The whole reason extras have their own
         // channel is that they change slowly enough for that to be free.
-        this.extras = message;
+        this.extras = { ...this.extras, [message.driverKey]: message };
         this.emit();
         break;
 
@@ -185,14 +326,17 @@ export class LiveStore {
     }
   }
 
-  /** Clears the focused driver's traces — on switching driver, room, or losing the connection. */
+  /** Clears every followed driver's traces — on leaving a room, or losing the connection. */
   resetFocus(): void {
-    const hadExtras = this.extras !== null;
-    this.clearFocusState();
+    const hadExtras = Object.keys(this.extras).length > 0;
+
+    this.focus.clear();
+    this.followedDriverKeys = new Set();
+    this.extras = {};
 
     // Extras are the one part of the focus stream React can see, so dropping them is the one part
     // of a reset that has to be announced. Only when there were any: an unconditional emit here
-    // would fire on every `focusDriver` call for nothing.
+    // would fire on every reset for nothing.
     if (hadExtras) {
       this.emit();
     }
@@ -228,39 +372,73 @@ export class LiveStore {
     }
   }
 
-  private clearFocusState(): void {
-    this.focusFrame = null;
-    this.focusFramesReceived = 0;
-    this.extras = null;
-    this.traces.throttle.clear();
-    this.traces.brake.clear();
-    this.traces.clutch.clear();
-    this.traces.steering.clear();
-    this.traces.speed.clear();
+  private ensureFocus(driverKey: string): DriverFocus {
+    let entry = this.focus.get(driverKey);
+    if (entry === undefined) {
+      entry = {
+        frame: null,
+        traces: newTraces(),
+        framesReceived: 0,
+        // Negative infinity rather than "now", so the first frame of a stint is sampled instead of
+        // being swallowed by an interval that has not elapsed yet.
+        lastTyreSampleAtMs: Number.NEGATIVE_INFINITY,
+      };
+
+      this.focus.set(driverKey, entry);
+    }
+
+    return entry;
   }
 
   private applyFocus(frame: FocusFrameMessage): void {
     // A frame for a driver we are no longer following can still be in flight when the subscription
-    // changes. Dropping it here keeps one sample of the previous car out of the new car's traces,
-    // where it would read as a glitch rather than as the switch it is.
+    // changes. Dropping it here keeps one sample of a car nobody asked for off the screen — and,
+    // more importantly, stops it creating a whole set of rings that never advance again.
     //
-    // Cleared without emitting, because this runs on the focus path: a subscriber notified from
+    // Dropped without emitting, because this runs on the focus path: a subscriber notified from
     // here would be notified at frame rate, which is the one thing this store exists to prevent.
-    // Nothing is lost — the reset that accompanies a deliberate driver change already emitted.
-    if (this.focusFrame !== null && this.focusFrame.driverKey !== frame.driverKey) {
-      this.clearFocusState();
+    if (!this.followedDriverKeys.has(frame.driverKey)) {
+      return;
     }
 
-    this.focusFrame = frame;
-    this.focusFramesReceived++;
+    const entry = this.ensureFocus(frame.driverKey);
+
+    entry.frame = frame;
+    entry.framesReceived++;
 
     // Pedals are absent on some simulators rather than zero, and a missing throttle must not be
     // plotted as a lifted one. NaN leaves a gap in the trace, which is the honest rendering.
-    this.traces.throttle.push(frame.throttle ?? Number.NaN);
-    this.traces.brake.push(frame.brake ?? Number.NaN);
-    this.traces.clutch.push(frame.clutch ?? Number.NaN);
-    this.traces.steering.push(frame.steering);
-    this.traces.speed.push(frame.speedMetersPerSecond);
+    entry.traces.throttle.push(frame.throttle ?? Number.NaN);
+    entry.traces.brake.push(frame.brake ?? Number.NaN);
+    entry.traces.clutch.push(frame.clutch ?? Number.NaN);
+    entry.traces.steering.push(frame.steering);
+    entry.traces.speed.push(frame.speedMetersPerSecond);
+
+    this.pushTyreSample(entry, frame);
+  }
+
+  /**
+   * Adds one sample to the tyre rings, at most once per {@link TYRE_SAMPLE_INTERVAL_MS}.
+   *
+   * The same NaN discipline the pedals follow, and for the same reason: tyre arrays are nullable on
+   * the wire, and a wheel the simulator did not report must leave a hole rather than being bridged
+   * into a confident line — or, worse, drawn at zero, which for a pressure reads as a flat tyre.
+   */
+  private pushTyreSample(entry: DriverFocus, frame: FocusFrameMessage): void {
+    const now = this.now();
+    if (now - entry.lastTyreSampleAtMs < TYRE_SAMPLE_INTERVAL_MS) {
+      return;
+    }
+
+    entry.lastTyreSampleAtMs = now;
+
+    for (let wheel = 0; wheel < 4; wheel++) {
+      entry.traces.tyres.pressureKpa[wheel]!.push(frame.tyrePressureKpa[wheel] ?? Number.NaN);
+      entry.traces.tyres.wear[wheel]!.push(frame.tyreWear[wheel] ?? Number.NaN);
+      entry.traces.tyres.temperatureCelsius[wheel]!.push(
+        frame.tyreTemperatureCelsius[wheel] ?? Number.NaN,
+      );
+    }
   }
 
   private emit(): void {

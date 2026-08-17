@@ -4,6 +4,8 @@ import type { LiveStore } from '../live/store';
 
 interface LiveReadoutProps {
   store: LiveStore;
+  /** Which driver's stream to read. Two can be on screen at once, so this is never implicit. */
+  driverKey: string;
   /** Reads the display text out of a frame. Called once per animation frame, so keep it cheap. */
   render: (frame: FocusFrameMessage) => string;
   placeholder?: string;
@@ -22,7 +24,13 @@ interface LiveReadoutProps {
  * than a shared scheduler and costs nothing measurable — the browser coalesces them into one frame
  * regardless.
  */
-export function LiveReadout({ store, render, placeholder = '—', className }: LiveReadoutProps) {
+export function LiveReadout({
+  store,
+  driverKey,
+  render,
+  placeholder = '—',
+  className,
+}: LiveReadoutProps) {
   const ref = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -32,7 +40,8 @@ export function LiveReadout({ store, render, placeholder = '—', className }: L
     const paint = () => {
       const node = ref.current;
       if (node !== null) {
-        const text = store.focusFrame === null ? placeholder : render(store.focusFrame);
+        const latest = store.frameFor(driverKey);
+        const text = latest === null ? placeholder : render(latest);
 
         // Only touched when it changed. Assigning the same string still invalidates layout in some
         // engines, and most of these values are unchanged between frames.
@@ -47,7 +56,7 @@ export function LiveReadout({ store, render, placeholder = '—', className }: L
 
     frame = requestAnimationFrame(paint);
     return () => cancelAnimationFrame(frame);
-  }, [store, render, placeholder]);
+  }, [store, driverKey, render, placeholder]);
 
   return (
     <span ref={ref} className={className}>
