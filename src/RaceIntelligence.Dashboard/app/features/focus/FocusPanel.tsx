@@ -332,8 +332,7 @@ export function FocusPanel({
           ...(panel.isEmpty === undefined
             ? {}
             : {
-                isEmpty: (driverKey: string) =>
-                  panel.isEmpty!(extras[driverKey] ?? null),
+                isEmpty: (driverKey: string) => panel.isEmpty!(extras[driverKey] ?? null),
               }),
         });
         continue;
@@ -363,8 +362,7 @@ export function FocusPanel({
         ),
         isEmpty: (driverKey) =>
           groupMembers.every(
-            (member) =>
-              member.isEmpty !== undefined && member.isEmpty(extras[driverKey] ?? null),
+            (member) => member.isEmpty !== undefined && member.isEmpty(extras[driverKey] ?? null),
           ),
       });
     }
