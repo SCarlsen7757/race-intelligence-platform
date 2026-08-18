@@ -1,10 +1,20 @@
 import { Link } from '@tanstack/react-router';
-import { formatAge, formatSessionType } from '../../shared/format/format';
+import { formatSessionType } from '../../shared/format/format';
+import { useAge } from '../../shared/format/useAge';
 import type { LiveRoomSummary } from '../../shared/live/contracts';
 
 interface RoomListProps {
   rooms: LiveRoomSummary[];
   connected: boolean;
+}
+
+/**
+ * A leaf so the shared one-second tick only repaints the age text, not the whole room card it sits
+ * inside — a list of a dozen sessions should not re-render a dozen `Link`s every second because one
+ * of them crossed from "59s ago" to "1m ago".
+ */
+function Age({ atUtc }: { atUtc: string }) {
+  return <span className="room__age">{useAge(atUtc)}</span>;
 }
 
 /**
@@ -62,7 +72,7 @@ export function RoomList({ rooms, connected }: RoomListProps) {
               )}
             </div>
 
-            <span className="room__age">{formatAge(room.lastUpdatedAtUtc)}</span>
+            <Age atUtc={room.lastUpdatedAtUtc} />
           </Link>
         </li>
       ))}
