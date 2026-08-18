@@ -147,6 +147,47 @@ describe('TimingTower', () => {
     expect(sessionBests).not.toContain('30.000');
   });
 
+  it('remounts a cell for a new session best, but not snapshots that retain it', () => {
+    const initialRows = [
+      row({ driverKey: 'id:1', position: 1, bestLapMs: 101_000 }),
+      row({ driverKey: 'id:2', position: 2, bestLapMs: 100_000 }),
+    ];
+    const { container, rerender } = renderTower(initialRows);
+
+    const beforeBest = container.querySelector('tbody tr:first-child td:nth-child(7)');
+    expect(beforeBest?.classList.contains('time--session-best')).toBe(false);
+
+    const sessionBestRows = [
+      row({ driverKey: 'id:1', position: 1, bestLapMs: 99_000 }),
+      row({ driverKey: 'id:2', position: 2, bestLapMs: 100_000 }),
+    ];
+    rerender(
+      <TimingTower
+        rows={sessionBestRows}
+        focusedDriverKeys={[]}
+        onFocus={vi.fn()}
+        expandedDriverKeys={NONE}
+        onToggleExpand={vi.fn()}
+      />,
+    );
+
+    const newBest = container.querySelector('tbody tr:first-child td:nth-child(7)');
+    expect(newBest?.classList.contains('time--session-best')).toBe(true);
+    expect(newBest).not.toBe(beforeBest);
+
+    rerender(
+      <TimingTower
+        rows={[...sessionBestRows]}
+        focusedDriverKeys={[]}
+        onFocus={vi.fn()}
+        expandedDriverKeys={NONE}
+        onToggleExpand={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('tbody tr:first-child td:nth-child(7)')).toBe(newBest);
+  });
+
   /**
    * A lap that has not been set is not a lap of zero. This is the rendering a pit call is made
    * from, so the distinction has to survive all the way to the cell.

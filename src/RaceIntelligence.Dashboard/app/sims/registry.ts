@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { ExtrasFrameMessage } from '../shared/live/contracts';
 import type { LiveStore } from '../shared/live/store';
 
 /**
@@ -28,6 +29,8 @@ export interface SimPanel {
    */
   requires: readonly string[];
   component: ComponentType<SimPanelProps>;
+  /** Whether this panel has nothing to say for one driver, given that driver's latest extras. */
+  isEmpty?: (extras: ExtrasFrameMessage | null) => boolean;
 }
 
 const registry = new Map<string, SimPanel[]>();

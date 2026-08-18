@@ -104,13 +104,13 @@ export function WheelTrace({
     );
 
     // Reused across frames so the paint loop allocates nothing, exactly as the pedal trace does.
+    //
+    // Plain arrays for the wheels, not typed ones: an unreported wheel has to reach uPlot as null
+    // to draw as a gap, and a Float64Array cannot hold one — see `TraceBuffer.toNullableArray`.
+    // Drawn at zero instead, a missing pressure reads as a flat tyre. The x axis stays typed,
+    // because a sample index is never absent.
     let xs = new Float64Array(0);
-    const series = [
-      new Float64Array(0),
-      new Float64Array(0),
-      new Float64Array(0),
-      new Float64Array(0),
-    ];
+    const series: (number | null)[][] = [[], [], [], []];
 
     let frame = 0;
 
@@ -135,7 +135,7 @@ export function WheelTrace({
         }
 
         for (let wheel = 0; wheel < series.length; wheel++) {
-          series[wheel] = wheels[wheel]!.toArray(series[wheel]);
+          series[wheel] = wheels[wheel]!.toNullableArray(series[wheel]);
         }
 
         chart.setData([xs, series[0]!, series[1]!, series[2]!, series[3]!], true);

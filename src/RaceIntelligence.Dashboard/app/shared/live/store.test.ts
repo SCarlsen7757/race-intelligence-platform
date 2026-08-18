@@ -122,6 +122,42 @@ describe('TraceBuffer', () => {
     expect(buffer.version).toBe(5);
   });
 
+  /**
+   * The boundary where "absent is not zero" was being lost.
+   *
+   * uPlot decides where a line breaks by testing against `null`, and a NaN passes that test as a
+   * number — so every gap the store carefully recorded was drawn as a confident line straight
+   * across it. The rings were always right; the shape they were copied out in was not.
+   */
+  it('copies a gap out as null, so a chart can draw it as a break', () => {
+    const buffer = new TraceBuffer(4);
+    buffer.push(1);
+    buffer.push(Number.NaN);
+    buffer.push(0.5);
+
+    expect(buffer.toNullableArray()).toEqual([1, null, 0.5]);
+  });
+
+  it('reuses a caller-supplied array for the nullable copy too, so the paint loop still allocates nothing', () => {
+    const buffer = new TraceBuffer(4);
+    buffer.push(1);
+    buffer.push(2);
+
+    const first = buffer.toNullableArray();
+    const second = buffer.toNullableArray(first);
+
+    expect(second).toBe(first);
+  });
+
+  it('keeps the gap in the right place after the ring has wrapped', () => {
+    const buffer = new TraceBuffer(3);
+    for (const value of [1, 2, Number.NaN, 4, 5]) {
+      buffer.push(value);
+    }
+
+    expect(buffer.toNullableArray()).toEqual([null, 4, 5]);
+  });
+
   it('resets version to zero on clear, along with length', () => {
     const buffer = new TraceBuffer(3);
     buffer.push(1);

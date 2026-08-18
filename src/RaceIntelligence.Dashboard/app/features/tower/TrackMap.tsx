@@ -8,7 +8,6 @@ interface TrackMapProps {
   /** Driver keys whose tower row is expanded. Clicking a dot toggles this, exactly as the row does. */
   expandedDriverKeys: ReadonlySet<string>;
   onSelect: (driverKey: string) => void;
-  size?: number;
 }
 
 /** Radius of the ring itself, as a fraction of the box. Leaves room for dots and labels outside it. */
@@ -46,7 +45,7 @@ function pointAt(fraction: number, radius: number): { x: number; y: number } {
  * Lays the field out on the ring, nudging cars apart where they would otherwise overlap.
  *
  * Cars bunch on a circle far more than on a real outline: a 7 km circuit puts a two-second gap at
- * about a hundredth of a lap, which on a 240-pixel ring is less than the width of a dot. Alternating
+ * about a hundredth of a lap, which on a map-sized ring is less than the width of a dot. Alternating
  * the radius of consecutive close cars keeps both readable and keeps their order along the ring
  * honest, which is the thing being asked.
  */
@@ -101,13 +100,7 @@ function layOut(rows: TowerRow[]): Dot[] {
  * of the focus rate, so the reason `PedalTrace` reaches for canvas — a thousand points redrawn sixty
  * times a second — simply does not apply to twenty circles.
  */
-export function TrackMap({
-  rows,
-  focusedDriverKeys,
-  expandedDriverKeys,
-  onSelect,
-  size = 240,
-}: TrackMapProps) {
+export function TrackMap({ rows, focusedDriverKeys, expandedDriverKeys, onSelect }: TrackMapProps) {
   const dots = useMemo(() => layOut(rows), [rows]);
   const missing = rows.length - dots.length;
 
@@ -116,11 +109,9 @@ export function TrackMap({
   }
 
   return (
-    <figure className="track-map" style={{ width: `${size}px` }}>
+    <figure className="track-map">
       <svg
         viewBox="0 0 1 1"
-        width={size}
-        height={size}
         role="img"
         aria-label={`Track map: ${dots.length} of ${rows.length} cars positioned around the lap`}
       >

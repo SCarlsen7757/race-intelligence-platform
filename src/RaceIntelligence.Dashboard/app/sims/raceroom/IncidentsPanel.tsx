@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useExtras } from '../../shared/live/useLive';
+import type { ExtrasFrameMessage } from '../../shared/live/contracts';
 import type { SimPanelProps } from '../registry';
 import { parseExtras } from './extras';
 
@@ -26,6 +27,19 @@ export function toIncidentCount(value: number | undefined): number | null {
   }
 
   return value;
+}
+
+/**
+ * Whether an extras frame carries no incident count this panel could honestly show.
+ *
+ * Answers for `FocusPanel` the same question the component answers for itself when it returns null,
+ * and answers it from the same `toIncidentCount` — so the frame around the panel and the panel
+ * inside it cannot disagree about whether there is anything to say. The component cannot be asked
+ * directly: `FocusPanel` has to know before it renders the heading, and a panel that has already
+ * returned null has already cost a section title.
+ */
+export function incidentsPanelIsEmpty(extras: ExtrasFrameMessage | null): boolean {
+  return toIncidentCount(parseExtras(extras?.extras ?? null)?.incidentPoints) === null;
 }
 
 /**

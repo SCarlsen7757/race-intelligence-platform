@@ -1,40 +1,35 @@
 /*
  * A dark palette, because this is read on a second monitor beside a running game and a white page
- * beside a night race is genuinely unpleasant. Timing colours follow the convention every
- * sim-racing timing screen uses — purple for a session best, green for a personal best — because
- * a race engineer already reads them without thinking, and inventing a different scheme here would
- * cost accuracy at exactly the wrong moment.
+ * beside a night race is genuinely unpleasant.
  */
 
 :root {
-  --bg: #0d1117;
-  --bg-raised: #161b26;
-  --bg-hover: #1d2432;
-  --border: #262d3d;
+  /* GROUND is the near-neutral graphite ramp everything else is read against. It is neutral so that
+     no flag competes with it: the old blue-black ground sat a few degrees from --flag-pit, which is
+     why a car in the box read more weakly than a car with a penalty. Rule is for quiet hairlines;
+     edge is for structural outlines whose contrast must survive a future ground change. */
+  --bg: #0b0b0e;
+  --bg-raised: #16161c;
+  --bg-hover: #1e1e24;
+  --rule: #232a38;
+  --edge: #5b637c;
   --text: #e6e9ef;
   --text-muted: #8b93a7;
 
-  --session-best: #b388ff;
-  --personal-best: #3ddc84;
-  --invalid: #ff8a5c;
-  --penalty: #ff5c5c;
-  --pit: #5aa9ff;
-  --live: #3ddc84;
+  /* FLAGS are locked by sim-racing convention: purple for a session best and green for a personal
+     best let a race engineer read them without thinking. The --flag- prefix makes that lock hard
+     to miss; do not recolour one without renaming the meaning. */
+  --flag-session-best: #b388ff;
+  --flag-personal-best: #3ddc84;
+  --flag-invalid: #ff8a5c;
+  --flag-penalty: #ff5c5c;
+  --flag-pit: #5aa9ff;
 
-  /* Mirrored in features/focus/traceColours.ts — canvas cannot read a custom property, so the
-     input channels exist twice and must be changed together. */
-  --trace-throttle: #3ddc84;
-  --trace-brake: #ff5c5c;
-  --trace-clutch: #ffc35c;
-  --trace-steering: #5aa9ff;
-
-  /* The wheel colours, under the same constraint and mirrored in the same module: the tyre chart's
-     lines are canvas and the numbers beside them are DOM, and a wheel whose label and line
-     disagreed would be worse than no colour at all. */
-  --wheel-fl: #6fa8ff;
-  --wheel-fr: #ffb454;
-  --wheel-rl: #4fd1c5;
-  --wheel-rr: #f472b6;
+  /* CHROME belongs to the application rather than racing semantics, so restyling a control cannot
+     silently repaint a flag or telemetry channel. */
+  --accent: #a37bff;
+  --accent-fill: rgba(163, 123, 255, 0.1);
+  --status-live: #35c9d6;
 
   color-scheme: dark;
 }
@@ -65,8 +60,30 @@ body {
 .incidents__count,
 .incidents__limit,
 .laps__number,
+.tower__laps,
 .tower__pos {
   font-variant-numeric: tabular-nums;
+}
+
+/* One ring for every control on the page. The semantics were already right — rows are native
+   buttons carrying aria-expanded and aria-controls, not clickable divs — but a sighted keyboard
+   user tabbing a twenty-car tower saw whatever the browser defaults to on a near-black ground,
+   which is close to nothing. :where() so this carries no specificity and any component that needs
+   its own treatment simply states it.
+
+   Offset outwards, not inset. .driver-button and .link-button are padding: 0, so a negative offset
+   draws the ring across the glyphs it is supposed to be framing. The reason to reach for an inset
+   ring would be `overflow: hidden` on .tower clipping it, and measured against this stylesheet it
+   does not: the driver button's ring spans 46.0 to 77.0 inside a tower clipped at 16.0 to 79.0,
+   and the last column's ring ends 6px short of the right edge. The row's own 5px cell padding is
+   what leaves the room.
+
+   Track map cars keep their bespoke rules below. They are SVG, and the focus target a user sees is
+   the dot, not the <g> that actually receives focus — which is why that group sets outline: none
+   on purpose. */
+:where(.link-button, .room, .driver-button, .focus-button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .app {
@@ -80,7 +97,7 @@ body {
   align-items: center;
   gap: 16px;
   padding: 10px 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--rule);
   background: var(--bg-raised);
 }
 
@@ -102,8 +119,16 @@ body {
   color: var(--text-muted);
 }
 
+/* Capped and centred. The header stays full-bleed — it is chrome and belongs to the window — but
+   on a 3440px monitor an uncapped main spreads eleven timing columns across three thousand pixels,
+   joined by a row hairline that is deliberately near-invisible, and the eye cannot carry a row from
+   position to sector time. `.session__tower` scrolls the table inside its own box, so narrowing
+   this never gives the document a horizontal scrollbar. */
 .app__main {
   flex: 1;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
   padding: 16px 20px;
 }
 
@@ -125,17 +150,17 @@ body {
 }
 
 .status--live::before {
-  background: var(--live);
+  background: var(--status-live);
 }
 
 .status--offline::before {
-  background: var(--invalid);
+  background: var(--flag-invalid);
 }
 
 .link-button {
   background: none;
   border: none;
-  color: var(--pit);
+  color: var(--accent);
   cursor: pointer;
   padding: 0;
   font: inherit;
@@ -165,7 +190,7 @@ body {
   gap: 16px;
   padding: 14px 16px;
   background: var(--bg-raised);
-  border: 1px solid var(--border);
+  border: 1px solid var(--edge);
   border-radius: 6px;
   color: inherit;
   font: inherit;
@@ -214,14 +239,14 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--live);
+  background: var(--status-live);
 }
 
 .pill {
   padding: 2px 7px;
   border-radius: 3px;
   background: var(--bg-hover);
-  border: 1px solid var(--border);
+  border: 1px solid var(--rule);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -232,18 +257,18 @@ body {
 }
 
 .pill--warn {
-  color: var(--invalid);
-  border-color: var(--invalid);
+  color: var(--flag-invalid);
+  border-color: var(--flag-invalid);
 }
 
 .pill--pit {
-  color: var(--pit);
-  border-color: var(--pit);
+  color: var(--flag-pit);
+  border-color: var(--flag-pit);
 }
 
 .pill--penalty {
-  color: var(--penalty);
-  border-color: var(--penalty);
+  color: var(--flag-penalty);
+  border-color: var(--flag-penalty);
 }
 
 /*
@@ -256,7 +281,7 @@ body {
 .laps__table .pill {
   margin-left: 6px;
   padding: 1px 4px;
-  font-size: 9px;
+  font-size: 10px;
   text-decoration: none;
   vertical-align: middle;
 }
@@ -292,7 +317,7 @@ body {
   margin: 0 0 12px;
   padding: 8px 14px;
   border-radius: 5px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--edge);
   background: var(--bg-raised);
   font-size: 13px;
 }
@@ -306,20 +331,27 @@ body {
   color: var(--text-muted);
 }
 
-/* The one state worth interrupting a glance for: a stop taken now counts. */
+/* The one state worth interrupting a glance for: a stop taken now counts.
+
+   Filled, not merely outlined, because `.banner--warn` speaks in washes and can sit directly above
+   this — an outline loses to a fill every time, so the state claiming to be worth interrupting a
+   glance for was being out-shouted by an error message. At 12% it reads 1.26:1 against its panel
+   where the banner reads 1.13:1 against the page, which is the two systems finally agreeing on what
+   "this matters" looks like. Green text stays legible on it at 8.0:1. */
 .pit-window--open {
-  border-color: var(--personal-best);
-  color: var(--personal-best);
+  border-color: var(--flag-personal-best);
+  background: color-mix(in srgb, var(--flag-personal-best) 12%, var(--bg-raised));
+  color: var(--flag-personal-best);
 }
 
 .pit-window--closed {
-  border-color: var(--border);
+  border-color: var(--edge);
   color: var(--text-muted);
 }
 
 .pit-window--done {
-  border-color: var(--pit);
-  color: var(--pit);
+  border-color: var(--flag-pit);
+  color: var(--flag-pit);
 }
 
 .empty {
@@ -400,13 +432,13 @@ body {
 }
 
 .session__tower--stale .tower__stamp {
-  color: var(--invalid);
+  color: var(--flag-invalid);
 }
 
 .focus__stale {
   margin: 0;
   font-size: 11px;
-  color: var(--invalid);
+  color: var(--flag-invalid);
 }
 
 /* Track map */
@@ -414,8 +446,13 @@ body {
 .track-map {
   margin: 0;
   flex: 0 0 auto;
+  /* Was a hard 240px applied inline, which left the map a postage stamp beside a tower with width
+     to spare. A clamp grows it with the window and needs no breakpoint, which is the rule the rest
+     of this file follows. Capped, because past that the ring stops being a glance and becomes a
+     diagram. */
+  width: clamp(180px, 20vw, 360px);
   background: var(--bg-raised);
-  border: 1px solid var(--border);
+  border: 1px solid var(--edge);
   border-radius: 6px;
   padding: 12px;
 }
@@ -433,7 +470,7 @@ body {
    pixel reading the right one. */
 .track-map__ring {
   fill: none;
-  stroke: var(--border);
+  stroke: var(--edge);
   stroke-width: 2;
 }
 
@@ -461,30 +498,32 @@ body {
 
 /* A car whose own machine is publishing — the only ones whose telemetry can be opened at all. */
 .track-map__car--self .track-map__dot {
-  fill: rgba(61, 220, 132, 0.2);
-  stroke: var(--live);
+  fill: color-mix(in srgb, var(--status-live) 20%, transparent);
+  stroke: var(--status-live);
 }
 
 /* In the pit lane: hollow and dashed, on the inner ring. A car in the pits is not racing anyone,
    and it should not read as though it were. */
 .track-map__car--pit .track-map__dot {
   fill: none;
-  stroke: var(--pit);
+  stroke: var(--flag-pit);
   stroke-dasharray: 0.02 0.012;
 }
 
 .track-map__car--pit .track-map__number {
-  fill: var(--pit);
+  fill: var(--flag-pit);
 }
 
 .track-map__car--expanded .track-map__dot {
   stroke: var(--text);
 }
 
-/* Open telemetry, matching `.tower__row--focused` so the two views say the same thing. */
+/* Open telemetry, matching `.tower__row--focused` so the two views say the same thing. Mixed from
+   --accent rather than sharing --accent-fill: a dot is a fraction of the area of a row and needs a
+   heavier fill to read as the same strength. */
 .track-map__car--focused .track-map__dot {
-  fill: rgba(90, 169, 255, 0.35);
-  stroke: var(--pit);
+  fill: color-mix(in srgb, var(--accent) 35%, transparent);
+  stroke: var(--accent);
   stroke-width: 0.008;
 }
 
@@ -515,7 +554,7 @@ body {
   width: 100%;
   border-collapse: collapse;
   background: var(--bg-raised);
-  border: 1px solid var(--border);
+  border: 1px solid var(--edge);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -527,14 +566,14 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--rule);
   font-weight: 500;
 }
 
 .tower td {
   padding: 5px 10px;
   text-align: right;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--rule);
 }
 
 .tower tr:last-child td {
@@ -550,16 +589,21 @@ th.tower__driver {
 
 .tower__pos {
   width: 40px;
-  color: var(--text-muted);
+  color: var(--text);
+  font-weight: 700;
 }
 
 .tower__driver {
   min-width: 200px;
 }
 
+/* Wide enough for the word rather than for TEL. `.tower th` uppercases its content, so the
+   abbreviation was already rendering as TEL — recasing it could not have made it less like the
+   abbreviation for telephone, and the only fix that changes what a reader sees is the whole word.
+   It costs twenty pixels. */
 .tower__telemetry,
 th.tower__telemetry {
-  width: 64px;
+  width: 84px;
   text-align: center;
 }
 
@@ -580,20 +624,21 @@ th.tower__state {
   align-items: center;
 }
 
-.tower__row--rich {
-  background: rgba(61, 220, 132, 0.04);
-}
-
 .tower__row--focused {
-  background: rgba(90, 169, 255, 0.1);
+  background: var(--accent-fill);
 }
 
 .tower__row--expanded {
   background: var(--bg-hover);
 }
 
+/* Last of the row states, so pit wins over focus and expansion: a car in the box is being read for
+   a different reason than the one it was opened for. Winning means being the louder wash too — at
+   0.12 this is 1.21:1 against the raised ground, above the 1.14:1 of a focused row. A tint and not
+   the `opacity: 0.65` this used to be, because a blanket fade took IN BOX and 2T LEFT down with the
+   timing, at exactly the moment a strategist is looking for them. */
 .tower__row--pit {
-  opacity: 0.65;
+  background: rgba(90, 169, 255, 0.12);
 }
 
 .tower__detail > td {
@@ -615,7 +660,7 @@ th.tower__state {
 }
 
 .driver-button:hover {
-  color: var(--pit);
+  color: var(--accent);
 }
 
 .driver-button__chevron {
@@ -628,9 +673,9 @@ th.tower__state {
    has to look like a control. It was an 8px dot, which nobody found. */
 .focus-button {
   background: none;
-  border: 1px solid var(--live);
+  border: 1px solid var(--status-live);
   border-radius: 3px;
-  color: var(--live);
+  color: var(--status-live);
   padding: 1px 6px;
   font: inherit;
   font-size: 10px;
@@ -640,12 +685,12 @@ th.tower__state {
 }
 
 .focus-button:hover {
-  background: rgba(61, 220, 132, 0.15);
+  background: color-mix(in srgb, var(--status-live) 15%, transparent);
 }
 
 .focus-button--open {
-  background: var(--live);
-  color: var(--bg);
+  background: color-mix(in srgb, var(--status-live) 16%, transparent);
+  color: var(--status-live);
 }
 
 /* Subscribed, nothing arriving yet. Quieter than --open rather than louder: this is a state on the
@@ -664,17 +709,63 @@ th.tower__state {
   margin-left: 6px;
 }
 
-.time--session-best {
-  color: var(--session-best);
+/* Timing is the decision-making surface; names identify the car once the numbers have found it.
+   600 and 700 rather than 500 and 600, because the Segoe UI this stack asks for first has no 500
+   face — only 300, 350, 400, 600, 700, 900 — and what a resolver does with the gap is its own
+   business. Chrome here snaps 500 to Semibold, which would have rendered an ordinary lap time at
+   exactly the weight of a session best; a resolver following the spec's fallback order instead
+   drops it to Regular, which would have rendered it at exactly the weight of a driver's name. Both
+   readings erase a distinction this rule exists to draw, so the weights name real faces. */
+.time {
   font-weight: 600;
 }
 
+.time--session-best {
+  color: var(--flag-session-best);
+  font-weight: 700;
+}
+
+/* The only animation in this file, and it has to stay the only one. Taking a purple sector is the
+   best moment this product has, and it was rendered as a number quietly changing colour between two
+   frames — if you were looking elsewhere it did not happen. A flash fixes that precisely because
+   nothing else here moves; once hovers fade and panels slide and rows settle, this stops meaning
+   anything and becomes one more thing twitching on a screen someone is trying to read a race off.
+
+   Scoped to `.tower` on purpose. `bestClass()` is shared with LapHistory, and unscoped this would
+   set every session best in a driver's lap history flashing the moment the panel was expanded — a
+   burst of motion for laps that happened minutes ago.
+
+   Fires on mount, and the tower keys a winning cell by its winning value, so React remounts it when
+   a new best arrives and not on the snapshots that merely keep it. That also catches the holder
+   improving their own time, which watching the class alone would miss: the class was already there.
+   The cost is that a genuine mount flashes too, so the leader's best lap flashes once when the
+   dashboard is opened. That is the accepted trade, not an oversight. */
+.tower .time--session-best {
+  animation: tower-session-best-flash 700ms ease-out;
+}
+
+@keyframes tower-session-best-flash {
+  from {
+    background: color-mix(in srgb, var(--flag-session-best) 32%, transparent);
+  }
+
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tower .time--session-best {
+    animation: none;
+  }
+}
+
 .time--personal-best {
-  color: var(--personal-best);
+  color: var(--flag-personal-best);
 }
 
 .time--invalid {
-  color: var(--invalid);
+  color: var(--flag-invalid);
   text-decoration: line-through;
 }
 
@@ -719,7 +810,7 @@ th.tower__state {
 .focus {
   width: 100%;
   background: var(--bg-raised);
-  border: 1px solid var(--border);
+  border: 1px solid var(--edge);
   border-radius: 6px;
   padding: 12px 16px;
 }
@@ -841,7 +932,7 @@ th.tower__state {
   font-size: 13px;
   font-weight: 600;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--rule);
 }
 
 .focus__primary {
@@ -858,7 +949,7 @@ th.tower__state {
 
 .metric {
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--rule);
   border-radius: 4px;
   padding: 6px 8px;
   display: flex;
@@ -1005,17 +1096,17 @@ th.tower__state {
   height: 8px;
   border-radius: 2px;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--edge);
   overflow: hidden;
 }
 
 .damage__fill {
   height: 100%;
-  background: var(--live);
+  background: var(--status-live);
 }
 
 .damage__fill--critical {
-  background: var(--penalty);
+  background: var(--flag-penalty);
 }
 
 .damage__value {
@@ -1046,7 +1137,7 @@ th.tower__state {
 
 /* Only ever applied where a limit is actually reported — see `IncidentsPanel`. */
 .incidents--critical .incidents__count {
-  color: var(--penalty);
+  color: var(--flag-penalty);
 }
 
 /* Banner */
@@ -1057,7 +1148,7 @@ th.tower__state {
   justify-content: space-between;
   gap: 16px;
   padding: 10px 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--edge);
 }
 
 .banner--warn {
