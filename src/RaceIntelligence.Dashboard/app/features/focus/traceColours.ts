@@ -20,8 +20,8 @@ export const TRACE_COLOURS = {
 
   // GROUND: cross-file tests stop axis and track retaining the colours CSS used to have.
   axis: '#8b93a7',
-  grid: '#1e2433',
-  track: '#1d2432',
+  grid: '#1f1f25',
+  track: '#1e1e24',
 } as const;
 
 /**

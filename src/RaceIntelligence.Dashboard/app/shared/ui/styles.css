@@ -4,13 +4,15 @@
  */
 
 :root {
-  /* GROUND may change with the surface design (see issue #40). Rule is for quiet hairlines; edge is
-     for structural outlines whose contrast must survive a future ground change. */
-  --bg: #0d1117;
-  --bg-raised: #161b26;
-  --bg-hover: #1d2432;
-  --rule: #262d3d;
-  --edge: #262d3d;
+  /* GROUND is the near-neutral graphite ramp everything else is read against. It is neutral so that
+     no flag competes with it: the old blue-black ground sat a few degrees from --flag-pit, which is
+     why a car in the box read more weakly than a car with a penalty. Rule is for quiet hairlines;
+     edge is for structural outlines whose contrast must survive a future ground change. */
+  --bg: #0b0b0e;
+  --bg-raised: #16161c;
+  --bg-hover: #1e1e24;
+  --rule: #232a38;
+  --edge: #5b637c;
   --text: #e6e9ef;
   --text-muted: #8b93a7;
 
@@ -25,9 +27,9 @@
 
   /* CHROME belongs to the application rather than racing semantics, so restyling a control cannot
      silently repaint a flag or telemetry channel. */
-  --accent: #5aa9ff;
-  --accent-fill: rgba(90, 169, 255, 0.1);
-  --status-live: #3ddc84;
+  --accent: #a37bff;
+  --accent-fill: rgba(163, 123, 255, 0.1);
+  --status-live: #35c9d6;
 
   color-scheme: dark;
 }
@@ -543,7 +545,8 @@ th.tower__driver {
 
 .tower__pos {
   width: 40px;
-  color: var(--text-muted);
+  color: var(--text);
+  font-weight: 700;
 }
 
 .tower__driver {
@@ -573,10 +576,6 @@ th.tower__state {
   align-items: center;
 }
 
-.tower__row--rich {
-  background: rgba(61, 220, 132, 0.04);
-}
-
 .tower__row--focused {
   background: var(--accent-fill);
 }
@@ -585,8 +584,13 @@ th.tower__state {
   background: var(--bg-hover);
 }
 
+/* Last of the row states, so pit wins over focus and expansion: a car in the box is being read for
+   a different reason than the one it was opened for. Winning means being the louder wash too — at
+   0.12 this is 1.21:1 against the raised ground, above the 1.14:1 of a focused row. A tint and not
+   the `opacity: 0.65` this used to be, because a blanket fade took IN BOX and 2T LEFT down with the
+   timing, at exactly the moment a strategist is looking for them. */
 .tower__row--pit {
-  opacity: 0.65;
+  background: rgba(90, 169, 255, 0.12);
 }
 
 .tower__detail > td {

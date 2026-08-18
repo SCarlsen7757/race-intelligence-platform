@@ -121,7 +121,6 @@ export function TimingTower({
               <tr
                 className={[
                   'tower__row',
-                  isRich ? 'tower__row--rich' : '',
                   isFocused ? 'tower__row--focused' : '',
                   isExpanded ? 'tower__row--expanded' : '',
                   row.inPitLane === true ? 'tower__row--pit' : '',
