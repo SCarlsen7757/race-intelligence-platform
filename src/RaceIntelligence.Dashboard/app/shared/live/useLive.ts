@@ -67,6 +67,19 @@ export function useConnected() {
 }
 
 /**
+ * Which focused drivers are actually streaming, as opposed to merely subscribed.
+ *
+ * The one exception to "nothing here observes focus frames", and it is a narrow one: the store
+ * emits when a driver gains or loses its first frame, never on the frames in between. A subscribed
+ * driver with nothing arriving yet is a click that has not visibly registered, and telling those
+ * apart is the whole reason this exists.
+ */
+export function useFocusReady() {
+  const { store } = useLive();
+  return useStoreSlice(store, store.getFocusReadyKeys);
+}
+
+/**
  * One driver's completed laps, or null until the hub has answered.
  *
  * Reads out of the per-driver map rather than subscribing per driver, because the messages

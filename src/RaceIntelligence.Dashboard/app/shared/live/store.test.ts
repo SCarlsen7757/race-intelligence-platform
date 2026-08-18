@@ -137,37 +137,73 @@ describe('LiveStore', () => {
   /**
    * The rule the whole two-rate design rests on. A subscriber firing at 60 Hz means a React render
    * per frame, which is exactly what the focus stream is kept out of React state to avoid.
+   *
+   * Not zero notifications, but a fixed number: a driver announces itself once when it starts
+   * streaming, so the panel can stop showing a click as unacknowledged. What must never happen is
+   * a count that grows with the frames, which is what this asserts by sending two hundred of them.
    */
-  it('does not notify subscribers for focus frames', () => {
+  it('notifies once when a driver starts streaming, and never again per frame', () => {
     const store = following(['id:2']);
     const listener = vi.fn();
     store.subscribe(listener);
 
     store.apply(focusFrame());
-    store.apply(focusFrame({ lapNumber: 2 }));
+    expect(listener).toHaveBeenCalledTimes(1);
 
-    expect(listener).not.toHaveBeenCalled();
-    expect(store.frameFor('id:2')?.lapNumber).toBe(2);
+    for (let lapNumber = 2; lapNumber <= 200; lapNumber++) {
+      store.apply(focusFrame({ lapNumber }));
+    }
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(store.frameFor('id:2')?.lapNumber).toBe(200);
   });
 
-  /** Even a second driver joining the comparison mid-stream must not reach React from here. */
-  it('does not notify subscribers when a second driver starts streaming', () => {
+  /** Two streams, two announcements — still one each, not one per frame of either. */
+  it('notifies once per driver when a second joins the comparison mid-stream', () => {
     const store = following(['id:2', 'id:9']);
-    store.apply({
-      type: 'extrasFrame',
-      roomId: 'room',
-      driverKey: 'id:2',
-      capturedAtUtc: '2026-08-16T12:00:00Z',
-      extras: '{}',
-    });
-
     const listener = vi.fn();
     store.subscribe(listener);
 
+    for (let i = 0; i < 50; i++) {
+      store.apply(focusFrame({ driverKey: 'id:2' }));
+      store.apply(focusFrame({ driverKey: 'id:9' }));
+    }
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(store.getFocusReadyKeys()).toEqual(new Set(['id:2', 'id:9']));
+  });
+
+  /** The click acknowledgement: subscribed is not the same as streaming, and the panel must know. */
+  it('reports a driver as ready only once a frame has actually arrived', () => {
+    const store = following(['id:2']);
+
+    expect(store.getFocusReadyKeys().has('id:2')).toBe(false);
+
+    store.apply(focusFrame());
+
+    expect(store.getFocusReadyKeys().has('id:2')).toBe(true);
+  });
+
+  /** A stream that has stopped is not one whose panel should still read as live. */
+  it('stops reporting a driver as ready when the stream is interrupted, and again when it resumes', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame());
+
+    store.interruptFocus();
+    expect(store.getFocusReadyKeys().has('id:2')).toBe(false);
+
+    store.apply(focusFrame());
+    expect(store.getFocusReadyKeys().has('id:2')).toBe(true);
+  });
+
+  it('drops readiness for a driver that went away, and keeps it for the one that stayed', () => {
+    const store = following(['id:2', 'id:9']);
     store.apply(focusFrame({ driverKey: 'id:2' }));
     store.apply(focusFrame({ driverKey: 'id:9' }));
 
-    expect(listener).not.toHaveBeenCalled();
+    store.setFollowedDrivers(['id:9']);
+
+    expect(store.getFocusReadyKeys()).toEqual(new Set(['id:9']));
   });
 
   it('notifies subscribers for the slow-changing streams', () => {

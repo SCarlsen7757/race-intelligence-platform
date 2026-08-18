@@ -338,6 +338,40 @@ describe('TimingTower', () => {
     ).toEqual(['Shown', 'Show', 'Shown']);
   });
 
+  /**
+   * Clicking Show subscribes and then sits on a panel of em dashes until the first frame lands.
+   * On a LAN that is invisible; through a tunnel it is long enough to click twice and wonder
+   * whether the first one registered.
+   */
+  it('says a focused driver is still opening until their first frame arrives', () => {
+    renderTower(
+      [
+        row({ driverKey: 'id:1', position: 1, tier: 'Self' }),
+        row({ driverKey: 'id:2', position: 2, tier: 'Self' }),
+      ],
+      { focusedDriverKeys: ['id:1', 'id:2'], pendingDriverKeys: new Set(['id:2']) },
+    );
+
+    const buttons = screen.getAllByRole('button', { name: /Open telemetry/ });
+    expect(buttons.map((b) => b.textContent)).toEqual(['Shown', 'Opening…']);
+
+    // Still pressed while pending: the subscription is on, which is what the control toggles.
+    // `aria-busy` is what says the data has not caught up.
+    expect(buttons[1]!.getAttribute('aria-pressed')).toBe('true');
+    expect(buttons[1]!.getAttribute('aria-busy')).toBe('true');
+    expect(buttons[0]!.getAttribute('aria-busy')).toBe('false');
+  });
+
+  /** A driver nobody asked for cannot be waiting on a frame, whatever a stale set claims. */
+  it('does not mark an unfocused driver as opening', () => {
+    renderTower([row({ driverKey: 'id:1', position: 1, tier: 'Self' })], {
+      focusedDriverKeys: [],
+      pendingDriverKeys: new Set(['id:1']),
+    });
+
+    expect(screen.getByRole('button', { name: /Open telemetry/ }).textContent).toBe('Show');
+  });
+
   it('shows a car with no reported position last, not first', () => {
     renderTower([
       row({ driverKey: 'id:1', displayName: 'Unplaced', position: null }),
