@@ -1,19 +1,24 @@
 /**
- * The colours the input traces and bars are painted in.
+ * CHANNELS are owned solely by this module because canvas painters need concrete colour values.
  *
  * Canvas cannot read a CSS custom property, and uPlot wants a concrete stroke, so these have to
  * exist as JavaScript values somewhere. Keeping them in one module rather than inline in each
  * painter is what stops the trace and the bar for the same channel drifting apart — a throttle
  * line and a throttle bar in two different greens would read as two different measurements.
  *
- * They mirror the `--trace-*` tokens in `styles.css`; the stylesheet is the one a designer would
- * edit, and these must be changed with it.
+ * FLAGS and CHROME remain stylesheet concerns: coupling either to a telemetry channel would let an
+ * unrelated interface restyle repaint a measurement. GROUND remains here only where canvas needs
+ * it; axis and track are kept under an explicit cross-file contract because canvas cannot resolve
+ * their CSS counterparts.
  */
 export const TRACE_COLOURS = {
+  // CHANNELS: this module is the single source of truth for every input painter.
   throttle: '#3ddc84',
   brake: '#ff5c5c',
   clutch: '#ffc35c',
   steering: '#5aa9ff',
+
+  // GROUND: cross-file tests stop axis and track retaining the colours CSS used to have.
   axis: '#8b93a7',
   grid: '#1e2433',
   track: '#1d2432',
@@ -22,10 +27,8 @@ export const TRACE_COLOURS = {
 /**
  * One colour per wheel, in the wire's order — FL, FR, RL, RR.
  *
- * They live here under the same constraint the input colours do, and mirror the `--wheel-*` tokens
- * in `styles.css` for the same reason: the numbers beside a tyre chart are DOM and take their
- * colour from the stylesheet, while the lines are canvas and cannot read a custom property. A wheel
- * whose label and line disagreed would be worse than no colour at all.
+ * This module is their sole owner. Keeping the DOM swatches and canvas lines on this shared export
+ * prevents a wheel whose label and line disagreed, which would be worse than no colour at all.
  *
  * Chosen so the two ends of an axle are far apart in hue rather than merely in lightness, because
  * the thing being read off these charts is one corner diverging from the others.
