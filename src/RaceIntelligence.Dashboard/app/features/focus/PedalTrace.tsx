@@ -1,7 +1,5 @@
-import { useEffect, useRef } from 'react';
-import uPlot from 'uplot';
-import 'uplot/dist/uPlot.min.css';
 import { TRACE_CAPACITY, type LiveStore } from '../../shared/live/store';
+import { LiveChart, type LiveChartSpec } from './LiveChart';
 import { TRACE_COLOURS } from './traceColours';
 
 /* Derived from the channel colour rather than written out as a second red, so the fill cannot be
@@ -38,140 +36,53 @@ interface PedalTraceProps {
 /**
  * Throttle, brake, clutch and steering over the last thirty seconds.
  *
- * **This component renders once.** After mount, nothing here goes through React again — a
- * `requestAnimationFrame` loop reads the store's ring buffers and hands them to uPlot. Sixty React
- * renders a second would drop frames on a laptop long before the canvas did, and the traces are
- * the one thing on screen where dropped frames are visible as a stutter.
+ * Two scales rather than one, because steering runs from lock to lock through zero and the pedals
+ * run from nothing to everything. Sharing an axis would put a straight-ahead wheel in the middle of
+ * the pedal range and a released pedal at full left lock, which is worse than two axes and reads
+ * like a fault.
  *
- * uPlot rather than an SVG chart library for the same reason: a thousand points per series in the
- * DOM is a layout cost per frame, whereas a canvas redraw is one.
+ * The painting is `LiveChart`'s — see there for why none of this goes through React after mount.
  */
 export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (container === null) {
-      return;
-    }
-
-    // Resolved once, then read every frame. The rings for a driver outlive every paint, so looking
-    // them up per frame would be a map probe sixty times a second for an answer that never changes.
-    const traces = store.tracesFor(driverKey);
-
-    const chart = new uPlot(
+  // `tracesFor` creates the rings on demand, so it is reached from inside the buffer closures
+  // rather than here: those are called when the chart is built, which keeps a store write out of a
+  // render pass. The panel routinely mounts before the driver's first frame has arrived, which is
+  // exactly why the store creates on demand in the first place.
+  const spec: LiveChartSpec = {
+    capacity: TRACE_CAPACITY,
+    scales: { pedal: { range: [0, 1] }, steer: { range: [-1, 1] } },
+    axis: { scale: 'pedal' },
+    series: [
       {
-        width: container.clientWidth,
-        height,
-        // The x axis is sample index, not time: the traces are a rolling window of the last N
-        // frames, and a wall-clock axis would need the capture timestamps to be evenly spaced,
-        // which a 60 Hz poll on a busy machine is not.
-        scales: {
-          // Fixed from the first sample: a five-second-old stream occupies one sixth of this
-          // thirty-second window instead of being stretched across the whole plot.
-          x: { time: false, range: [0, TRACE_CAPACITY - 1] },
-          pedal: { range: [0, 1] },
-          steer: { range: [-1, 1] },
-        },
-        axes: [
-          { show: false },
-          {
-            scale: 'pedal',
-            stroke: TRACE_COLOURS.axis,
-            grid: { stroke: TRACE_COLOURS.grid },
-          },
-        ],
-        legend: { show: false },
-        cursor: { show: false },
-        // spanGaps: false throughout, because the store pushes NaN for a pedal the simulator did
-        // not report. A bridged gap would draw a confident line through data that does not exist.
-        series: [
-          {},
-          {
-            label: 'Throttle',
-            scale: 'pedal',
-            stroke: TRACE_COLOURS.throttle,
-            width: 1.5,
-            spanGaps: false,
-          },
-          {
-            label: 'Brake',
-            scale: 'pedal',
-            stroke: TRACE_COLOURS.brake,
-            fill: BRAKE_FILL,
-            width: 1.5,
-            spanGaps: false,
-          },
-          {
-            label: 'Clutch',
-            scale: 'pedal',
-            stroke: TRACE_COLOURS.clutch,
-            width: 1.5,
-            spanGaps: false,
-          },
-          {
-            label: 'Steering',
-            scale: 'steer',
-            stroke: TRACE_COLOURS.steering,
-            width: 1,
-            spanGaps: false,
-          },
-        ],
+        label: 'Throttle',
+        scale: 'pedal',
+        stroke: TRACE_COLOURS.throttle,
+        buffer: () => store.tracesFor(driverKey).throttle,
       },
-      [
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-      ],
-      container,
-    );
+      {
+        label: 'Brake',
+        scale: 'pedal',
+        stroke: TRACE_COLOURS.brake,
+        fill: BRAKE_FILL,
+        buffer: () => store.tracesFor(driverKey).brake,
+      },
+      {
+        label: 'Clutch',
+        scale: 'pedal',
+        stroke: TRACE_COLOURS.clutch,
+        buffer: () => store.tracesFor(driverKey).clutch,
+      },
+      {
+        label: 'Steering',
+        scale: 'steer',
+        stroke: TRACE_COLOURS.steering,
+        width: 1,
+        buffer: () => store.tracesFor(driverKey).steering,
+      },
+    ],
+  };
 
-    // Reused across frames so the paint loop allocates nothing. Resized only when the window the
-    // buffers cover actually grows, which stops once the ring is full.
-    //
-    // Plain arrays for the channels, not typed ones: a missing pedal has to reach uPlot as null to
-    // draw as a gap, and a Float64Array cannot hold one — see `TraceBuffer.toNullableArray`. The x
-    // axis stays typed, because a sample index is never absent.
-    let xs = new Float64Array(0);
-    let throttle: (number | null)[] = [];
-    let brake: (number | null)[] = [];
-    let clutch: (number | null)[] = [];
-    let steering: (number | null)[] = [];
-
-    let frame = 0;
-
-    const paint = () => {
-      const count = traces.throttle.length;
-
-      if (count !== xs.length) {
-        xs = new Float64Array(count);
-        for (let i = 0; i < count; i++) {
-          xs[i] = TRACE_CAPACITY - count + i;
-        }
-      }
-
-      throttle = traces.throttle.toNullableArray(throttle);
-      brake = traces.brake.toNullableArray(brake);
-      clutch = traces.clutch.toNullableArray(clutch);
-      steering = traces.steering.toNullableArray(steering);
-
-      chart.setData([xs, throttle, brake, clutch, steering], true);
-      frame = requestAnimationFrame(paint);
-    };
-
-    frame = requestAnimationFrame(paint);
-
-    const resize = () => chart.setSize({ width: container.clientWidth, height });
-    window.addEventListener('resize', resize);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('resize', resize);
-      chart.destroy();
-    };
-  }, [store, driverKey, height]);
-
-  return <div ref={containerRef} className="trace" />;
+  return (
+    <LiveChart store={store} driverKey={driverKey} spec={spec} height={height} className="trace" />
+  );
 }

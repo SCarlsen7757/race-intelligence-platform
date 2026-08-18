@@ -1,6 +1,3 @@
-import { useEffect, useRef } from 'react';
-import uPlot from 'uplot';
-import 'uplot/dist/uPlot.min.css';
 import type { FocusFrameMessage } from '../../shared/live/contracts';
 import { WHEELS } from '../../shared/live/contracts';
 import {
@@ -10,7 +7,8 @@ import {
   type WheelTraces,
 } from '../../shared/live/store';
 import { LiveReadout } from '../../shared/ui/LiveReadout';
-import { TRACE_COLOURS, WHEEL_COLOURS } from './traceColours';
+import { LiveChart, type LiveChartSpec } from './LiveChart';
+import { WHEEL_COLOURS } from './traceColours';
 
 interface WheelTraceProps {
   store: LiveStore;
@@ -44,12 +42,11 @@ interface WheelTraceProps {
  * a left front climbing away from the right front is a car that is about to understeer, and that is
  * visible as a gap between two lines and invisible in four separate charts.
  *
- * **This component renders once.** Like `PedalTrace`, everything after mount is a
- * `requestAnimationFrame` loop handing ring buffers to uPlot, and the labels are `LiveReadout`s
- * writing `textContent` from their own loop. No React render happens per frame.
- *
  * The rings behind it are the slow ones — see `TYRE_SAMPLE_INTERVAL_MS`. Plotting tyres on the
- * pedals' sixty-second window would show a flat line and call it information.
+ * pedals' thirty-second window would show a flat line and call it information.
+ *
+ * The painting is `LiveChart`'s and the labels are `LiveReadout`s, so no React render happens per
+ * frame here either.
  */
 export function WheelTrace({
   store,
@@ -61,118 +58,27 @@ export function WheelTrace({
   range,
   height = 112,
 }: WheelTraceProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (container === null) {
-      return;
-    }
-
-    const wheels = channel(store.tracesFor(driverKey).tyres);
-
-    const chart = new uPlot(
-      {
-        width: container.clientWidth,
-        height,
-        // Sample index, not wall clock, for the same reason the pedal trace uses one: the rings are
-        // a rolling window of samples and a time axis would need them evenly spaced, which a poll
-        // on a busy machine is not.
-        scales: {
-          x: { time: false, range: [0, TYRE_TRACE_CAPACITY - 1] },
-          y: range === undefined ? {} : { range: [...range] },
-        },
-        axes: [
-          { show: false },
-          { stroke: TRACE_COLOURS.axis, grid: { stroke: TRACE_COLOURS.grid } },
-        ],
-        legend: { show: false },
-        cursor: { show: false },
-        series: [
-          {},
-          // spanGaps: false throughout. Tyre values are nullable on the wire and the store pushes
-          // NaN for an unreported wheel, so a hole stays a hole: bridging it would draw a confident
-          // line through a reading that was never taken.
-          ...WHEELS.map((wheel, index) => ({
-            label: wheel,
-            stroke: WHEEL_COLOURS[index]!,
-            width: 1.5,
-            spanGaps: false,
-          })),
-        ],
-      },
-      [
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-      ],
-      container,
-    );
-
-    // Reused across frames so the paint loop allocates nothing, exactly as the pedal trace does.
-    //
-    // Plain arrays for the wheels, not typed ones: an unreported wheel has to reach uPlot as null
-    // to draw as a gap, and a Float64Array cannot hold one — see `TraceBuffer.toNullableArray`.
-    // Drawn at zero instead, a missing pressure reads as a flat tyre. The x axis stays typed,
-    // because a sample index is never absent.
-    let xs = new Float64Array(0);
-    const series: (number | null)[][] = [[], [], [], []];
-
-    let frame = 0;
-
-    // Tyre rings are pushed once a second (TYRE_SAMPLE_INTERVAL_MS), but requestAnimationFrame
-    // runs up to sixty times a second, so redrawing on every frame copies four full rings into
-    // uPlot fifty-nine times more often than the data changes. -1 never matches a version, so the
-    // first frame after mount still paints even when the ring is empty.
-    let paintedVersion = -1;
-
-    const paint = () => {
-      // Every wheel is pushed in the same call, so one version describes all four.
-      const version = wheels[0].version;
-
-      if (version !== paintedVersion) {
-        const count = wheels[0].length;
-
-        if (count !== xs.length) {
-          xs = new Float64Array(count);
-          for (let i = 0; i < count; i++) {
-            xs[i] = TYRE_TRACE_CAPACITY - count + i;
-          }
-        }
-
-        for (let wheel = 0; wheel < series.length; wheel++) {
-          series[wheel] = wheels[wheel]!.toNullableArray(series[wheel]);
-        }
-
-        chart.setData([xs, series[0]!, series[1]!, series[2]!, series[3]!], true);
-        paintedVersion = version;
-      }
-
-      frame = requestAnimationFrame(paint);
-    };
-
-    frame = requestAnimationFrame(paint);
-
-    const resize = () => {
-      chart.setSize({ width: container.clientWidth, height });
-      // Otherwise the chart sits at the old width for up to a second, until the next sample
-      // happens to arrive and the version guard above lets a repaint through.
-      paintedVersion = -1;
-    };
-    window.addEventListener('resize', resize);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('resize', resize);
-      chart.destroy();
-    };
-  }, [store, driverKey, channel, range, height]);
+  const spec: LiveChartSpec = {
+    capacity: TYRE_TRACE_CAPACITY,
+    scales: { y: range === undefined ? {} : { range: [...range] } },
+    // Resolved inside the closures rather than here, so the on-demand ring creation in `tracesFor`
+    // stays out of a render pass. See the same note in `PedalTrace`.
+    series: WHEELS.map((wheel, index) => ({
+      label: wheel,
+      stroke: WHEEL_COLOURS[index]!,
+      buffer: () => channel(store.tracesFor(driverKey).tyres)[index]!,
+    })),
+  };
 
   return (
     <div className="wheel-chart">
-      <div ref={containerRef} className="wheel-chart__plot" />
+      <LiveChart
+        store={store}
+        driverKey={driverKey}
+        spec={spec}
+        height={height}
+        className="wheel-chart__plot"
+      />
 
       <div className="wheel-chart__values">
         {WHEELS.map((wheel, index) => (

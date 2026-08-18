@@ -33,6 +33,15 @@ export function LiveReadout({
 }: LiveReadoutProps) {
   const ref = useRef<HTMLSpanElement>(null);
 
+  // Held in a ref and read inside the loop, so the effect does not key on it. Callers overwhelmingly
+  // write this inline — `render={(frame) => formatSpeed(frame.speed)}` is the natural way to say it
+  // — and keying on a fresh closure would restart the loop on every render of the parent. The loop
+  // reads whatever the latest render put here, which is the value the caller meant.
+  const renderRef = useRef(render);
+  useEffect(() => {
+    renderRef.current = render;
+  });
+
   useEffect(() => {
     let frame = 0;
     let previous: string | null = null;
@@ -41,7 +50,7 @@ export function LiveReadout({
       const node = ref.current;
       if (node !== null) {
         const latest = store.frameFor(driverKey);
-        const text = latest === null ? placeholder : render(latest);
+        const text = latest === null ? placeholder : renderRef.current(latest);
 
         // Only touched when it changed. Assigning the same string still invalidates layout in some
         // engines, and most of these values are unchanged between frames.
@@ -56,7 +65,7 @@ export function LiveReadout({
 
     frame = requestAnimationFrame(paint);
     return () => cancelAnimationFrame(frame);
-  }, [store, driverKey, render, placeholder]);
+  }, [store, driverKey, placeholder]);
 
   return (
     <span ref={ref} className={className}>

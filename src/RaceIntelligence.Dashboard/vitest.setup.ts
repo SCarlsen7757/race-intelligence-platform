@@ -47,6 +47,23 @@ if (typeof HTMLCanvasElement !== 'undefined') {
 }
 
 /**
+ * jsdom implements no `ResizeObserver`, and every chart observes its own container so it re-fits
+ * when a panel reflows without the window changing. Left alone, constructing one throws and takes
+ * the whole component down at mount.
+ *
+ * A stub that never fires rather than a real implementation: jsdom lays nothing out, so every
+ * element is zero by zero and there is no resize to observe. What the tests need is for the
+ * observer to exist and for `disconnect` to be callable on teardown.
+ */
+if (typeof globalThis.ResizeObserver !== 'function') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
+/**
  * jsdom implements no `scrollTo` either, and the router's scroll restoration calls it on every
  * navigation. Left alone it logs a "Not implemented" error per test, which buries real ones.
  */
