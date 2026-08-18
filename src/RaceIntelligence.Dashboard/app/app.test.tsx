@@ -202,12 +202,21 @@ describe('the dashboard', () => {
 
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
 
-    // The panels the collector's declared capabilities allow, and no others.
-    expect(screen.getByText('Tyres')).toBeDefined();
-    expect(screen.getByText('Brakes')).toBeDefined();
-    expect(screen.getByText('Pressure')).toBeDefined();
-    expect(screen.getAllByText('Temperature')).toHaveLength(2);
-    expect(screen.getByText('Wear')).toBeDefined();
+    // The compare column carries what is instantaneous: the car's numbers, the pedals and the
+    // assists. Everything per-wheel or per-stint is on the pit wall now, so a column that grew a
+    // tyre chart back would be the regression this split exists to prevent.
+    expect(screen.getByText('MoTeC')).toBeDefined();
+    expect(screen.getByText('Inputs')).toBeDefined();
+    expect(screen.queryByText('Tyres')).toBeNull();
+    expect(screen.queryByText('Brakes')).toBeNull();
+
+    // What the collector's capabilities allow is now what the wall offers to add.
+    await act(async () => {
+      screen.getByRole('button', { name: '+ Add widget' }).click();
+    });
+
+    expect(screen.getByText('Tyre pressure')).toBeDefined();
+    expect(screen.getByText('Brake temperature')).toBeDefined();
     expect(screen.queryByText('Damage')).toBeNull();
   });
 
@@ -254,8 +263,8 @@ describe('the dashboard', () => {
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:9' });
 
     // Both columns, and the same section titles in both — the alignment is the whole point.
-    expect(screen.getAllByText('Tyres')).toHaveLength(2);
-    expect(screen.getAllByText('Brakes')).toHaveLength(2);
+    expect(screen.getAllByText('MoTeC')).toHaveLength(2);
+    expect(screen.getAllByText('Inputs')).toHaveLength(2);
   });
 
   /**

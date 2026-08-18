@@ -3,50 +3,20 @@ import { describe, expect, it } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
-import { registerSimPanels, type SimPanel, type SimPanelProps } from '../../sims/registry';
 import { FocusPanel } from './FocusPanel';
 
 const FIRST_DRIVER = 'id:2';
 const SECOND_DRIVER = 'id:9';
+const THIRD_DRIVER = 'id:11';
 
-function emptyAwarePanel(): SimPanel {
-  return {
-    id: 'optional-channel',
-    title: 'Optional channel',
-    scope: 'driver',
-    requires: ['OptionalChannel'],
-    component: ({ driverKey }: SimPanelProps) => (
-      <span data-testid="optional-reading">{driverKey}</span>
-    ),
-    isEmpty: (extras) => extras?.extras === 'empty',
-    defaultSize: { w: 4, h: 6 },
-    minSize: { w: 3, h: 4 },
-  };
-}
-
-function renderFocus(
-  driverKeys: readonly string[],
-  extrasByDriver: Readonly<Record<string, string>>,
-) {
+function renderFocus(driverKeys: readonly string[]) {
   const store = new LiveStore();
   store.setFollowedDrivers(driverKeys);
-
-  for (const [driverKey, extras] of Object.entries(extrasByDriver)) {
-    store.apply({
-      type: 'extrasFrame',
-      roomId: 'room',
-      driverKey,
-      capturedAtUtc: '2026-08-18T12:00:00Z',
-      extras,
-    });
-  }
 
   return render(
     <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
       <FocusPanel
         driverKeys={driverKeys}
-        gameKey="focus-empty-test"
-        capabilities={['OptionalChannel']}
         displayName={(driverKey) => driverKey}
         onClose={() => undefined}
       />
@@ -54,27 +24,49 @@ function renderFocus(
   );
 }
 
-describe('FocusPanel optional sections', () => {
-  it('omits a panel heading and frame when every displayed driver has nothing to show', () => {
-    registerSimPanels('focus-empty-test', [emptyAwarePanel()]);
+describe('FocusPanel', () => {
+  it('gives every driver a column, however many are being watched', () => {
+    const { container } = renderFocus([FIRST_DRIVER, SECOND_DRIVER, THIRD_DRIVER]);
 
-    const { container } = renderFocus([FIRST_DRIVER], { [FIRST_DRIVER]: 'empty' });
-
-    expect(screen.queryByRole('heading', { name: 'Optional channel' })).toBeNull();
-    expect(container.querySelector('.focus__section--chart')).toBeNull();
+    expect(container.querySelectorAll('.focus__section')).toHaveLength(3);
+    expect(screen.getAllByRole('heading', { name: 'MoTeC' })).toHaveLength(3);
   });
 
-  it('keeps both sides of a comparison when only one driver has something to show', () => {
-    registerSimPanels('focus-empty-test', [emptyAwarePanel()]);
+  /**
+   * The grid is told how many columns to draw, rather than a stylesheet assuming two.
+   *
+   * This is what lets the comparison grow past a pair, and it is only safe because the column now
+   * holds readouts rather than charts — a chart at a fifth of the width would not be a chart.
+   */
+  it('tells the grid how many columns the comparison needs', () => {
+    const { container } = renderFocus([FIRST_DRIVER, SECOND_DRIVER, THIRD_DRIVER]);
 
-    renderFocus([FIRST_DRIVER, SECOND_DRIVER], {
-      [FIRST_DRIVER]: 'empty',
-      [SECOND_DRIVER]: 'reported',
-    });
+    const compare = container.querySelector<HTMLElement>('.focus__compare');
+    expect(compare?.style.getPropertyValue('--compare-columns')).toBe('3');
+  });
 
-    expect(screen.getAllByRole('heading', { name: 'Optional channel' })).toHaveLength(2);
-    expect(screen.getAllByTestId('optional-reading').map((reading) => reading.textContent)).toEqual(
-      [FIRST_DRIVER, SECOND_DRIVER],
-    );
+  /**
+   * One car is not a comparison, so it gets the plain body and no column headings.
+   */
+  it('lays a single driver out without the comparison grid', () => {
+    const { container } = renderFocus([FIRST_DRIVER]);
+
+    expect(container.querySelector('.focus__compare')).toBeNull();
+    expect(container.querySelector('.focus__body')).not.toBeNull();
+    expect(container.querySelectorAll('.focus__column-name')).toHaveLength(0);
+  });
+
+  /**
+   * The channels that moved to the pit wall must not also be here.
+   *
+   * Rendering a stint chart once per car is precisely the cost the strip was cut back to avoid, and
+   * it would come back the moment someone re-registered a catalogue panel into these sections.
+   */
+  it('carries no per-wheel or per-stint channels', () => {
+    const { container } = renderFocus([FIRST_DRIVER, SECOND_DRIVER]);
+
+    expect(container.querySelector('.wheel-chart')).toBeNull();
+    expect(container.querySelector('.damage')).toBeNull();
+    expect(container.querySelector('.trace')).toBeNull();
   });
 });

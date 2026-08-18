@@ -373,11 +373,41 @@ body {
 
 /* Tower first, focus panel underneath it — see the remarks on `FocusPanel` for why it is not a
    sidebar. One column at every width, so nothing about the layout depends on a breakpoint. */
+/*
+ * Timing on the left, the pit wall on the right.
+ *
+ * One column until roughly 1400px, then two. This is the second media query in this file and the
+ * first that is about having *more* room rather than less, which is the whole premise of the wall:
+ * below this width there is no second region worth having, and a wall squeezed beside a tower is
+ * worse than a wall underneath it.
+ *
+ * The left column is floored and capped rather than fractional. A timing tower has a width it wants
+ * — eleven columns of numbers — and giving it a share of the viewport means it grows into dead space
+ * on an ultrawide while the wall, which can always use more, gets proportionally less. `min(...)` in
+ * the floor for the reason every floor in this file has it: min-width beats max-width, so a bare
+ * 420px floor would hold on a 390px viewport and push the document sideways.
+ */
 .session {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+}
+
+@media (min-width: 1400px) {
+  .session {
+    grid-template-columns: minmax(min(420px, 100%), 560px) minmax(0, 1fr);
+  }
+}
+
+/* Timing and the comparison column, stacked. Its own box so the two regions can be laid out as a
+   grid without the tower, the map and the focus panel each becoming a grid item. */
+.session__left {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
 }
 
 /* Timing tower and track map side by side, wrapping to a stack when the window cannot hold both.
@@ -841,13 +871,12 @@ th.tower__state {
 }
 
 /*
- * The strip itself. Panels flow left to right and wrap when they run out of room, so a narrow
- * window stacks them without a media query having to decide when.
+ * The comparison column's body.
  *
- * Each section states its shape rather than every one taking the same basis, which is what used to
- * leave the strip mostly air: a trace wants width and a damage meter wants a short bar, and one
- * rule cannot serve both. The bases below add up to a little under a 1920 window, so a full set
- * fits on one row there and wraps rather than squashes on anything narrower.
+ * One shape now, where there used to be four. The strip once held traces, tyre stacks and damage
+ * meters and needed a rule per shape to stop it being mostly air; those all moved to the pit wall,
+ * and what is left is a single block of readouts per car. A section that is always the same size
+ * does not need to negotiate for width.
  */
 .focus__body {
   display: flex;
@@ -856,41 +885,10 @@ th.tower__state {
   align-items: flex-start;
 }
 
-/*
- * Every section is floored and capped.
- *
- * The floor is what makes this wrap rather than squash: a section that cannot reach its minimum
- * moves to the next line instead of shrinking until its numbers stop being glanceable. The cap stops
- * a wrapped row looking worse than no wrap at all — a lone chart on the second line would otherwise
- * grow into the entire width, a 1100px box drawn to hold four lines that read fine in 240, which is
- * precisely the wasted ink this layout exists to remove.
- *
- * Every floor is `min(Npx, 100%)` rather than a bare `Npx`, because **min-width beats max-width in
- * CSS**, not the other way round: the used width is `max(min-width, min(max-width, width))`. A bare
- * floor of 380px therefore holds even on a 390px phone, where it pushes the whole document into a
- * horizontal scroll. Folding the percentage into the floor itself is what lets it give way.
- */
 .focus__body > .focus__section {
   margin-top: 0;
-}
-
-.focus__body > .focus__section--motec {
-  flex: 5 1 560px;
-  min-width: min(560px, 100%);
-}
-
-.focus__body > .focus__section--chart {
-  flex: 2 1 230px;
-  min-width: min(230px, 100%);
-  max-width: 360px;
-}
-
-/* Related wheel channels read top-to-bottom in one narrow column. Tyres and brakes use the same
-   width so the two stacks sit as a matched pair when there is room. */
-.focus__body > .focus__section--stack {
   flex: 1 1 260px;
   min-width: min(260px, 100%);
-  max-width: 360px;
 }
 
 .focus__stack {
@@ -911,26 +909,29 @@ th.tower__state {
   font-weight: 500;
 }
 
-/* A meter is a glanceable state, not a measurement. See `.damage__part`. */
-.focus__body > .focus__section--compact {
-  flex: 0 1 200px;
-  min-width: min(200px, 100%);
-  max-width: 240px;
-}
-
 /*
- * Two drivers: one grid, not two strips.
+ * Several drivers: one grid, not several strips.
  *
- * Every section is a row spanning both columns, so the same channel sits at the same height on both
- * sides — a comparison whose tyre temperatures are at different heights on each side is not a
- * comparison. Two independently wrapping strips would produce exactly that the moment one driver's
- * collector reported a channel the other's did not.
+ * Every section is a row spanning every column, so the same channel sits at the same height for
+ * every car — a comparison whose readouts are at different heights on each side is not a
+ * comparison. Independently wrapping strips would produce exactly that the moment one driver's
+ * collector reported a channel another's did not.
+ *
+ * The column count comes from the component as `--compare-columns`, not from a `repeat(2, ...)`
+ * baked in here. How many cars may be watched at once is the hub's decision, and now that this
+ * column carries only readouts, several of them fit where two charts used to.
+ *
+ * It scrolls rather than crushing: past four or five cars the columns reach a width where the
+ * numbers stop being glanceable, and a sideways scroll inside this box is a better answer than a
+ * comparison nobody can read. The floor is on the columns, so the scroll only appears once it has
+ * to.
  */
 .focus__compare {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--compare-columns, 2), minmax(150px, 1fr));
   gap: 12px 24px;
   align-items: start;
+  overflow-x: auto;
 }
 
 .focus__compare > .focus__section {
@@ -1237,4 +1238,157 @@ th.tower__state {
 
 .banner--info {
   background: rgba(90, 169, 255, 0.12);
+}
+
+/* Pit wall */
+
+/*
+ * The wall: whatever the user put there, wherever they put it.
+ *
+ * Deliberately plain. Every tile on it is a chart or a meter that already carries its own visual
+ * weight, and a wall of twenty framed boxes each with its own border and heading is a wall you read
+ * the furniture of rather than the data. The frame here is one hairline and a heading small enough
+ * to ignore once you know where things are.
+ */
+.wall {
+  min-width: 0;
+}
+
+.wall__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.wall__title {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Sits above the grid rather than floating over it: a menu that covered the wall would hide the
+   arrangement the user is deciding where to add to. */
+.wall__picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+}
+
+/* One row per widget, with a button per car. Naming the car on the button rather than asking twice
+   — pick a widget, then pick a driver — keeps adding a chart to one click. */
+.wall__picker-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wall__picker-name {
+  flex: 1 1 160px;
+  min-width: min(160px, 100%);
+  font-size: 13px;
+}
+
+.wall__note {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.wall__grid {
+  min-width: 0;
+}
+
+.wall__widget {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.wall__widget-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+/*
+ * The drag handle, and the only part of a tile that starts a drag.
+ *
+ * A tile is mostly canvas, and a uPlot chart swallowing a pointer-down is exactly what makes a
+ * whole-tile drag feel broken. Confining it to the heading also means a chart can grow its own
+ * pointer interactions later without fighting the grid for the gesture.
+ */
+.wall__widget-grip {
+  cursor: grab;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+}
+
+.wall__widget-grip:active {
+  cursor: grabbing;
+}
+
+.wall__widget-title {
+  flex: 1 1 auto;
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Quieter than the widget's own name: which car it is matters, but the widget is what you are
+   looking for when scanning the wall. */
+.wall__widget-driver {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* `min-height: 0` so a chart inside a flex column can be shorter than its content wants, which is
+   what lets a tile resize down at all rather than growing to fit. */
+.wall__widget-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px;
+  overflow: auto;
+}
+
+/*
+ * A widget this session cannot feed.
+ *
+ * Stated, not hidden. A wall is saved per simulator and opened against rooms whose collectors
+ * differ, so this is routine — and a tile that quietly disappeared would have the user hunting for
+ * a chart they know they placed.
+ */
+.wall__unavailable {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* The grid's own placeholder, shown under a tile being dragged. Its default is a translucent red
+   that reads as an error here; the accent says "this is where it lands". */
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent);
+  opacity: 0.18;
+  border-radius: 6px;
 }

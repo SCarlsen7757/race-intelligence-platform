@@ -129,6 +129,22 @@ export function panelsFor(gameKey: string, capabilities: readonly string[]): Sim
 }
 
 /**
+ * One catalogue entry by id, whether or not this room can satisfy it.
+ *
+ * Deliberately not filtered by capability, which is the opposite of what {@link panelsFor} is for.
+ * A wall is a layout the user arranged and then saved, and it is opened against rooms whose
+ * publishers differ — so a widget that ran yesterday will regularly meet a session that cannot feed
+ * it. Dropping it silently would edit someone's layout on their behalf and give no reason; the wall
+ * needs the entry in hand to say which widget went quiet and what it was waiting for.
+ *
+ * Returns null only for an id the catalogue has never heard of, which is a different failure and
+ * gets a different message.
+ */
+export function findPanel(gameKey: string, id: string): SimPanel | null {
+  return (registry.get(gameKey) ?? []).find((panel) => panel.id === id) ?? null;
+}
+
+/**
  * Narrows a catalogue entry to the ones a driver column can mount.
  *
  * A type predicate rather than a bare `scope === 'driver'` test at each call site, because the

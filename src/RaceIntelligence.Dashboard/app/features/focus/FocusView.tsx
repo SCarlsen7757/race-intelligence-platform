@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMemo } from 'react';
 import type { TowerRow } from '../../shared/live/contracts';
-import { useRooms, useTower } from '../../shared/live/useLive';
+import { useTower } from '../../shared/live/useLive';
 import { FocusPanel } from './FocusPanel';
 import { formatDriverKeys, MAX_FOCUSED_DRIVERS, parseDriverKeys } from './focusDriverKeys';
 
@@ -20,7 +20,6 @@ const EMPTY_ROWS: TowerRow[] = [];
  */
 export function FocusView() {
   const { roomId, driverKey } = useParams({ strict: false });
-  const rooms = useRooms();
   const tower = useTower();
   const navigate = useNavigate();
 
@@ -49,8 +48,6 @@ export function FocusView() {
     return null;
   }
 
-  const room = rooms.find((candidate) => candidate.roomId === roomId) ?? null;
-
   const close = (closed: string) => {
     const remaining = driverKeys.filter((key) => key !== closed);
 
@@ -65,10 +62,6 @@ export function FocusView() {
   return (
     <FocusPanel
       driverKeys={driverKeys}
-      gameKey={room?.gameKey ?? ''}
-      // Flattened from every publisher in the room: with two collectors feeding one session, a
-      // panel is showable if any of them can produce what it needs.
-      capabilities={room?.publishers.flatMap((publisher) => publisher.capabilities) ?? []}
       displayName={displayName}
       onClose={close}
       // Said rather than shown as an empty second column. In a session where one person runs a

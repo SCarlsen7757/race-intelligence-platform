@@ -88,10 +88,6 @@ export function PedalBars({ store, driverKey, height = 108 }: PedalBarsProps) {
     };
 
     const paint = () => {
-      if (canvas.clientWidth !== cssWidth) {
-        resize();
-      }
-
       context.clearRect(0, 0, cssWidth, height);
 
       const barHeight = height - LABEL_HEIGHT - STEER_HEIGHT - STEER_GAP;
@@ -156,11 +152,17 @@ export function PedalBars({ store, driverKey, height = 108 }: PedalBarsProps) {
     resize();
     frame = requestAnimationFrame(paint);
 
-    window.addEventListener('resize', resize);
+    // A `ResizeObserver` rather than the `window.resize` listener this had, and rather than the
+    // `clientWidth` check the paint loop used to open with. Both were wrong in their own way: the
+    // window listener never fires when a widget is dragged wider on the pit wall, and reading
+    // `clientWidth` every frame forces the browser to flush layout sixty times a second to answer a
+    // question whose answer almost never changes. The observer is told.
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas);
 
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener('resize', resize);
+      observer.disconnect();
     };
   }, [store, driverKey, height]);
 

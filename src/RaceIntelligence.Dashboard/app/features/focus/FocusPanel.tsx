@@ -1,19 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
 import { formatGear, formatNumber, formatPercent, formatSpeed } from '../../shared/format/format';
 import type { FocusFrameMessage } from '../../shared/live/contracts';
 import type { LiveStore } from '../../shared/live/store';
-import { useAllExtras, useConnected, useLive } from '../../shared/live/useLive';
+import { useConnected, useLive } from '../../shared/live/useLive';
 import { LiveReadout } from '../../shared/ui/LiveReadout';
-import { isDriverWidget, panelsFor } from '../../sims/registry';
-import '../../sims/raceroom';
 import { PedalBars } from './PedalBars';
-import { PedalTrace } from './PedalTrace';
 
 interface FocusPanelProps {
-  /** The drivers on screen, in the order the URL names them. One, or two being compared. */
+  /** The drivers on screen, in the order the URL names them. */
   driverKeys: readonly string[];
-  gameKey: string;
-  capabilities: string[];
   /** How each driver's name is shown. Falls back to the key for a driver not in the tower yet. */
   displayName: (driverKey: string) => string;
   /** Drops one driver — the last one closes the panel. */
@@ -32,48 +27,8 @@ interface FocusPanelProps {
 interface FocusSection {
   id: string;
   title: string;
-  /**
-   * Which of the strip's shapes this section wants.
-   *
-   * `.focus__body` used to give every panel the same flex basis, which is why the strip was mostly
-   * air: a trace wants width, a tyre corner wants about ninety pixels, and a damage meter wants a
-   * short bar. One rule cannot serve all three, so each section says which it is and the stylesheet
-   * sizes it.
-   */
-  shape: 'motec' | 'chart' | 'stack' | 'compact';
   render: (driverKey: string) => ReactNode;
-  /**
-   * Whether this section has nothing to show for one driver, where it can tell.
-   *
-   * Absent on the built-in sections, which always have something to say. A sim panel that can come
-   * up empty declares it on its registration — never keyed on the panel's id here, because that is
-   * the shape `COMPACT_PANELS` already had to be rescued from once.
-   */
-  isEmpty?: (driverKey: string) => boolean;
 }
-
-/**
- * The width, in catalogue grid cells, at or below which a panel is a readout rather than a chart.
- *
- * This replaces a hard-coded set of panel ids. The strip and the pit wall are asking the same
- * question in two vocabularies — how much room does this want — so the answer belongs on the
- * catalogue entry once, and the strip derives its shape from it. Keying appearance on the id was
- * the mistake the `isEmpty` remark below already warns about, made in the one place that had not
- * yet been rescued from it.
- */
-const COMPACT_WIDTH_CELLS = 2;
-
-/**
- * Catalogue widgets the MoTeC block already renders, and which the strip must therefore not render
- * a second time.
- *
- * A set of ids, which the remark on `isEmpty` says not to key behaviour on — the distinction is
- * that this is not behaviour. It is the membership of a composite, and a composite naming its own
- * parts is the only way it can. It exists because the pit wall wants the pedal trace as a widget
- * (it is in the catalogue) while the strip still wants it inside the MoTeC block, and it dies with
- * the strip when the grid lands.
- */
-const MOTEC_WIDGETS = new Set(['pedal-trace']);
 
 function CarMetrics({ store, driverKey }: { store: LiveStore; driverKey: string }) {
   const renderSpeed = useCallback(
@@ -297,137 +252,45 @@ function MotecPanel({ store, driverKey }: { store: LiveStore; driverKey: string 
         <Inputs store={store} driverKey={driverKey} />
         <AssistSettings store={store} driverKey={driverKey} />
       </div>
-      <div className="motec__trace">
-        <h4 className="focus__stack-title">Pedal trace · 30 seconds</h4>
-        <PedalTrace store={store} driverKey={driverKey} />
-      </div>
     </div>
   );
 }
 
 /**
- * One or two drivers at the collector's full poll rate.
+ * Every driver on screen, at the collector's full poll rate, in as little width as that can be said
+ * in.
  *
- * Everything below the header is painted outside React — see `PedalTrace`, `PedalBars`,
- * `WheelTrace` and `LiveReadout`. This component re-renders only when the drivers, the room, or the
- * available panels change, and once a second when an extras frame arrives for a damage panel. That
- * holds for two streams exactly as it did for one: nothing about a second driver adds a render.
+ * **What is here is what is instantaneous and narrow**: what the car is doing this moment, what the
+ * driver's feet are doing, and what the assists are set to. Everything per-wheel or per-stint — the
+ * tyre channels, the brakes, damage, the pedal trace — moved to the pit wall, where a tile can be
+ * given the width a stint needs.
  *
- * Laid out as a strip beneath the tower rather than a column beside it. A sidebar squeezes the
- * timing table — the thing with twenty rows and ten columns — to make room for panels that are each
- * two or three numbers wide. Below the tower they sit side by side at a glanceable size and the
- * tower keeps its full width.
+ * That split is arithmetic rather than taste. This column repeats once per car, so every pixel it
+ * spends is spent again for every driver being compared, and the wall exists so that more than two
+ * cars can be watched at once. A trace needs width to be a trace; a bar is legible at any width, so
+ * the bars stay and the trace goes.
  *
- * **Two drivers are laid out as a grid, not as two strips.** Each section is a row spanning both
- * columns, so the same channel is at the same height on both sides. A comparison where the tyre
- * temperatures sit at different heights on each side is not a comparison — and two independently
- * wrapping strips would produce exactly that as soon as one driver's collector reported a channel
- * the other's did not.
+ * Everything below the header is painted outside React — see `PedalBars` and `LiveReadout`. This
+ * component re-renders only when the drivers or the room change. That holds for five streams
+ * exactly as it did for one: nothing about another driver adds a render.
+ *
+ * **Drivers are laid out as a grid, not as independent strips.** Each section is a row spanning
+ * every column, so the same channel is at the same height for every car. A comparison where the
+ * readouts sit at different heights on each side is not a comparison.
  */
-export function FocusPanel({
-  driverKeys,
-  gameKey,
-  capabilities,
-  displayName,
-  onClose,
-  note,
-}: FocusPanelProps) {
+export function FocusPanel({ driverKeys, displayName, onClose, note }: FocusPanelProps) {
   const { store } = useLive();
   const connected = useConnected();
-  const extras = useAllExtras();
-
-  // Sorted and deduplicated so the panel set is stable: with two collectors in a room the same
-  // capability arrives twice, and an unstable list would remount the panels on every room-list
-  // message.
-  const stableCapabilities = useMemo(() => [...new Set(capabilities)].sort(), [capabilities]);
-
-  // Driver widgets only, and the MoTeC block's own parts dropped. The strip mounts one column per
-  // car, so a room widget has nothing to be a column of — and the compiler enforces that, since a
-  // room widget's props have no driver key to give it.
-  const panels = useMemo(
-    () =>
-      panelsFor(gameKey, stableCapabilities)
-        .filter(isDriverWidget)
-        .filter((panel) => !MOTEC_WIDGETS.has(panel.id)),
-    [gameKey, stableCapabilities],
-  );
-
-  const panelSections = useMemo<FocusSection[]>(() => {
-    const result: FocusSection[] = [];
-    const groups = new Map<string, typeof panels>();
-
-    for (const panel of panels) {
-      if (panel.group === undefined) {
-        result.push({
-          id: panel.id,
-          title: panel.title,
-          shape: panel.defaultSize.w <= COMPACT_WIDTH_CELLS ? 'compact' : 'chart',
-          render: (driverKey) => <panel.component store={store} driverKey={driverKey} />,
-          ...(panel.isEmpty === undefined
-            ? {}
-            : {
-                isEmpty: (driverKey: string) => panel.isEmpty!(extras[driverKey] ?? null),
-              }),
-        });
-        continue;
-      }
-
-      const members = groups.get(panel.group.id);
-      if (members !== undefined) {
-        members.push(panel);
-        continue;
-      }
-
-      const groupMembers = [panel];
-      groups.set(panel.group.id, groupMembers);
-      result.push({
-        id: panel.group.id,
-        title: panel.group.title,
-        shape: 'stack',
-        render: (driverKey) => (
-          <div className="focus__stack">
-            {groupMembers.map((member) => (
-              <div key={member.id} className="focus__stack-item">
-                <h4 className="focus__stack-title">{member.group!.itemTitle}</h4>
-                <member.component store={store} driverKey={driverKey} />
-              </div>
-            ))}
-          </div>
-        ),
-        isEmpty: (driverKey) =>
-          groupMembers.every(
-            (member) => member.isEmpty !== undefined && member.isEmpty(extras[driverKey] ?? null),
-          ),
-      });
-    }
-
-    return result;
-  }, [extras, panels, store]);
 
   const sections = useMemo<FocusSection[]>(
     () => [
       {
         id: 'motec',
         title: 'MoTeC',
-        shape: 'motec',
         render: (driverKey) => <MotecPanel store={store} driverKey={driverKey} />,
       },
-      ...panelSections,
     ],
-    [panelSections, store],
-  );
-
-  /**
-   * Sections dropped only when they are empty for *every* driver on screen.
-   *
-   * Not per column, and that is the whole point. `.focus__compare` lays each section out as one row
-   * spanning both sides so the same channel sits at the same height in both — dropping a section
-   * from one column and not the other would slide every row beneath it out of step, which is
-   * precisely the comparison failure that layout exists to prevent.
-   */
-  const visibleSections = useMemo(
-    () => sections.filter(({ isEmpty }) => !isEmpty || !driverKeys.every((key) => isEmpty(key))),
-    [driverKeys, sections],
+    [store],
   );
 
   const comparing = driverKeys.length > 1;
@@ -471,12 +334,20 @@ export function FocusPanel({
       {note !== undefined && <p className="focus__note">{note}</p>}
 
       {/*
-        One flow of panels rather than a stack. Each is sized by its content and wraps onto the next
-        line when the window narrows, so the same markup reads as a strip on a wide monitor and as a
-        stack on a narrow one without a breakpoint deciding which. The comparison is the same list
-        again, this time as grid rows — see the component remarks.
+        One column per car, each section a row spanning all of them — see the component remarks for
+        why the alignment is the point. The single-driver case is the same list with one column, so
+        there is no second layout to keep in step with this one.
+
+        `--compare-columns` rather than a fixed `repeat(2, ...)`: the cap on how many cars can be
+        watched at once belongs to the hub, not to a stylesheet, and this column is now narrow
+        enough that several fit.
       */}
-      <div className={comparing ? 'focus__compare' : 'focus__body'}>
+      <div
+        className={comparing ? 'focus__compare' : 'focus__body'}
+        style={
+          comparing ? ({ '--compare-columns': driverKeys.length } as CSSProperties) : undefined
+        }
+      >
         {comparing &&
           driverKeys.map((driverKey) => (
             <h3 key={driverKey} className="focus__column-name">
@@ -484,22 +355,15 @@ export function FocusPanel({
             </h3>
           ))}
 
-        {visibleSections.map((section) =>
+        {sections.map((section) =>
           driverKeys.map((driverKey) => (
-            <section
-              key={`${section.id}-${driverKey}`}
-              className={`focus__section focus__section--${section.shape}`}
-            >
+            <section key={`${section.id}-${driverKey}`} className="focus__section">
               <h3 className="focus__section-title">{section.title}</h3>
               {section.render(driverKey)}
             </section>
           )),
         )}
       </div>
-
-      {panels.length === 0 && (
-        <p className="focus__note">This collector reports no channels beyond the basics above.</p>
-      )}
     </aside>
   );
 }

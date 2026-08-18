@@ -1,5 +1,6 @@
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { TowerRow } from '../../shared/live/contracts';
 import { formatDriverKeys, parseDriverKeys, toggleDriverKey } from '../focus/focusDriverKeys';
 import { LapHistoryPanel } from '../laps/LapHistoryPanel';
 import { formatSessionType, isRaceSession } from '../../shared/format/format';
@@ -12,9 +13,12 @@ import {
   useSessionState,
   useTower,
 } from '../../shared/live/useLive';
+import { PitWall } from '../wall/PitWall';
 import { PitWindowBanner } from './PitWindowBanner';
 import { TimingTower } from './TimingTower';
 import { TrackMap } from './TrackMap';
+
+const EMPTY_ROWS: TowerRow[] = [];
 
 /**
  * A leaf, so the one-second tick that keeps this honest does not re-render twenty tower rows.
@@ -123,13 +127,28 @@ export function SessionView() {
   // The room vanishing out from under a viewer is routine — a session ends, the hub expires the
   // room thirty seconds later. The hub also clears the subscription and says so, so this only has
   // to stop rendering a tower that is no longer being updated.
-  const rows = tower !== null && tower.roomId === roomId ? tower.drivers : [];
+  //
+  // Memoised so the empty case is a stable reference, the same shape `FocusView` uses: a fresh `[]`
+  // every render would make everything derived from it recompute on every message the socket
+  // delivers, tower or not.
+  const rows = useMemo(
+    () => (tower !== null && tower.roomId === roomId ? tower.drivers : EMPTY_ROWS),
+    [tower, roomId],
+  );
 
   // Room-checked for the same reason the tower is. A session state that outlived a room switch would
   // put the previous race's pit window over this one's tower — and unlike a stale tower row, a banner
   // carries nothing on screen that would give the mistake away.
   const session = sessionState !== null && sessionState.roomId === roomId ? sessionState : null;
   const layoutLengthMeters = session?.layoutLengthMeters ?? null;
+
+  // How a car is named on a wall tile. The same fallback `FocusView` uses: a link can name a driver
+  // the tower has not sent yet, and `id:4242` reads better than an empty heading while that
+  // resolves.
+  const displayName = useMemo(() => {
+    const names = new Map(rows.map((row) => [row.driverKey, row.displayName]));
+    return (key: string) => names.get(key) ?? key.replace(/^(id|slot|name):/, '');
+  }, [rows]);
 
   return (
     <>
@@ -152,15 +171,21 @@ export function SessionView() {
       */}
       <PitWindowBanner window={session?.pitWindow ?? null} />
 
+      {/*
+        Two regions: timing and the driver comparison on the left, the pit wall on the right. One
+        column until there is enough glass for both — see `.session` for where that line is drawn
+        and why it is the only breakpoint here.
+      */}
       <div className="session">
-        {/*
-          Tower and map side by side, wrapping to a stack when the window cannot hold both. The map
-          reads the same snapshot the tower does — no new subscription, no new wire field — so the
-          two can never disagree about where a car is.
-        */}
-        <div className="session__timing">
-          <div className={`session__tower ${connected ? '' : 'session__tower--stale'}`}>
-            {/*
+        <div className="session__left">
+          {/*
+            Tower and map side by side, wrapping to a stack when the window cannot hold both. The map
+            reads the same snapshot the tower does — no new subscription, no new wire field — so the
+            two can never disagree about where a car is.
+          */}
+          <div className="session__timing">
+            <div className={`session__tower ${connected ? '' : 'session__tower--stale'}`}>
+              {/*
               Where the numbers are, not in the corner. The header's connection light is the only
               thing on screen today that tells a frozen tower from a tower where nobody is
               improving, and it is twelve pixels of muted text a metre from what is being read.
@@ -168,45 +193,61 @@ export function SessionView() {
               while the socket is down — which is exactly when it matters and exactly when no new
               snapshot will arrive to refresh it.
             */}
-            {tower !== null && tower.roomId === roomId && (
-              <p className="tower__stamp">
-                {connected ? 'Updated' : 'Not updating — last snapshot'}{' '}
-                <LastUpdated atUtc={tower.capturedAtUtc} />
-              </p>
-            )}
+              {tower !== null && tower.roomId === roomId && (
+                <p className="tower__stamp">
+                  {connected ? 'Updated' : 'Not updating — last snapshot'}{' '}
+                  <LastUpdated atUtc={tower.capturedAtUtc} />
+                </p>
+              )}
 
-            <TimingTower
+              <TimingTower
+                rows={rows}
+                focusedDriverKeys={focusedDriverKeys}
+                onFocus={toggleFocus}
+                pendingDriverKeys={pendingDriverKeys}
+                expandedDriverKeys={expandedDriverKeys}
+                onToggleExpand={toggleExpand}
+                // No room yet means no session type yet, and an unknown session is not a race. The
+                // tower then withholds pit state for the first message or two rather than guessing.
+                isRace={room !== null && isRaceSession(room.gameKey, room.sessionType)}
+                renderDetail={(key, sessionBests) => (
+                  <LapHistoryPanel
+                    driverKey={key}
+                    sessionBests={sessionBests}
+                    layoutLengthMeters={layoutLengthMeters}
+                  />
+                )}
+              />
+            </div>
+
+            <TrackMap
               rows={rows}
               focusedDriverKeys={focusedDriverKeys}
-              onFocus={toggleFocus}
-              pendingDriverKeys={pendingDriverKeys}
               expandedDriverKeys={expandedDriverKeys}
-              onToggleExpand={toggleExpand}
-              // No room yet means no session type yet, and an unknown session is not a race. The
-              // tower then withholds pit state for the first message or two rather than guessing.
-              isRace={room !== null && isRaceSession(room.gameKey, room.sessionType)}
-              renderDetail={(key, sessionBests) => (
-                <LapHistoryPanel
-                  driverKey={key}
-                  sessionBests={sessionBests}
-                  layoutLengthMeters={layoutLengthMeters}
-                />
-              )}
+              // The same thing clicking the row's driver button does. Every car on the map has that
+              // available — lap history comes from standings, so it works for the whole field — where
+              // opening telemetry only works for the few running a collector.
+              onSelect={toggleExpand}
             />
           </div>
 
-          <TrackMap
-            rows={rows}
-            focusedDriverKeys={focusedDriverKeys}
-            expandedDriverKeys={expandedDriverKeys}
-            // The same thing clicking the row's driver button does. Every car on the map has that
-            // available — lap history comes from standings, so it works for the whole field — where
-            // opening telemetry only works for the few running a collector.
-            onSelect={toggleExpand}
-          />
+          <Outlet />
         </div>
 
-        <Outlet />
+        {/*
+          The wall takes the rest of the glass. Timing and the comparison column are what a race
+          engineer must always be able to see, so they hold the left; everything the engineer chose
+          to have in front of them goes right, and on a wide monitor that is most of the screen.
+
+          Given the room's whole capability set, flattened across publishers: with two collectors
+          feeding one session a widget is offerable if any of them can produce what it needs.
+        */}
+        <PitWall
+          gameKey={room?.gameKey ?? ''}
+          capabilities={room?.publishers.flatMap((publisher) => publisher.capabilities) ?? []}
+          driverKeys={focusedDriverKeys}
+          displayName={displayName}
+        />
       </div>
     </>
   );
