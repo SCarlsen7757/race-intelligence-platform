@@ -64,6 +64,27 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* One ring for every control on the page. The semantics were already right — rows are native
+   buttons carrying aria-expanded and aria-controls, not clickable divs — but a sighted keyboard
+   user tabbing a twenty-car tower saw whatever the browser defaults to on a near-black ground,
+   which is close to nothing. :where() so this carries no specificity and any component that needs
+   its own treatment simply states it.
+
+   Offset outwards, not inset. .driver-button and .link-button are padding: 0, so a negative offset
+   draws the ring across the glyphs it is supposed to be framing. The reason to reach for an inset
+   ring would be `overflow: hidden` on .tower clipping it, and measured against this stylesheet it
+   does not: the driver button's ring spans 46.0 to 77.0 inside a tower clipped at 16.0 to 79.0,
+   and the last column's ring ends 6px short of the right edge. The row's own 5px cell padding is
+   what leaves the room.
+
+   Track map cars keep their bespoke rules below. They are SVG, and the focus target a user sees is
+   the dot, not the <g> that actually receives focus — which is why that group sets outline: none
+   on purpose. */
+:where(.link-button, .room, .driver-button, .focus-button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .app {
   min-height: 100vh;
   display: flex;
