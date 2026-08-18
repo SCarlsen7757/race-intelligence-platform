@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Responsive, useContainerWidth, type Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import { useAllExtras, useLive } from '../../shared/live/useLive';
@@ -7,6 +7,7 @@ import {
   resolveBinding,
   type WallDriverBinding,
 } from '../../shared/view/driverBinding';
+import { downloadViewFile, readViewFile } from '../../shared/view/viewFile';
 import {
   loadWallView,
   saveWallView,
@@ -83,6 +84,20 @@ function UnavailableWidget({ reason }: { reason: string }) {
 }
 
 /**
+ * What an import has to say for itself.
+ *
+ * Shown on the wall rather than through `ErrorBanner`, which is fed exclusively by the hub — its
+ * state is a `LiveErrorMessage` carrying a `LiveErrorCode` off the socket, and it branches on those
+ * codes. Pushing a local complaint through it would mean inventing a wire code for something that
+ * never crossed the wire, and would put "the file you chose is not JSON" in the same place as "the
+ * room closed". A message about a file belongs beside the button that read the file.
+ */
+interface ImportNotice {
+  tone: 'info' | 'warn';
+  text: string;
+}
+
+/**
  * The pit wall: the widgets the user has placed, where they placed them.
  *
  * **Nothing here renders per focus frame.** The widgets are the same components the compare column
@@ -112,6 +127,8 @@ export function PitWall({
 
   const [widgets, setWidgets] = useState<WallWidget[]>(() => loadWallView(gameKey).widgets);
   const [picking, setPicking] = useState(false);
+  const [notice, setNotice] = useState<ImportNotice | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Reloaded during render rather than from an effect, which is React's advice for state derived
   // from a prop: an effect would paint one frame of the previous simulator's wall against this
@@ -121,6 +138,9 @@ export function PitWall({
     setLoadedGameKey(gameKey);
     setWidgets(loadWallView(gameKey).widgets);
     setPicking(false);
+    // A complaint about a file imported into the previous simulator's wall says nothing about this
+    // one, and leaving it up would attach it to a session it was never about.
+    setNotice(null);
   }
 
   useEffect(() => {
@@ -170,6 +190,58 @@ export function PitWall({
   const removeWidget = useCallback((instanceId: string) => {
     setWidgets((current) => current.filter((widget) => widget.instanceId !== instanceId));
   }, []);
+
+  const exportView = useCallback(() => {
+    downloadViewFile(gameKey, { version: WALL_VIEW_VERSION, widgets });
+  }, [gameKey, widgets]);
+
+  /**
+   * Reads a chosen file onto the wall.
+   *
+   * The wall is replaced only on a successful read. A refusal leaves the arrangement exactly as it
+   * was, which is the whole contract of this control: choosing the wrong file must never cost
+   * somebody the layout they already had, because there is no undo and the file they wanted may be
+   * the one they cannot find.
+   */
+  const importView = useCallback(
+    async (file: File) => {
+      const result = readViewFile(
+        await file.text(),
+        (widgetId) => findPanel(gameKey, widgetId) !== null,
+      );
+
+      if (!result.ok) {
+        setNotice({ tone: 'warn', text: result.reason });
+        return;
+      }
+
+      setWidgets(result.view.widgets);
+
+      // Said in one breath, because they are one event. A wall can arrive from another simulator
+      // *and* carry a widget this build has never heard of, and two banners for one import would
+      // read as two problems.
+      const notes: string[] = [];
+
+      if (result.gameKey !== null && result.gameKey !== gameKey) {
+        notes.push(
+          `This wall was saved for ${result.gameKey}. Widgets this session cannot feed will say so.`,
+        );
+      }
+
+      if (result.dropped.length > 0) {
+        notes.push(
+          `Dropped ${result.dropped.length === 1 ? 'a widget' : 'widgets'} this build does not have: ${result.dropped.join(', ')}.`,
+        );
+      }
+
+      setNotice(
+        notes.length === 0
+          ? { tone: 'info', text: `Loaded ${result.name ?? 'the wall'}.` }
+          : { tone: 'warn', text: notes.join(' ') },
+      );
+    },
+    [gameKey],
+  );
 
   /**
    * Writes a drag or a resize back.
@@ -229,7 +301,51 @@ export function PitWall({
         >
           {picking ? 'Cancel' : '+ Add widget'}
         </button>
+
+        <button
+          type="button"
+          className="link-button"
+          disabled={widgets.length === 0}
+          onClick={exportView}
+        >
+          Export
+        </button>
+
+        {/*
+          The input is the file picker; the button is what anyone can see. A bare file input cannot
+          be styled to match anything around it and reads as a foreign control in a dashboard, so it
+          stays hidden and the button clicks it.
+        */}
+        <button type="button" className="link-button" onClick={() => fileInputRef.current?.click()}>
+          Import
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="wall__file-input"
+          aria-label="Import a wall"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            // Cleared so choosing the same file twice fires again. A picker that silently does
+            // nothing the second time reads as broken, and re-importing after a bad edit is exactly
+            // when somebody would try it.
+            event.target.value = '';
+            if (file !== undefined) {
+              void importView(file);
+            }
+          }}
+        />
       </header>
+
+      {notice !== null && (
+        <div className={`banner banner--${notice.tone}`} role="status">
+          <span>{notice.text}</span>
+          <button type="button" className="link-button" onClick={() => setNotice(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {picking && (
         <div className="wall__picker">

@@ -1,9 +1,15 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
-import { loadWallView, saveWallView, WALL_VIEW_VERSION } from '../../shared/view/wallView';
+import { serialiseViewFile } from '../../shared/view/viewFile';
+import {
+  loadWallView,
+  saveWallView,
+  WALL_VIEW_VERSION,
+  type WallWidget,
+} from '../../shared/view/wallView';
 import { registerSimPanels, type SimPanel, type SimPanelProps } from '../../sims/registry';
 import { PitWall } from './PitWall';
 
@@ -54,6 +60,36 @@ function renderWall(
       />
     </LiveContext.Provider>,
   );
+}
+
+/** The text of an exported wall, as a file somebody might choose. */
+function viewFile(gameKey: string, widgets: WallWidget[]): File {
+  return new File(
+    [serialiseViewFile(gameKey, { version: WALL_VIEW_VERSION, widgets })],
+    'wall.json',
+    {
+      type: 'application/json',
+    },
+  );
+}
+
+function savedWidget(widgetId: string): WallWidget {
+  return { instanceId: `i-${widgetId}`, widgetId, driver: { slot: 1 }, x: 0, y: 0, w: 4, h: 6 };
+}
+
+/**
+ * Chooses a file in the import picker.
+ *
+ * `files` is assigned through `defineProperty` because it is read-only on a real input and jsdom
+ * honours that; there is no `DataTransfer` in jsdom to build one the legitimate way.
+ */
+async function importFile(file: File) {
+  const input = screen.getByLabelText('Import a wall');
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+
+  await act(async () => {
+    fireEvent.change(input);
+  });
 }
 
 /** Opens the picker and places the offered widget, pinned to a car or bound to the selection. */
@@ -252,5 +288,115 @@ describe('PitWall', () => {
 
     expect(container.querySelector('.react-grid-item')).not.toBeNull();
     expect(loadWallView(GAME).widgets[0]?.w).toBe(4);
+  });
+
+  /**
+   * A wall someone arranged over a weekend should survive the browser profile it was arranged in.
+   */
+  describe('export and import', () => {
+    it('has nothing to export from an empty wall', () => {
+      renderWall();
+
+      expect(screen.getByRole('button', { name: 'Export' }).hasAttribute('disabled')).toBe(true);
+    });
+
+    it('hands the browser a file, and revokes the URL rather than pinning the blob', async () => {
+      const created: string[] = [];
+      const revoked: string[] = [];
+      const realCreate = URL.createObjectURL;
+      const realRevoke = URL.revokeObjectURL;
+
+      URL.createObjectURL = () => {
+        const url = `blob:test/${created.length}`;
+        created.push(url);
+        return url;
+      };
+      URL.revokeObjectURL = (url: string) => revoked.push(url);
+
+      try {
+        renderWall();
+        await addWidget(DRIVER);
+
+        await act(async () => {
+          screen.getByRole('button', { name: 'Export' }).click();
+        });
+
+        expect(created).toHaveLength(1);
+        expect(revoked).toEqual(created);
+      } finally {
+        URL.createObjectURL = realCreate;
+        URL.revokeObjectURL = realRevoke;
+      }
+    });
+
+    it('loads a wall from a file', async () => {
+      renderWall();
+
+      await importFile(viewFile(GAME, [savedWidget('reading')]));
+
+      expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
+      expect(loadWallView(GAME).widgets).toHaveLength(1);
+    });
+
+    it('drops a widget this build does not have, and names it', async () => {
+      renderWall();
+
+      await importFile(viewFile(GAME, [savedWidget('reading'), savedWidget('from-the-future')]));
+
+      expect(screen.getByRole('status').textContent).toContain('from-the-future');
+      expect(loadWallView(GAME).widgets.map((w) => w.widgetId)).toEqual(['reading']);
+    });
+
+    /**
+     * The distinction that is the substance of this feature: a widget this build does not have is
+     * dropped, but a widget this *session* cannot feed is kept and left to explain itself. The
+     * layout belongs to the user, and a session without brakes is not a reason to edit it.
+     */
+    it('keeps a widget this session cannot feed', async () => {
+      renderWall(['Reading']);
+
+      await importFile(viewFile(GAME, [savedWidget('gated')]));
+
+      expect(screen.getByText(/No collector in this session reports/)).toBeTruthy();
+      expect(loadWallView(GAME).widgets.map((w) => w.widgetId)).toEqual(['gated']);
+    });
+
+    it('offers a wall saved for another simulator rather than refusing it', async () => {
+      renderWall();
+
+      await importFile(viewFile('some-other-sim', [savedWidget('reading')]));
+
+      expect(screen.getByRole('status').textContent).toContain('some-other-sim');
+      // Offered means loaded. The capability check above already covers the parts that cannot run.
+      expect(screen.getByTestId('reading')).toBeTruthy();
+    });
+
+    it('refuses a file that is not a wall, and leaves the wall alone', async () => {
+      renderWall();
+      await addWidget(DRIVER);
+
+      await importFile(new File(['{ not json'], 'wall.json', { type: 'application/json' }));
+
+      expect(screen.getByRole('status').textContent).toMatch(/not JSON/);
+      // The contract of the control: choosing the wrong file must never cost you the arrangement
+      // you already had, because there is no undo.
+      expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
+      expect(loadWallView(GAME).widgets).toHaveLength(1);
+    });
+
+    it('round-trips the wall it exported', async () => {
+      const first = renderWall(['Reading'], [DRIVER, OTHER_DRIVER]);
+      await addWidget(OTHER_DRIVER);
+
+      const exported = serialiseViewFile(GAME, loadWallView(GAME));
+      first.unmount();
+      window.localStorage.clear();
+
+      renderWall(['Reading'], [DRIVER, OTHER_DRIVER]);
+      await importFile(new File([exported], 'wall.json', { type: 'application/json' }));
+
+      expect(screen.getByTestId('reading').textContent).toBe(OTHER_DRIVER);
+      expect(loadWallView(GAME).widgets[0]?.driver).toEqual({ slot: 2 });
+    });
   });
 });

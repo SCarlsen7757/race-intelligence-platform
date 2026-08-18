@@ -74,22 +74,37 @@ function isWallView(value: unknown): value is WallView {
     return false;
   }
 
-  return candidate.widgets.every((widget) => {
-    if (typeof widget !== 'object' || widget === null) {
-      return false;
-    }
+  return candidate.widgets.every(isWallWidget);
+}
 
-    const item = widget as Partial<WallWidget>;
-    return (
-      typeof item.instanceId === 'string' &&
-      typeof item.widgetId === 'string' &&
-      typeof item.x === 'number' &&
-      typeof item.y === 'number' &&
-      typeof item.w === 'number' &&
-      typeof item.h === 'number' &&
-      (item.driver === undefined || isDriverBinding(item.driver))
-    );
-  });
+/**
+ * Whether one entry in a saved wall is one we can place.
+ *
+ * Split out of {@link isWallView} so the import in `viewFile.ts` checks a widget by exactly the
+ * rule storage does. A file and a storage value are the same document arriving by two routes, and
+ * two validators that agreed today would be one bug away from disagreeing about which walls are
+ * loadable depending on where they came from.
+ *
+ * `driver` is optional on purpose: a widget about the room is about no car. That also means a
+ * document written before bindings existed validates as a wall of unbound tiles rather than being
+ * refused — which is the right outcome, and the tile says it was saved without a car rather than
+ * being dropped or attached to whichever car happens to sit at its old index.
+ */
+export function isWallWidget(value: unknown): value is WallWidget {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const item = value as Partial<WallWidget>;
+  return (
+    typeof item.instanceId === 'string' &&
+    typeof item.widgetId === 'string' &&
+    typeof item.x === 'number' &&
+    typeof item.y === 'number' &&
+    typeof item.w === 'number' &&
+    typeof item.h === 'number' &&
+    (item.driver === undefined || isDriverBinding(item.driver))
+  );
 }
 
 /**

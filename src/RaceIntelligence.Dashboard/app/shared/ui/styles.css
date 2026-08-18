@@ -1284,18 +1284,33 @@ th.tower__state {
 .wall__header {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 8px;
 }
 
+/* The heading pushes the controls to the far edge, rather than `space-between` spreading them out.
+   With one button those were the same layout; with three they are not, and the controls belong
+   together as a group because they are all things you do to the wall. */
 .wall__title {
-  margin: 0;
+  margin: 0 auto 0 0;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
   font-weight: 600;
+}
+
+/* The file input is the picker; `.wall__header`'s Import button is what is seen. Hidden with
+   clip-path rather than `display: none`, which would take it out of the accessibility tree and
+   leave the button clicking nothing for anyone driving this from a screen reader. */
+.wall__file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Sits above the grid rather than floating over it: a menu that covered the wall would hide the
