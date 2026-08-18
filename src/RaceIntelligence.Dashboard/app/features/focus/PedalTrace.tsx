@@ -4,6 +4,30 @@ import 'uplot/dist/uPlot.min.css';
 import type { LiveStore } from '../../shared/live/store';
 import { TRACE_COLOURS } from './traceColours';
 
+/* Derived from the channel colour rather than written out as a second red, so the fill cannot be
+   left behind by a change to TRACE_COLOURS.brake — the trace and the bar for one pedal drifting
+   apart is the whole reason those colours live in one module. */
+function hexToRgba(hex: string, alpha: number) {
+  const red = Number.parseInt(hex.slice(1, 3), 16);
+  const green = Number.parseInt(hex.slice(3, 5), 16);
+  const blue = Number.parseInt(hex.slice(5, 7), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+/**
+ * Brake is the one series with a fill, so throttle and brake are told apart by shape and not only
+ * by hue. Green and red collapse toward the same muddy yellow-brown under deuteranopia, and these
+ * are the two lines a coach spends the most time reading against each other — where the throttle
+ * lifts relative to where the brake comes in is most of what a pedal trace is for. It is the same
+ * argument the INV pill beside a struck-through lap time is there to make.
+ *
+ * An area also happens to be the better reading for everyone: trail-braking is a shape you can see
+ * the size of, which two crossing lines do not show. At 28% the throttle stroke stays legible
+ * where it crosses the fill, which it would not at the strength that makes brake unmissable alone.
+ */
+const BRAKE_FILL = hexToRgba(TRACE_COLOURS.brake, 0.28);
+
 interface PedalTraceProps {
   store: LiveStore;
   /** Which driver's stream to plot. Two can be on screen at once. */
@@ -68,6 +92,7 @@ export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) 
             label: 'Brake',
             scale: 'pedal',
             stroke: TRACE_COLOURS.brake,
+            fill: BRAKE_FILL,
             width: 1.5,
             spanGaps: false,
           },
