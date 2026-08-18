@@ -4,7 +4,7 @@ import type { FocusFrameMessage } from '../../shared/live/contracts';
 import type { LiveStore } from '../../shared/live/store';
 import { useAllExtras, useConnected, useLive } from '../../shared/live/useLive';
 import { LiveReadout } from '../../shared/ui/LiveReadout';
-import { panelsFor } from '../../sims/registry';
+import { isDriverWidget, panelsFor } from '../../sims/registry';
 import '../../sims/raceroom';
 import { PedalBars } from './PedalBars';
 import { PedalTrace } from './PedalTrace';
@@ -53,10 +53,27 @@ interface FocusSection {
 }
 
 /**
- * Sim panels that are a readout rather than a chart, and so want a narrow column instead of the
- * width a trace needs.
+ * The width, in catalogue grid cells, at or below which a panel is a readout rather than a chart.
+ *
+ * This replaces a hard-coded set of panel ids. The strip and the pit wall are asking the same
+ * question in two vocabularies — how much room does this want — so the answer belongs on the
+ * catalogue entry once, and the strip derives its shape from it. Keying appearance on the id was
+ * the mistake the `isEmpty` remark below already warns about, made in the one place that had not
+ * yet been rescued from it.
  */
-const COMPACT_PANELS = new Set(['damage', 'incidents']);
+const COMPACT_WIDTH_CELLS = 2;
+
+/**
+ * Catalogue widgets the MoTeC block already renders, and which the strip must therefore not render
+ * a second time.
+ *
+ * A set of ids, which the remark on `isEmpty` says not to key behaviour on — the distinction is
+ * that this is not behaviour. It is the membership of a composite, and a composite naming its own
+ * parts is the only way it can. It exists because the pit wall wants the pedal trace as a widget
+ * (it is in the catalogue) while the strip still wants it inside the MoTeC block, and it dies with
+ * the strip when the grid lands.
+ */
+const MOTEC_WIDGETS = new Set(['pedal-trace']);
 
 function CarMetrics({ store, driverKey }: { store: LiveStore; driverKey: string }) {
   const renderSpeed = useCallback(
@@ -179,28 +196,39 @@ function AssistIndicator({
   const rootRef = useRef<HTMLDivElement>(null);
   const valueRef = useRef<HTMLSpanElement>(null);
 
+  // The readers and the formatter live in a ref for the same reason `LiveReadout`'s do: keying the
+  // loop on them would restart it whenever a caller passed a fresh closure, and nothing but a
+  // hoisting convention stops a caller from doing that. Read from the loop, they are always
+  // whatever the latest render supplied.
+  const readersRef = useRef({ readSetting, readActive, formatSetting });
+  useEffect(() => {
+    readersRef.current = { readSetting, readActive, formatSetting };
+  });
+
   useEffect(() => {
     let animationFrame = 0;
     let previousSetting: number | null | undefined;
     let previousActive: boolean | null | undefined;
 
     const paint = () => {
+      const readers = readersRef.current;
       const frame = store.frameFor(driverKey);
-      const setting = frame === null ? undefined : readSetting(frame);
-      const active = frame === null || readActive === undefined ? undefined : readActive(frame);
+      const setting = frame === null ? undefined : readers.readSetting(frame);
+      const active =
+        frame === null || readers.readActive === undefined ? undefined : readers.readActive(frame);
       const settingChanged = setting !== previousSetting;
       const activeChanged = active !== previousActive;
 
       if (settingChanged && valueRef.current !== null) {
         valueRef.current.textContent =
-          setting === undefined || setting === null ? '—' : formatSetting(setting);
+          setting === undefined || setting === null ? '—' : readers.formatSetting(setting);
         previousSetting = setting;
       }
       if ((settingChanged || activeChanged) && rootRef.current !== null) {
         rootRef.current.classList.toggle('motec-assist--active', active === true);
         rootRef.current.setAttribute(
           'aria-label',
-          `${label} setting ${setting === undefined || setting === null ? 'unavailable' : formatSetting(setting)}${active === true ? ', active' : ''}`,
+          `${label} setting ${setting === undefined || setting === null ? 'unavailable' : readers.formatSetting(setting)}${active === true ? ', active' : ''}`,
         );
         previousActive = active;
       }
@@ -210,7 +238,7 @@ function AssistIndicator({
 
     animationFrame = requestAnimationFrame(paint);
     return () => cancelAnimationFrame(animationFrame);
-  }, [store, driverKey, label, readSetting, readActive, formatSetting]);
+  }, [store, driverKey, label]);
 
   return (
     <div ref={rootRef} className="motec-assist">
@@ -313,8 +341,14 @@ export function FocusPanel({
   // message.
   const stableCapabilities = useMemo(() => [...new Set(capabilities)].sort(), [capabilities]);
 
+  // Driver widgets only, and the MoTeC block's own parts dropped. The strip mounts one column per
+  // car, so a room widget has nothing to be a column of — and the compiler enforces that, since a
+  // room widget's props have no driver key to give it.
   const panels = useMemo(
-    () => panelsFor(gameKey, stableCapabilities),
+    () =>
+      panelsFor(gameKey, stableCapabilities)
+        .filter(isDriverWidget)
+        .filter((panel) => !MOTEC_WIDGETS.has(panel.id)),
     [gameKey, stableCapabilities],
   );
 
@@ -327,7 +361,7 @@ export function FocusPanel({
         result.push({
           id: panel.id,
           title: panel.title,
-          shape: COMPACT_PANELS.has(panel.id) ? 'compact' : 'chart',
+          shape: panel.defaultSize.w <= COMPACT_WIDTH_CELLS ? 'compact' : 'chart',
           render: (driverKey) => <panel.component store={store} driverKey={driverKey} />,
           ...(panel.isEmpty === undefined
             ? {}

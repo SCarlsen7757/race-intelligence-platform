@@ -1,6 +1,7 @@
 import { formatNumber, formatPercent } from '../../shared/format/format';
 import type { FocusFrameMessage } from '../../shared/live/contracts';
 import type { TyreTraces } from '../../shared/live/store';
+import { PedalTrace } from '../../features/focus/PedalTrace';
 import { WheelTrace } from '../../features/focus/WheelTrace';
 import { registerSimPanels, type SimPanelProps } from '../registry';
 import { DamagePanel } from './DamagePanel';
@@ -91,54 +92,95 @@ function TyreTemperaturePanel({ store, driverKey }: SimPanelProps) {
  * The remaining RaceRoom-specific extras the dashboard will eventually want — push-to-pass, DRS,
  * virtual energy, cut-track warnings, tyre subtype, pit menu state — are deliberately absent: none
  * of them is on the live wire yet.
+ *
+ * **The pedal trace is registered here despite needing no capability at all.** Throttle, brake and
+ * steering are core channels every simulator reports, so it is not RaceRoom's in the way a
+ * push-to-pass readout is. It sits here anyway because the registry is keyed by game key and has no
+ * notion of a widget shared by every simulator — and inventing one now would be guessing at an
+ * abstraction from a sample of one, which is exactly what the paragraph above says not to do. The
+ * second simulator is what will show whether a shared catalogue is the right shape.
+ *
+ * Sizes are in grid cells. The two channel stacks are the widest because four wheels over a stint
+ * is a shape, not a number, and a stack squeezed to a quarter of the wall is a smear; damage and
+ * incidents are the narrowest because they are readouts and gain nothing from width.
  */
 registerSimPanels('raceroom', [
   {
+    id: 'pedal-trace',
+    title: 'Pedal trace',
+    scope: 'driver',
+    requires: [],
+    component: PedalTrace,
+    defaultSize: { w: 6, h: 5 },
+    minSize: { w: 4, h: 4 },
+  },
+  {
     id: 'tyre-pressure',
     title: 'Tyre pressure',
+    scope: 'driver',
     requires: ['TyrePressure'],
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Pressure' },
     component: TyrePressurePanel,
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
   },
   {
     id: 'tyre-wear',
     title: 'Tyre wear',
+    scope: 'driver',
     requires: ['TyreWear'],
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Wear' },
     component: TyreWearPanel,
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
   },
   {
     id: 'tyre-temperature',
     title: 'Tyre temperature',
+    scope: 'driver',
     requires: ['TyreTemperature'],
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Temperature' },
     component: TyreTemperaturePanel,
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
   },
   {
     id: 'brake-temperature',
     title: 'Brake temperature',
+    scope: 'driver',
     requires: ['BrakeTemperature'],
     group: { id: 'brakes', title: 'Brakes', itemTitle: 'Temperature' },
     component: BrakeTemperaturePanel,
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
   },
   {
     id: 'brake-wear',
     title: 'Brake wear',
+    scope: 'driver',
     requires: ['BrakeWear'],
     group: { id: 'brakes', title: 'Brakes', itemTitle: 'Wear' },
     component: BrakeWearPanel,
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
   },
   {
     id: 'damage',
     title: 'Damage',
+    scope: 'driver',
     requires: ['Damage'],
     component: DamagePanel,
+    defaultSize: { w: 2, h: 5 },
+    minSize: { w: 2, h: 4 },
   },
   {
     id: 'incidents',
     title: 'Incidents',
+    scope: 'driver',
     requires: ['IncidentPoints'],
     component: IncidentsPanel,
     isEmpty: incidentsPanelIsEmpty,
+    defaultSize: { w: 2, h: 3 },
+    minSize: { w: 2, h: 2 },
   },
 ]);

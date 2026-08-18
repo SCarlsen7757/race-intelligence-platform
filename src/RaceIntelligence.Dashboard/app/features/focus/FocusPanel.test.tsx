@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
-import { registerSimPanels, type SimPanel } from '../../sims/registry';
+import { registerSimPanels, type SimPanel, type SimPanelProps } from '../../sims/registry';
 import { FocusPanel } from './FocusPanel';
 
 const FIRST_DRIVER = 'id:2';
@@ -13,9 +13,14 @@ function emptyAwarePanel(): SimPanel {
   return {
     id: 'optional-channel',
     title: 'Optional channel',
+    scope: 'driver',
     requires: ['OptionalChannel'],
-    component: ({ driverKey }) => <span data-testid="optional-reading">{driverKey}</span>,
+    component: ({ driverKey }: SimPanelProps) => (
+      <span data-testid="optional-reading">{driverKey}</span>
+    ),
     isEmpty: (extras) => extras?.extras === 'empty',
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
   };
 }
 
