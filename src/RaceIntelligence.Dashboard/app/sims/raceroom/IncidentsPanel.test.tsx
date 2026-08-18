@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
-import { IncidentsPanel, toIncidentCount, toIncidentLimit } from './IncidentsPanel';
+import {
+  IncidentsPanel,
+  incidentsPanelIsEmpty,
+  toIncidentCount,
+  toIncidentLimit,
+} from './IncidentsPanel';
 
 const DRIVER = 'id:2';
 
@@ -64,6 +69,21 @@ describe('toIncidentLimit', () => {
 });
 
 describe('IncidentsPanel', () => {
+  it('uses the panel rendering rule when deciding whether its frame is empty', () => {
+    const unavailable = {
+      type: 'extrasFrame',
+      roomId: 'room',
+      driverKey: DRIVER,
+      capturedAtUtc: '2026-08-16T12:00:00Z',
+      extras: JSON.stringify({ incidentPoints: -1 }),
+    } as const;
+
+    expect(incidentsPanelIsEmpty(unavailable)).toBe(true);
+    expect(
+      incidentsPanelIsEmpty({ ...unavailable, extras: JSON.stringify({ incidentPoints: 0 }) }),
+    ).toBe(false);
+  });
+
   it('shows the count against the limit when the server reports one', () => {
     const { container } = renderIncidents({ incidentPoints: 4, maxIncidentPoints: 10 });
 

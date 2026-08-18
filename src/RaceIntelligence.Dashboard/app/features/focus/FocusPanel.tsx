@@ -2,7 +2,7 @@ import { useCallback, useMemo, type ReactNode } from 'react';
 import { formatGear, formatNumber, formatPercent, formatSpeed } from '../../shared/format/format';
 import type { FocusFrameMessage } from '../../shared/live/contracts';
 import type { LiveStore } from '../../shared/live/store';
-import { useConnected, useLive } from '../../shared/live/useLive';
+import { useAllExtras, useConnected, useLive } from '../../shared/live/useLive';
 import { LiveReadout } from '../../shared/ui/LiveReadout';
 import { panelsFor } from '../../sims/registry';
 import '../../sims/raceroom';
@@ -42,6 +42,14 @@ interface FocusSection {
    */
   shape: 'car' | 'inputs' | 'trace' | 'chart' | 'compact';
   render: (driverKey: string) => ReactNode;
+  /**
+   * Whether this section has nothing to show for one driver, where it can tell.
+   *
+   * Absent on the built-in sections, which always have something to say. A sim panel that can come
+   * up empty declares it on its registration — never keyed on the panel's id here, because that is
+   * the shape `COMPACT_PANELS` already had to be rescued from once.
+   */
+  isEmpty?: (driverKey: string) => boolean;
 }
 
 /**
@@ -182,6 +190,7 @@ export function FocusPanel({
 }: FocusPanelProps) {
   const { store } = useLive();
   const connected = useConnected();
+  const extras = useAllExtras();
 
   // Sorted and deduplicated so the panel set is stable: with two collectors in a room the same
   // capability arrives twice, and an unstable list would remount the panels on every room-list
@@ -216,16 +225,35 @@ export function FocusPanel({
         shape: 'trace',
         render: (driverKey) => <PedalTrace store={store} driverKey={driverKey} />,
       },
-      ...panels.map((panel) => ({
-        id: panel.id,
-        title: panel.title,
+      ...panels.map(({ id, title, component: Panel, isEmpty }) => ({
+        id,
+        title,
         // Charts want width; a meter wants a short bar and a bare readout wants less still. Asking
         // the panel's own id keeps that judgement here rather than in the stylesheet.
-        shape: COMPACT_PANELS.has(panel.id) ? ('compact' as const) : ('chart' as const),
-        render: (driverKey: string) => <panel.component store={store} driverKey={driverKey} />,
+        shape: COMPACT_PANELS.has(id) ? ('compact' as const) : ('chart' as const),
+        render: (driverKey: string) => <Panel store={store} driverKey={driverKey} />,
+        // Spread rather than assigned, because `exactOptionalPropertyTypes` is on: an optional
+        // property may be absent, but it may not be present and undefined. Bound to this driver's
+        // extras here, so the section list is the only thing that has to know a panel can be empty.
+        ...(isEmpty === undefined
+          ? {}
+          : { isEmpty: (driverKey: string) => isEmpty(extras[driverKey] ?? null) }),
       })),
     ],
-    [panels, store],
+    [extras, panels, store],
+  );
+
+  /**
+   * Sections dropped only when they are empty for *every* driver on screen.
+   *
+   * Not per column, and that is the whole point. `.focus__compare` lays each section out as one row
+   * spanning both sides so the same channel sits at the same height in both — dropping a section
+   * from one column and not the other would slide every row beneath it out of step, which is
+   * precisely the comparison failure that layout exists to prevent.
+   */
+  const visibleSections = useMemo(
+    () => sections.filter(({ isEmpty }) => !isEmpty || !driverKeys.every((key) => isEmpty(key))),
+    [driverKeys, sections],
   );
 
   const comparing = driverKeys.length > 1;
@@ -282,7 +310,7 @@ export function FocusPanel({
             </h3>
           ))}
 
-        {sections.map((section) =>
+        {visibleSections.map((section) =>
           driverKeys.map((driverKey) => (
             <section
               key={`${section.id}-${driverKey}`}

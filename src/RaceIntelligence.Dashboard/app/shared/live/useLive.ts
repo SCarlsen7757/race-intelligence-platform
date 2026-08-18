@@ -106,3 +106,15 @@ export function useExtras(driverKey: string): ExtrasFrameMessage | null {
 
   return useStoreSlice(store, read);
 }
+
+/**
+ * Every focused driver's latest extras frame as one stable snapshot.
+ *
+ * FocusPanel decides whether a comparison row exists across all drivers at once. Reading the whole
+ * record keeps that decision in one hook call; a per-driver hook in its section loop would make the
+ * number of hooks depend on how many cars are compared.
+ */
+export function useAllExtras(): Readonly<Record<string, ExtrasFrameMessage>> {
+  const { store } = useLive();
+  return useStoreSlice(store, store.getExtras);
+}
