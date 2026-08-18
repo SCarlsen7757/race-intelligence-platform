@@ -874,30 +874,41 @@ th.tower__state {
   margin-top: 0;
 }
 
-.focus__body > .focus__section--car {
-  flex: 1 1 220px;
-  min-width: min(220px, 100%);
-  max-width: 320px;
-}
-
-/* Bars and three percentages. It has no use for extra width, so it does not grow into any. */
-.focus__body > .focus__section--inputs {
-  flex: 0 1 150px;
-  min-width: min(150px, 100%);
-  max-width: 200px;
-}
-
-/* The thing a race engineer actually stares at, so it starts widest, takes most of the slack, and
-   is the one section with no cap on how far it may grow. */
-.focus__body > .focus__section--trace {
-  flex: 5 1 380px;
-  min-width: min(380px, 100%);
+.focus__body > .focus__section--motec {
+  flex: 5 1 560px;
+  min-width: min(560px, 100%);
 }
 
 .focus__body > .focus__section--chart {
   flex: 2 1 230px;
   min-width: min(230px, 100%);
   max-width: 360px;
+}
+
+/* Related wheel channels read top-to-bottom in one narrow column. Tyres and brakes use the same
+   width so the two stacks sit as a matched pair when there is room. */
+.focus__body > .focus__section--stack {
+  flex: 1 1 260px;
+  min-width: min(260px, 100%);
+  max-width: 360px;
+}
+
+.focus__stack {
+  display: grid;
+  gap: 12px;
+}
+
+.focus__stack-item {
+  min-width: 0;
+}
+
+.focus__stack-title {
+  margin: 0 0 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 /* A meter is a glanceable state, not a measurement. See `.damage__part`. */
@@ -939,6 +950,75 @@ th.tower__state {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.motec {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(210px, 240px);
+  gap: 12px 20px;
+  align-items: start;
+}
+
+.motec__trace {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.motec-assists {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.motec-assist {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.motec-assist__label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.motec-assist__value {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes assist-intervention {
+  0%,
+  100% {
+    background: rgba(255, 195, 92, 0.12);
+  }
+  50% {
+    background: rgba(255, 195, 92, 0.62);
+  }
+}
+
+.motec-assist--active {
+  border-color: var(--trace-clutch);
+  color: var(--trace-clutch);
+  animation: assist-intervention 300ms steps(2, jump-none) infinite;
+}
+
+@media (max-width: 560px) {
+  .motec {
+    grid-template-columns: 1fr;
+  }
+
+  .motec__trace {
+    grid-column: 1;
+  }
 }
 
 /* Speed across two columns, so five metrics fill three columns exactly rather than wrapping 4 + 1

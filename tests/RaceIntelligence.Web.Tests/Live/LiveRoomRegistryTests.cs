@@ -163,6 +163,30 @@ public sealed class LiveRoomRegistryTests
         viewer.Queue.TryRead().ShouldBeOfType<FocusFrameMessage>().Clutch.ShouldBe(0.75f);
     }
 
+    [Fact]
+    public void Driver_aids_and_brake_bias_cross_the_hub_at_focus_rate()
+    {
+        var hub = new LiveHubFixture();
+        var identity = LiveDtoFactory.Identity();
+        var room = hub.AnnounceRoom(identity, localSimDriverId: "4242");
+        var viewer = hub.AddViewer(room.RoomId, focusDriverKey: "id:4242");
+
+        hub.Rooms.ApplySelf(identity.ClientId, LiveDtoFactory.SelfFrame(
+            simDriverId: "4242",
+            absSetting: 3,
+            absActive: true,
+            tractionControlSetting: 4,
+            tractionControlActive: true,
+            brakeBias: 0.43f));
+
+        var frame = viewer.Queue.TryRead().ShouldBeOfType<FocusFrameMessage>();
+        frame.AbsSetting.ShouldBe(3);
+        frame.AbsActive.ShouldBe(true);
+        frame.TractionControlSetting.ShouldBe(4);
+        frame.TractionControlActive.ShouldBe(true);
+        frame.BrakeBias.ShouldBe(0.43f);
+    }
+
     /// <summary>
     /// A car with an automatic clutch reports nothing, and "nothing" must not reach a race engineer
     /// as a clutch pedal sitting fully up — that is a different and confident claim.

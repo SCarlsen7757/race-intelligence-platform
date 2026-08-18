@@ -20,6 +20,12 @@ export interface SimPanelProps {
 export interface SimPanel {
   id: string;
   title: string;
+  /** Optional visual stack shared with related panels (for example tyre channels). */
+  group?: {
+    id: string;
+    title: string;
+    itemTitle: string;
+  };
   /**
    * `SimCapabilities` flag names this panel requires — **all** of them, not any.
    *

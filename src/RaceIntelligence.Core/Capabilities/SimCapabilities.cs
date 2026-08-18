@@ -77,6 +77,9 @@ public enum SimCapabilities : ulong
     /// clean", which is the opposite of the truth.
     /// </remarks>
     IncidentPoints = 1UL << 15,
+
+    /// <summary>The connector reports per-wheel brake-pad wear (0..1).</summary>
+    BrakeWear = 1UL << 16,
 }
 
 /// <summary>

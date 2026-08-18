@@ -65,7 +65,7 @@ const roomList: LiveViewMessage = {
           driverName: 'Mark',
           simDriverId: '4242',
           connectedAtUtc: new Date().toISOString(),
-          capabilities: ['TyreWear', 'TyrePressure', 'TyreTemperature'],
+          capabilities: ['TyreWear', 'TyrePressure', 'TyreTemperature', 'BrakeTemperature'],
         },
       ],
       lastUpdatedAtUtc: new Date().toISOString(),
@@ -203,8 +203,11 @@ describe('the dashboard', () => {
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
 
     // The panels the collector's declared capabilities allow, and no others.
-    expect(screen.getByText('Tyre wear')).toBeDefined();
-    expect(screen.getByText('Tyre pressure')).toBeDefined();
+    expect(screen.getByText('Tyres')).toBeDefined();
+    expect(screen.getByText('Brakes')).toBeDefined();
+    expect(screen.getByText('Pressure')).toBeDefined();
+    expect(screen.getAllByText('Temperature')).toHaveLength(2);
+    expect(screen.getByText('Wear')).toBeDefined();
     expect(screen.queryByText('Damage')).toBeNull();
   });
 
@@ -251,7 +254,8 @@ describe('the dashboard', () => {
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:9' });
 
     // Both columns, and the same section titles in both — the alignment is the whole point.
-    expect(screen.getAllByText('Tyre wear')).toHaveLength(2);
+    expect(screen.getAllByText('Tyres')).toHaveLength(2);
+    expect(screen.getAllByText('Brakes')).toHaveLength(2);
   });
 
   /**

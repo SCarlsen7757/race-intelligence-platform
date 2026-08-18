@@ -231,7 +231,12 @@ public sealed record LiveSelfFrame(
     [property: Key(15)] LiveWheelValues TyrePressure,
     [property: Key(16)] LiveWheelValues TyreWear,
     [property: Key(17)] LiveWheelValues TyreTemperature,
-    [property: Key(18)] float? Clutch) : LivePublisherMessage;
+    [property: Key(18)] float? Clutch,
+    [property: Key(19)] int? AbsSetting = null,
+    [property: Key(20)] bool? AbsActive = null,
+    [property: Key(21)] int? TractionControlSetting = null,
+    [property: Key(22)] bool? TractionControlActive = null,
+    [property: Key(23)] float? BrakeBias = null) : LivePublisherMessage;
 
 /// <summary>Per-wheel values in the platform's FL, FR, RL, RR order.</summary>
 /// <remarks>

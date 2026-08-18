@@ -210,7 +210,12 @@ public static class LiveDtoFactory
         Guid? sessionId = null,
         string? simDriverId = null,
         long sequenceNumber = 1,
-        float? clutch = null) =>
+        float? clutch = null,
+        int? absSetting = null,
+        bool? absActive = null,
+        int? tractionControlSetting = null,
+        bool? tractionControlActive = null,
+        float? brakeBias = null) =>
         new(
             sessionId ?? Guid.NewGuid(),
             simDriverId,
@@ -230,7 +235,12 @@ public static class LiveDtoFactory
             new LiveWheelValues(180f, 181f, 175f, 176f),
             new LiveWheelValues(0.1f, 0.11f, 0.09f, 0.12f),
             new LiveWheelValues(85f, 86f, 82f, 83f),
-            clutch);
+            clutch,
+            absSetting,
+            absActive,
+            tractionControlSetting,
+            tractionControlActive,
+            brakeBias);
 
     public static LiveExtrasFrame ExtrasFrame(
         Guid? sessionId = null,

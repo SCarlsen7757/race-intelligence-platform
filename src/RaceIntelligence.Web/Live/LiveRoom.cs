@@ -594,7 +594,12 @@ public sealed class LiveRoom
         frame.FuelLeft,
         ToWheelArray(frame.TyrePressure),
         ToWheelArray(frame.TyreWear),
-        ToWheelArray(frame.TyreTemperature));
+        ToWheelArray(frame.TyreTemperature),
+        frame.AbsSetting,
+        frame.AbsActive,
+        frame.TractionControlSetting,
+        frame.TractionControlActive,
+        frame.BrakeBias);
 
     /// <summary>
     /// Flattens per-wheel values into the platform's FL, FR, RL, RR order.

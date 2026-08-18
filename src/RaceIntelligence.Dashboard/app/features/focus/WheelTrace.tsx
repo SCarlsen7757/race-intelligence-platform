@@ -3,7 +3,12 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { FocusFrameMessage } from '../../shared/live/contracts';
 import { WHEELS } from '../../shared/live/contracts';
-import type { LiveStore, TyreTraces, WheelTraces } from '../../shared/live/store';
+import {
+  TYRE_TRACE_CAPACITY,
+  type LiveStore,
+  type TyreTraces,
+  type WheelTraces,
+} from '../../shared/live/store';
 import { LiveReadout } from '../../shared/ui/LiveReadout';
 import { TRACE_COLOURS, WHEEL_COLOURS } from './traceColours';
 
@@ -73,7 +78,10 @@ export function WheelTrace({
         // Sample index, not wall clock, for the same reason the pedal trace uses one: the rings are
         // a rolling window of samples and a time axis would need them evenly spaced, which a poll
         // on a busy machine is not.
-        scales: { x: { time: false }, y: range === undefined ? {} : { range: [...range] } },
+        scales: {
+          x: { time: false, range: [0, TYRE_TRACE_CAPACITY - 1] },
+          y: range === undefined ? {} : { range: [...range] },
+        },
         axes: [
           { show: false },
           { stroke: TRACE_COLOURS.axis, grid: { stroke: TRACE_COLOURS.grid } },
@@ -130,7 +138,7 @@ export function WheelTrace({
         if (count !== xs.length) {
           xs = new Float64Array(count);
           for (let i = 0; i < count; i++) {
-            xs[i] = i;
+            xs[i] = TYRE_TRACE_CAPACITY - count + i;
           }
         }
 

@@ -223,6 +223,11 @@ public static class LiveStandingsContractMapper
                 sample.TyreTemperature.FrontRight.Middle,
                 sample.TyreTemperature.RearLeft.Middle,
                 sample.TyreTemperature.RearRight.Middle),
-            sample.Clutch);
+            sample.Clutch,
+            sample.AbsSetting,
+            sample.AbsActive,
+            sample.TractionControlSetting,
+            sample.TractionControlActive,
+            sample.BrakeBias);
     }
 }

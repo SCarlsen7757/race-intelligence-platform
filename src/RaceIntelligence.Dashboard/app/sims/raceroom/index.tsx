@@ -5,6 +5,7 @@ import { WheelTrace } from '../../features/focus/WheelTrace';
 import { registerSimPanels, type SimPanelProps } from '../registry';
 import { DamagePanel } from './DamagePanel';
 import { IncidentsPanel, incidentsPanelIsEmpty } from './IncidentsPanel';
+import { BrakeTemperaturePanel, BrakeWearPanel } from './BrakePanel';
 
 /*
  * Every function below is declared at module scope rather than inline in the JSX, and that is load
@@ -96,19 +97,36 @@ registerSimPanels('raceroom', [
     id: 'tyre-pressure',
     title: 'Tyre pressure',
     requires: ['TyrePressure'],
+    group: { id: 'tyres', title: 'Tyres', itemTitle: 'Pressure' },
     component: TyrePressurePanel,
   },
   {
     id: 'tyre-wear',
     title: 'Tyre wear',
     requires: ['TyreWear'],
+    group: { id: 'tyres', title: 'Tyres', itemTitle: 'Wear' },
     component: TyreWearPanel,
   },
   {
     id: 'tyre-temperature',
     title: 'Tyre temperature',
     requires: ['TyreTemperature'],
+    group: { id: 'tyres', title: 'Tyres', itemTitle: 'Temperature' },
     component: TyreTemperaturePanel,
+  },
+  {
+    id: 'brake-temperature',
+    title: 'Brake temperature',
+    requires: ['BrakeTemperature'],
+    group: { id: 'brakes', title: 'Brakes', itemTitle: 'Temperature' },
+    component: BrakeTemperaturePanel,
+  },
+  {
+    id: 'brake-wear',
+    title: 'Brake wear',
+    requires: ['BrakeWear'],
+    group: { id: 'brakes', title: 'Brakes', itemTitle: 'Wear' },
+    component: BrakeWearPanel,
   },
   {
     id: 'damage',

@@ -49,10 +49,17 @@ describe('sim panel registry', () => {
       'TyreWear',
       'TyrePressure',
       'TyreTemperature',
+      'BrakeTemperature',
       'Damage',
     ]).map((p) => p.id);
 
-    expect(ids).toEqual(['tyre-pressure', 'tyre-wear', 'tyre-temperature', 'damage']);
+    expect(ids).toEqual([
+      'tyre-pressure',
+      'tyre-wear',
+      'tyre-temperature',
+      'brake-temperature',
+      'damage',
+    ]);
   });
 
   /**
