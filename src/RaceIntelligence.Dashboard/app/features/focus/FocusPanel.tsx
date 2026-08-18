@@ -7,8 +7,17 @@ import { LiveReadout } from '../../shared/ui/LiveReadout';
 import { PedalBars } from './PedalBars';
 
 interface FocusPanelProps {
-  /** The drivers on screen, in the order the URL names them. */
+  /** The drivers on screen, in slot order. */
   driverKeys: readonly string[];
+  /**
+   * The car the wall's `'selected'` widgets are about.
+   *
+   * Shown here rather than only on the wall because this column is where a car is chosen, and a
+   * selection you can act on but not see is how a tile ends up describing a car nobody meant.
+   */
+  selectedDriverKey: string | null;
+  /** Makes one of the watched cars the selected one. */
+  onSelect: (driverKey: string) => void;
   /** How each driver's name is shown. Falls back to the key for a driver not in the tower yet. */
   displayName: (driverKey: string) => string;
   /** Drops one driver — the last one closes the panel. */
@@ -278,7 +287,14 @@ function MotecPanel({ store, driverKey }: { store: LiveStore; driverKey: string 
  * every column, so the same channel is at the same height for every car. A comparison where the
  * readouts sit at different heights on each side is not a comparison.
  */
-export function FocusPanel({ driverKeys, displayName, onClose, note }: FocusPanelProps) {
+export function FocusPanel({
+  driverKeys,
+  selectedDriverKey,
+  onSelect,
+  displayName,
+  onClose,
+  note,
+}: FocusPanelProps) {
   const { store } = useLive();
   const connected = useConnected();
 
@@ -314,10 +330,26 @@ export function FocusPanel({ driverKeys, displayName, onClose, note }: FocusPane
             Not updating — reconnecting to the hub
           </p>
         )}
+        {/*
+          The name is the selection control. A separate radio beside it would be one more thing to
+          explain, where clicking the car you are reading is what someone tries first — and with a
+          single car being watched the control is inert on purpose rather than absent, so the
+          affordance does not appear and disappear as a second car is opened.
+        */}
         <div className="focus__drivers">
           {driverKeys.map((driverKey) => (
             <span key={driverKey} className="focus__driver">
-              <h2 className="focus__driver-name">{displayName(driverKey)}</h2>
+              <button
+                type="button"
+                className={`focus__driver-name ${
+                  driverKey === selectedDriverKey ? 'focus__driver-name--selected' : ''
+                }`}
+                aria-pressed={driverKey === selectedDriverKey}
+                aria-label={`Select ${displayName(driverKey)}`}
+                onClick={() => onSelect(driverKey)}
+              >
+                {displayName(driverKey)}
+              </button>
               <button
                 type="button"
                 className="link-button"

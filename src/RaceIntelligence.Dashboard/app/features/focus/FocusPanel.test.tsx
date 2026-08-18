@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
@@ -9,7 +9,11 @@ const FIRST_DRIVER = 'id:2';
 const SECOND_DRIVER = 'id:9';
 const THIRD_DRIVER = 'id:11';
 
-function renderFocus(driverKeys: readonly string[]) {
+function renderFocus(
+  driverKeys: readonly string[],
+  selectedDriverKey: string | null = driverKeys[0] ?? null,
+  onSelect: (driverKey: string) => void = () => undefined,
+) {
   const store = new LiveStore();
   store.setFollowedDrivers(driverKeys);
 
@@ -17,6 +21,8 @@ function renderFocus(driverKeys: readonly string[]) {
     <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
       <FocusPanel
         driverKeys={driverKeys}
+        selectedDriverKey={selectedDriverKey}
+        onSelect={onSelect}
         displayName={(driverKey) => driverKey}
         onClose={() => undefined}
       />
@@ -68,5 +74,25 @@ describe('FocusPanel', () => {
     expect(container.querySelector('.wheel-chart')).toBeNull();
     expect(container.querySelector('.damage')).toBeNull();
     expect(container.querySelector('.trace')).toBeNull();
+  });
+
+  /**
+   * The column is where a car is chosen, and the wall's `'selected'` tiles are what that choice
+   * moves. A selection that could be acted on but not seen is how a tile ends up quietly describing
+   * a car nobody meant.
+   */
+  it('marks which car is selected, and offers the others', async () => {
+    const onSelect = vi.fn();
+    renderFocus([FIRST_DRIVER, SECOND_DRIVER], SECOND_DRIVER, onSelect);
+
+    expect(screen.getByRole('button', { name: `Select ${SECOND_DRIVER}` }).ariaPressed).toBe(
+      'true',
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: `Select ${FIRST_DRIVER}` }).click();
+    });
+
+    expect(onSelect).toHaveBeenCalledWith(FIRST_DRIVER);
   });
 });

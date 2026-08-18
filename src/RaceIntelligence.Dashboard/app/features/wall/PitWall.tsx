@@ -3,6 +3,11 @@ import { Responsive, useContainerWidth, type Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import { useAllExtras, useLive } from '../../shared/live/useLive';
 import {
+  FIRST_SLOT,
+  resolveBinding,
+  type WallDriverBinding,
+} from '../../shared/view/driverBinding';
+import {
   loadWallView,
   saveWallView,
   WALL_VIEW_VERSION,
@@ -14,8 +19,10 @@ import '../../sims/raceroom';
 interface PitWallProps {
   gameKey: string;
   capabilities: readonly string[];
-  /** The drivers on screen, in the order the URL names them. A widget's ordinal indexes this. */
-  driverKeys: readonly string[];
+  /** The cars in the comparison, in slot order. A widget's `{ slot }` binding indexes this. */
+  comparedDriverKeys: readonly string[];
+  /** The car a `'selected'` widget is about, or null when no car is being watched. */
+  selectedDriverKey: string | null;
   /** How a driver is named in a widget's header. */
   displayName: (driverKey: string) => string;
 }
@@ -87,7 +94,13 @@ function UnavailableWidget({ reason }: { reason: string }) {
  * The layout is stored per simulator rather than per room; see `wallView.ts` for why that is the
  * right grain and what it costs.
  */
-export function PitWall({ gameKey, capabilities, driverKeys, displayName }: PitWallProps) {
+export function PitWall({
+  gameKey,
+  capabilities,
+  comparedDriverKeys,
+  selectedDriverKey,
+  displayName,
+}: PitWallProps) {
   const { store } = useLive();
   const { width, containerRef } = useContainerWidth();
 
@@ -128,7 +141,7 @@ export function PitWall({ gameKey, capabilities, driverKeys, displayName }: PitW
   const available = useMemo(() => new Set(addable.map((panel) => panel.id)), [addable]);
 
   const addWidget = useCallback(
-    (widgetId: string, driverOrdinal: number) => {
+    (widgetId: string, driver: WallDriverBinding) => {
       const entry = findPanel(gameKey, widgetId);
       if (entry === null) {
         return;
@@ -139,7 +152,7 @@ export function PitWall({ gameKey, capabilities, driverKeys, displayName }: PitW
         {
           instanceId: newInstanceId(),
           widgetId,
-          driverOrdinal,
+          driver,
           // Dropped at the bottom of the wall, where there is always room. Placing it in the first
           // gap would be cleverer and worse: a widget appearing somewhere in the middle of an
           // arrangement the user built is a widget they then have to go and find.
@@ -226,15 +239,33 @@ export function PitWall({ gameKey, capabilities, driverKeys, displayName }: PitW
             </p>
           )}
 
+          {/*
+            Two ways to place a tile, and the difference is worth the extra button. "Selected"
+            follows whichever car you click in the tower, so one set of tiles serves a whole field;
+            a named car pins the tile to that slot, which is what a side-by-side comparison is made
+            of. The pinned buttons are labelled with the driver rather than "slot 2", because the
+            car is what the user is thinking about — the slot is only how it is written down.
+          */}
           {addable.map((panel) => (
             <div key={panel.id} className="wall__picker-row">
               <span className="wall__picker-name">{panel.title}</span>
-              {driverKeys.map((driverKey, ordinal) => (
+
+              {comparedDriverKeys.length > 0 && (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => addWidget(panel.id, 'selected')}
+                >
+                  Selected car
+                </button>
+              )}
+
+              {comparedDriverKeys.map((driverKey, index) => (
                 <button
                   key={driverKey}
                   type="button"
                   className="link-button"
-                  onClick={() => addWidget(panel.id, ordinal)}
+                  onClick={() => addWidget(panel.id, { slot: index + FIRST_SLOT })}
                 >
                   {displayName(driverKey)}
                 </button>
@@ -242,7 +273,7 @@ export function PitWall({ gameKey, capabilities, driverKeys, displayName }: PitW
             </div>
           ))}
 
-          {addable.length > 0 && driverKeys.length === 0 && (
+          {addable.length > 0 && comparedDriverKeys.length === 0 && (
             <p className="wall__note">
               Open a driver&apos;s telemetry from the tower first — every widget here is about one
               car.
@@ -270,8 +301,7 @@ export function PitWall({ gameKey, capabilities, driverKeys, displayName }: PitW
         >
           {widgets.map((widget) => {
             const entry = findPanel(gameKey, widget.widgetId);
-            const driverKey =
-              widget.driverOrdinal === undefined ? undefined : driverKeys[widget.driverOrdinal];
+            const driverKey = resolveBinding(widget.driver, comparedDriverKeys, selectedDriverKey);
 
             return (
               <div key={widget.instanceId} className="wall__widget">
@@ -307,7 +337,19 @@ export function PitWall({ gameKey, capabilities, driverKeys, displayName }: PitW
                   ) : !isDriverWidget(entry) ? (
                     <entry.component store={store} />
                   ) : driverKey === undefined ? (
-                    <UnavailableWidget reason="The car this was placed for is not on screen." />
+                    <UnavailableWidget
+                      reason={
+                        widget.driver === undefined
+                          ? // A driver widget with no binding at all, which a document written by
+                            // an earlier build produces. Saying so beats the slot message, which
+                            // would send someone looking for a car to put in a slot that is not
+                            // there; removing it and be done would silently edit their wall.
+                            'This tile was saved without a car. Remove it and add it again.'
+                          : widget.driver === 'selected'
+                            ? 'No car is selected. Open one from the tower.'
+                            : 'No car in this slot yet.'
+                      }
+                    />
                   ) : entry.isEmpty?.(extras[driverKey] ?? null) === true ? (
                     <UnavailableWidget reason="Nothing reported for this car yet." />
                   ) : (

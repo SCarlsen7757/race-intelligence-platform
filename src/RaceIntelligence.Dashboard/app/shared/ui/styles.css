@@ -865,9 +865,36 @@ th.tower__state {
   align-items: baseline;
 }
 
+/*
+ * The car's name, which is also the control that selects it.
+ *
+ * A button rather than a heading with a control beside it. Clicking the car you are already reading
+ * is what someone tries first, and a separate radio would be one more thing on screen to explain.
+ * Styled as the text it replaced so the column still reads as a heading — the affordance is the
+ * pointer and the selected mark, not a button frame.
+ */
 .focus__driver-name {
   margin: 0;
+  padding: 0;
+  font: inherit;
   font-size: 15px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+/*
+ * Which car the wall's "selected" tiles are about.
+ *
+ * An underline in the accent rather than a colour change on the name: the driver names in this
+ * column sit beside session-best purple and flag colours, and another meaning loaded onto text
+ * colour here would be one more thing to tell apart at a glance.
+ */
+.focus__driver-name--selected {
+  border-bottom-color: var(--accent);
+  font-weight: 600;
 }
 
 /*

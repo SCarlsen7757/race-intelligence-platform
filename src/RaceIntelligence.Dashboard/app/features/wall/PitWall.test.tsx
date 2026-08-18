@@ -37,30 +37,32 @@ function gatedPanel(): SimPanel {
 
 function renderWall(
   capabilities: readonly string[] = ['Reading'],
-  driverKeys: readonly string[] = [DRIVER],
+  comparedDriverKeys: readonly string[] = [DRIVER],
+  selectedDriverKey: string | null = comparedDriverKeys[0] ?? null,
 ) {
   const store = new LiveStore();
-  store.setFollowedDrivers(driverKeys);
+  store.setFollowedDrivers(comparedDriverKeys);
 
   return render(
     <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
       <PitWall
         gameKey={GAME}
         capabilities={capabilities}
-        driverKeys={driverKeys}
+        comparedDriverKeys={comparedDriverKeys}
+        selectedDriverKey={selectedDriverKey}
         displayName={(driverKey) => driverKey}
       />
     </LiveContext.Provider>,
   );
 }
 
-/** Opens the picker and places the offered widget against one car. */
-async function addWidget(driverKey: string) {
+/** Opens the picker and places the offered widget, pinned to a car or bound to the selection. */
+async function addWidget(binding: string) {
   await act(async () => {
     screen.getByRole('button', { name: '+ Add widget' }).click();
   });
   await act(async () => {
-    screen.getByRole('button', { name: driverKey }).click();
+    screen.getByRole('button', { name: binding }).click();
   });
 }
 
@@ -119,7 +121,7 @@ describe('PitWall', () => {
 
     const raw = window.localStorage.getItem(`pitwall:view:${GAME}`) ?? '';
     expect(raw).not.toContain(OTHER_DRIVER);
-    expect(loadWallView(GAME).widgets[0]?.driverOrdinal).toBe(1);
+    expect(loadWallView(GAME).widgets[0]?.driver).toEqual({ slot: 2 });
   });
 
   /**
@@ -129,7 +131,9 @@ describe('PitWall', () => {
   it('keeps a widget this session cannot feed, and says why', () => {
     saveWallView(GAME, {
       version: WALL_VIEW_VERSION,
-      widgets: [{ instanceId: 'a', widgetId: 'gated', driverOrdinal: 0, x: 0, y: 0, w: 4, h: 6 }],
+      widgets: [
+        { instanceId: 'a', widgetId: 'gated', driver: { slot: 1 }, x: 0, y: 0, w: 4, h: 6 },
+      ],
     });
 
     renderWall(['Reading']);
@@ -143,7 +147,15 @@ describe('PitWall', () => {
     saveWallView(GAME, {
       version: WALL_VIEW_VERSION,
       widgets: [
-        { instanceId: 'a', widgetId: 'retired-widget', driverOrdinal: 0, x: 0, y: 0, w: 4, h: 6 },
+        {
+          instanceId: 'a',
+          widgetId: 'retired-widget',
+          driver: { slot: 1 },
+          x: 0,
+          y: 0,
+          w: 4,
+          h: 6,
+        },
       ],
     });
 
@@ -156,6 +168,83 @@ describe('PitWall', () => {
    * The floor below which a widget stops being worth reading is the widget's judgement, and the
    * grid is what enforces it — so it has to reach the grid.
    */
+  /**
+   * The binding that makes a compact wall work across a whole field: one set of tiles that swings
+   * to whichever car is being looked at, rather than one set per car.
+   */
+  it('follows the selection when bound to it', async () => {
+    const first = renderWall(['Reading'], [DRIVER, OTHER_DRIVER], DRIVER);
+
+    await addWidget('Selected car');
+
+    expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
+    expect(loadWallView(GAME).widgets[0]?.driver).toBe('selected');
+
+    // The same wall, the same tile, a different car selected.
+    first.unmount();
+    renderWall(['Reading'], [DRIVER, OTHER_DRIVER], OTHER_DRIVER);
+
+    expect(screen.getByTestId('reading').textContent).toBe(OTHER_DRIVER);
+  });
+
+  /**
+   * A pinned tile stays on its car while the selection moves, which is what makes two of them a
+   * comparison rather than two views of the same thing.
+   */
+  it('stays on its slot while the selection moves', async () => {
+    const first = renderWall(['Reading'], [DRIVER, OTHER_DRIVER], DRIVER);
+
+    await addWidget(OTHER_DRIVER);
+    first.unmount();
+
+    renderWall(['Reading'], [DRIVER, OTHER_DRIVER], DRIVER);
+
+    expect(screen.getByTestId('reading').textContent).toBe(OTHER_DRIVER);
+  });
+
+  /**
+   * A wall saved with two cars, opened against a session where one is being watched. Saying the
+   * slot is empty is the only honest answer; sliding the tile onto the remaining car would put one
+   * driver's numbers under another driver's heading.
+   */
+  it('says a slot is empty rather than showing the wrong car', () => {
+    saveWallView(GAME, {
+      version: WALL_VIEW_VERSION,
+      widgets: [
+        { instanceId: 'a', widgetId: 'reading', driver: { slot: 2 }, x: 0, y: 0, w: 4, h: 6 },
+      ],
+    });
+
+    renderWall(['Reading'], [DRIVER], DRIVER);
+
+    expect(screen.getByText(/No car in this slot yet/)).toBeTruthy();
+    expect(screen.queryByTestId('reading')).toBeNull();
+  });
+
+  /**
+   * A document from the build that stored an ordinal instead of a binding.
+   *
+   * The tile keeps its place and says it has no car, rather than being dropped or bound to
+   * whichever car happens to sit at that index. Both alternatives are worse in the same way: they
+   * change an arrangement someone made, without telling them.
+   */
+  it('says a tile has no car when its binding predates this build', () => {
+    window.localStorage.setItem(
+      `pitwall:view:${GAME}`,
+      JSON.stringify({
+        version: WALL_VIEW_VERSION,
+        widgets: [
+          { instanceId: 'a', widgetId: 'reading', driverOrdinal: 0, x: 0, y: 0, w: 4, h: 6 },
+        ],
+      }),
+    );
+
+    renderWall(['Reading'], [DRIVER], DRIVER);
+
+    expect(screen.getByText(/saved without a car/)).toBeTruthy();
+    expect(screen.queryByTestId('reading')).toBeNull();
+  });
+
   it('opens a widget at the size its catalogue entry asked for', async () => {
     const { container } = renderWall();
 

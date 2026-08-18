@@ -8,7 +8,6 @@ import {
 } from '@tanstack/react-router';
 import { act, render } from '@testing-library/react';
 import { ROUTER_DEFAULTS } from '../router';
-import { FocusView } from '../features/focus/FocusView';
 import { RoomsView } from '../features/rooms/RoomsView';
 import { SessionView } from '../features/tower/SessionView';
 import { LiveProvider } from '../shared/live/LiveProvider';
@@ -46,13 +45,7 @@ function buildRouteTree() {
     component: SessionView,
   });
 
-  const focusRoute = createRoute({
-    getParentRoute: () => sessionRoute,
-    path: '$driverKey',
-    component: FocusView,
-  });
-
-  return rootRoute.addChildren([indexRoute, sessionRoute.addChildren([focusRoute])]);
+  return rootRoute.addChildren([indexRoute, sessionRoute]);
 }
 
 /**

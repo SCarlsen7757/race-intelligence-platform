@@ -8,20 +8,7 @@
  * through here.
  */
 
-/**
- * How many drivers deep a wall widget can be bound.
- *
- * The wall stores an *ordinal* into the focused-driver list rather than a driver key, because a
- * key like `id:4242` names one car in one session and nobody in the next, while a saved wall is
- * opened against every session of that simulator. An ordinal survives that; a key would resolve to
- * a stranger or to nothing.
- *
- * This is the crudest version of the binding — first car, second car — and it exists only so the
- * wall has something coherent to persist before #55 replaces it with a real one ("whoever is
- * selected", or a named comparison slot). Nothing outside this module should grow an opinion about
- * ordinals.
- */
-export const MAX_WALL_DRIVER_ORDINAL = 8;
+import { isDriverBinding, type WallDriverBinding } from './driverBinding';
 
 /** One widget on the wall: what it is, whose car it is about, and where it sits. */
 export interface WallWidget {
@@ -29,8 +16,11 @@ export interface WallWidget {
   instanceId: string;
   /** A catalogue entry's id. Resolved through `findPanel`, which may not find it. */
   widgetId: string;
-  /** Index into the focused drivers. Absent for a widget that is about the room. */
-  driverOrdinal?: number;
+  /**
+   * Which car this tile is about, by position rather than by key — see {@link WallDriverBinding}
+   * for why a key must never be written here. Absent for a widget that is about the room.
+   */
+  driver?: WallDriverBinding;
   x: number;
   y: number;
   w: number;
@@ -97,7 +87,7 @@ function isWallView(value: unknown): value is WallView {
       typeof item.y === 'number' &&
       typeof item.w === 'number' &&
       typeof item.h === 'number' &&
-      (item.driverOrdinal === undefined || typeof item.driverOrdinal === 'number')
+      (item.driver === undefined || isDriverBinding(item.driver))
     );
   });
 }

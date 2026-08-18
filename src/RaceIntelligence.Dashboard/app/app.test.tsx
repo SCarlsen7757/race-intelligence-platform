@@ -221,30 +221,34 @@ describe('the dashboard', () => {
   });
 
   /**
-   * The reason room and driver moved into the URL at all. The previous dashboard held both in
-   * component state, so a refresh — or a link sent to whoever was asking about the tyres — landed
-   * on an empty session list.
+   * The room still comes from the URL; the cars no longer do. A refresh lands back on the same
+   * session, and which cars are being watched is state belonging to that room — the wall beside it
+   * is what carries an arrangement between sessions.
    */
-  it('restores the session and the driver from the URL alone', async () => {
-    await renderApp('/rooms/room-1/id:4242');
+  it('restores the session from the URL, and starts with no car open', async () => {
+    await renderApp('/rooms/room-1');
     await act(async () => {
       socket().deliver(roomList);
       socket().deliver(tower);
     });
 
     expect(allSent()).toContainEqual({ type: 'watchRoom', roomId: 'room-1' });
-    expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
+    expect(allSent()).not.toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
 
-    // Named from the tower rather than from the key in the path, so a link opens on a person
-    // rather than on an id.
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Mark Carlsen' }).click();
+    });
+
+    // Named from the tower rather than from the key, so the column opens on a person.
     expect(screen.getByRole('button', { name: 'Stop watching Mark Carlsen' })).toBeDefined();
   });
 
   /**
-   * The comparison, end to end from the browser's side: two cars open at once, both streaming, and
-   * the pair written into the URL so it survives a refresh and pastes into a message.
+   * The comparison, end to end from the browser's side: two cars open at once and both streaming.
+   * The follow set is derived from the cars in the column, so opening one is the whole act — there
+   * is no separate focus left that could disagree with what is on screen.
    */
-  it('compares two drivers and says so in the URL', async () => {
+  it('compares two drivers, following exactly the cars in the column', async () => {
     const app = await renderApp('/rooms/room-1');
     await act(async () => {
       socket().deliver(roomList);
@@ -258,7 +262,8 @@ describe('the dashboard', () => {
       screen.getByRole('button', { name: 'Open telemetry for Rival' }).click();
     });
 
-    expect(app.currentPath()).toBe('/rooms/room-1/id:4242,id:9');
+    // The URL names the room and nothing else.
+    expect(app.currentPath()).toBe('/rooms/room-1');
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:9' });
 
@@ -268,22 +273,56 @@ describe('the dashboard', () => {
   });
 
   /**
-   * Dropping one half of a comparison must leave the other half alone. The named `unfocusDriver` is
-   * what makes that true on the wire: clearing everything and re-stating the rest would leave a
-   * window at 60 Hz in which the driver still being watched sends nothing.
+   * Opening a car selects it, which is what swings every 'selected' tile on the wall to it. The
+   * selection stays inside the watched set, so it can never be a stream the hub was not asked for.
    */
-  it('drops one driver of a comparison without disturbing the other', async () => {
-    const app = await renderApp('/rooms/room-1/id:4242,id:9');
+  it('selects the car just opened, and hands the selection on when it is closed', async () => {
+    await renderApp('/rooms/room-1');
     await act(async () => {
       socket().deliver(roomList);
       socket().deliver(twoCollectorTower);
     });
 
     await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Mark Carlsen' }).click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Rival' }).click();
+    });
+
+    expect(screen.getByRole('button', { name: 'Select Rival' }).ariaPressed).toBe('true');
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Stop watching Rival' }).click();
+    });
+
+    expect(screen.getByRole('button', { name: 'Select Mark Carlsen' }).ariaPressed).toBe('true');
+  });
+
+  /**
+   * Dropping one half of a comparison must leave the other half alone. The named `unfocusDriver` is
+   * what makes that true on the wire: clearing everything and re-stating the rest would leave a
+   * window at 60 Hz in which the driver still being watched sends nothing — and would take their
+   * rings, and the stint being read out of them, with it.
+   */
+  it('drops one driver of a comparison without disturbing the other', async () => {
+    await renderApp('/rooms/room-1');
+    await act(async () => {
+      socket().deliver(roomList);
+      socket().deliver(twoCollectorTower);
+    });
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Mark Carlsen' }).click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Rival' }).click();
+    });
+
+    await act(async () => {
       screen.getByRole('button', { name: 'Stop watching Mark Carlsen' }).click();
     });
 
-    expect(app.currentPath()).toBe('/rooms/room-1/id:9');
     expect(allSent()).toContainEqual({ type: 'unfocusDriver', driverKey: 'id:4242' });
     expect(allSent()).not.toContainEqual({ type: 'unfocusDriver', driverKey: 'id:9' });
     expect(allSent()).not.toContainEqual({ type: 'focusDriver', driverKey: null });
@@ -295,10 +334,14 @@ describe('the dashboard', () => {
    * does not exist.
    */
   it('says why there is no second car when nobody else is publishing', async () => {
-    await renderApp('/rooms/room-1/id:4242');
+    await renderApp('/rooms/room-1');
     await act(async () => {
       socket().deliver(roomList);
       socket().deliver(tower);
+    });
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Mark Carlsen' }).click();
     });
 
     expect(screen.getByText(/no second car to compare against/)).toBeDefined();
