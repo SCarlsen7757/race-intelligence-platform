@@ -183,6 +183,11 @@ export interface FocusFrameMessage {
   speedMetersPerSecond: number;
   throttle?: number | null;
   brake?: number | null;
+  absSetting?: number | null;
+  absActive?: boolean | null;
+  tractionControlSetting?: number | null;
+  tractionControlActive?: boolean | null;
+  brakeBias?: number | null;
   /**
    * Absent on a simulator that does not report a clutch, and on any collector older than the
    * schema version that added it. Not zero — an unreported clutch is not a released one.
@@ -346,4 +351,7 @@ export interface RaceRoomExtras {
   incidentPoints?: number;
   /** The server's disqualification limit. `-1` when there is none, e.g. offline. */
   maxIncidentPoints?: number;
+  brakeTemperatureCelsius?: number[];
+  /** Optional future channel; shown only when the collector declares BrakeWear. */
+  brakeWear?: number[];
 }

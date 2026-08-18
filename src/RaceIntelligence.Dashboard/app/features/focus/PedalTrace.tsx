@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import type { LiveStore } from '../../shared/live/store';
+import { TRACE_CAPACITY, type LiveStore } from '../../shared/live/store';
 import { TRACE_COLOURS } from './traceColours';
 
 /* Derived from the channel colour rather than written out as a second red, so the fill cannot be
@@ -36,7 +36,7 @@ interface PedalTraceProps {
 }
 
 /**
- * Throttle, brake, clutch and steering over the last minute, painted at the display's refresh rate.
+ * Throttle, brake, clutch and steering over the last thirty seconds.
  *
  * **This component renders once.** After mount, nothing here goes through React again — a
  * `requestAnimationFrame` loop reads the store's ring buffers and hands them to uPlot. Sixty React
@@ -66,7 +66,13 @@ export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) 
         // The x axis is sample index, not time: the traces are a rolling window of the last N
         // frames, and a wall-clock axis would need the capture timestamps to be evenly spaced,
         // which a 60 Hz poll on a busy machine is not.
-        scales: { x: { time: false }, pedal: { range: [0, 1] }, steer: { range: [-1, 1] } },
+        scales: {
+          // Fixed from the first sample: a five-second-old stream occupies one sixth of this
+          // thirty-second window instead of being stretched across the whole plot.
+          x: { time: false, range: [0, TRACE_CAPACITY - 1] },
+          pedal: { range: [0, 1] },
+          steer: { range: [-1, 1] },
+        },
         axes: [
           { show: false },
           {
@@ -142,7 +148,7 @@ export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) 
       if (count !== xs.length) {
         xs = new Float64Array(count);
         for (let i = 0; i < count; i++) {
-          xs[i] = i;
+          xs[i] = TRACE_CAPACITY - count + i;
         }
       }
 

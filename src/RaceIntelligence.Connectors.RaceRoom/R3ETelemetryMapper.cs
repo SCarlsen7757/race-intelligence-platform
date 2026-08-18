@@ -148,6 +148,11 @@ internal static class R3ETelemetryMapper
             Speed = raw.CarSpeed,
             Throttle = NullIfNegative(raw.Throttle),
             Brake = NullIfNegative(raw.Brake),
+            AbsSetting = raw.AbsSetting < 0 ? null : raw.AbsSetting,
+            AbsActive = raw.AidSettings.Abs < 0 ? null : raw.AidSettings.Abs == 5,
+            TractionControlSetting = raw.TractionControlSetting < 0 ? null : raw.TractionControlSetting,
+            TractionControlActive = raw.AidSettings.Tc < 0 ? null : raw.AidSettings.Tc == 5,
+            BrakeBias = NullIfNegative(raw.BrakeBias),
             // Same -1.0 = N/A sentinel as throttle and brake, and it is reported far more often
             // here: RaceRoom leaves clutch at -1 for a car with an automatic clutch, so a car that
             // simply has nothing to say must arrive as null rather than as "clutch fully up".

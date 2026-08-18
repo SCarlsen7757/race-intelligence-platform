@@ -12,11 +12,11 @@ import type {
 /**
  * How many focus frames the trace buffers keep.
  *
- * At 60 Hz this is a hair over sixty seconds — long enough to see the whole braking, turn-in and
- * exit of any corner, and to compare the last few. Ring buffers, so memory is flat no matter how
+ * At 60 Hz this is thirty seconds — long enough to see the whole braking, turn-in and exit of a
+ * corner, and to compare the last few. Ring buffers, so memory is flat no matter how
  * long a session runs; a growing array would be a slow leak over a two-hour race.
  */
-export const TRACE_CAPACITY = 3600;
+export const TRACE_CAPACITY = 1800;
 
 /** A fixed-size ring of numbers, written every frame and read once per paint. */
 export class TraceBuffer {
@@ -120,14 +120,13 @@ export class TraceBuffer {
  * A tyre asks a different question from a pedal. Throttle and brake are read a corner at a time, so
  * a minute of samples at full rate is the right window; pressure, wear and temperature move over a
  * stint, and sixty seconds of them is a flat line that says nothing. Sampling once a second and
- * keeping the same number of slots turns the same memory into an hour — long enough that a stint's
- * whole shape is on screen at once.
+ * keeping 900 slots gives the requested rolling fifteen-minute stint window.
  *
  * Decimated by elapsed time rather than by counting frames, because the collector's poll rate is
  * not a constant: a machine under load reports fewer frames per second, and a fixed "every 60th"
  * would silently stretch the window whenever the game got busy.
  */
-export const TYRE_TRACE_CAPACITY = 3600;
+export const TYRE_TRACE_CAPACITY = 900;
 export const TYRE_SAMPLE_INTERVAL_MS = 1000;
 
 /** One per-wheel channel over time, in the wire's wheel order — FL, FR, RL, RR. */

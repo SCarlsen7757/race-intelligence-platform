@@ -48,6 +48,21 @@ public sealed record TelemetrySample
     /// <summary>Brake input, 0 (released) to 1 (full brake). <see langword="null"/> if the source does not report it.</summary>
     public float? Brake { get; init; }
 
+    /// <summary>Driver-selected ABS level. <see langword="null"/> when unavailable.</summary>
+    public int? AbsSetting { get; init; }
+
+    /// <summary>Whether ABS is intervening in this sample. <see langword="null"/> when unavailable.</summary>
+    public bool? AbsActive { get; init; }
+
+    /// <summary>Driver-selected traction-control level. <see langword="null"/> when unavailable.</summary>
+    public int? TractionControlSetting { get; init; }
+
+    /// <summary>Whether traction control is intervening in this sample. <see langword="null"/> when unavailable.</summary>
+    public bool? TractionControlActive { get; init; }
+
+    /// <summary>Brake-bias fraction toward the rear axle. <see langword="null"/> when unavailable.</summary>
+    public float? BrakeBias { get; init; }
+
     /// <summary>
     /// Clutch input, 0 (fully engaged, pedal up) to 1 (fully disengaged, pedal down).
     /// <see langword="null"/> if the source does not report it.

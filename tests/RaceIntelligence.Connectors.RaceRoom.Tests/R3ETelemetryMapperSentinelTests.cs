@@ -90,6 +90,25 @@ public class R3ETelemetryMapperSentinelTests
         sample.Brake.ShouldBe(0.42f);
     }
 
+    [Fact]
+    public void Driver_aid_settings_activation_and_brake_bias_are_mapped()
+    {
+        var sample = MapSample(builder => builder.Configure((ref R3ESharedRaw raw) =>
+        {
+            raw.AbsSetting = 3;
+            raw.AidSettings.Abs = 5;
+            raw.TractionControlSetting = 4;
+            raw.AidSettings.Tc = 1;
+            raw.BrakeBias = 0.43f;
+        }));
+
+        sample.AbsSetting.ShouldBe(3);
+        sample.AbsActive.ShouldBe(true);
+        sample.TractionControlSetting.ShouldBe(4);
+        sample.TractionControlActive.ShouldBe(false);
+        sample.BrakeBias.ShouldBe(0.43f);
+    }
+
     [Theory]
     [InlineData(-1f, -1f, -1f, -1f, null, null, null, null)]
     [InlineData(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)]

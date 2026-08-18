@@ -354,7 +354,12 @@ public sealed record FocusFrameMessage(
     float FuelLeftLiters,
     IReadOnlyList<float?> TyrePressureKpa,
     IReadOnlyList<float?> TyreWear,
-    IReadOnlyList<float?> TyreTemperatureCelsius) : LiveViewMessage;
+    IReadOnlyList<float?> TyreTemperatureCelsius,
+    int? AbsSetting = null,
+    bool? AbsActive = null,
+    int? TractionControlSetting = null,
+    bool? TractionControlActive = null,
+    float? BrakeBias = null) : LiveViewMessage;
 
 /// <summary>
 /// The simulator-specific channels for the focused driver, at roughly 1 Hz.

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { formatGear, formatNumber, formatPercent, formatSpeed } from '../../shared/format/format';
 import type { FocusFrameMessage } from '../../shared/live/contracts';
 import type { LiveStore } from '../../shared/live/store';
@@ -40,7 +40,7 @@ interface FocusSection {
    * short bar. One rule cannot serve all three, so each section says which it is and the stylesheet
    * sizes it.
    */
-  shape: 'car' | 'inputs' | 'trace' | 'chart' | 'compact';
+  shape: 'motec' | 'chart' | 'stack' | 'compact';
   render: (driverKey: string) => ReactNode;
   /**
    * Whether this section has nothing to show for one driver, where it can tell.
@@ -161,6 +161,122 @@ function Inputs({ store, driverKey }: { store: LiveStore; driverKey: string }) {
   );
 }
 
+function AssistIndicator({
+  store,
+  driverKey,
+  label,
+  readSetting,
+  readActive,
+  formatSetting = String,
+}: {
+  store: LiveStore;
+  driverKey: string;
+  label: string;
+  readSetting: (frame: FocusFrameMessage) => number | null | undefined;
+  readActive?: (frame: FocusFrameMessage) => boolean | null | undefined;
+  formatSetting?: (setting: number) => string;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const valueRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    let animationFrame = 0;
+    let previousSetting: number | null | undefined;
+    let previousActive: boolean | null | undefined;
+
+    const paint = () => {
+      const frame = store.frameFor(driverKey);
+      const setting = frame === null ? undefined : readSetting(frame);
+      const active = frame === null || readActive === undefined ? undefined : readActive(frame);
+      const settingChanged = setting !== previousSetting;
+      const activeChanged = active !== previousActive;
+
+      if (settingChanged && valueRef.current !== null) {
+        valueRef.current.textContent =
+          setting === undefined || setting === null ? '—' : formatSetting(setting);
+        previousSetting = setting;
+      }
+      if ((settingChanged || activeChanged) && rootRef.current !== null) {
+        rootRef.current.classList.toggle('motec-assist--active', active === true);
+        rootRef.current.setAttribute(
+          'aria-label',
+          `${label} setting ${setting === undefined || setting === null ? 'unavailable' : formatSetting(setting)}${active === true ? ', active' : ''}`,
+        );
+        previousActive = active;
+      }
+
+      animationFrame = requestAnimationFrame(paint);
+    };
+
+    animationFrame = requestAnimationFrame(paint);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [store, driverKey, label, readSetting, readActive, formatSetting]);
+
+  return (
+    <div ref={rootRef} className="motec-assist">
+      <span className="motec-assist__label">{label}</span>
+      <span ref={valueRef} className="motec-assist__value">
+        —
+      </span>
+    </div>
+  );
+}
+
+const readAbsSetting = (frame: FocusFrameMessage) => frame.absSetting;
+const readAbsActive = (frame: FocusFrameMessage) => frame.absActive;
+const readTcSetting = (frame: FocusFrameMessage) => frame.tractionControlSetting;
+const readTcActive = (frame: FocusFrameMessage) => frame.tractionControlActive;
+const readBrakeBias = (frame: FocusFrameMessage) => frame.brakeBias;
+const formatBrakeBias = (rearFraction: number) => `${((1 - rearFraction) * 100).toFixed(1)}% F`;
+
+function AssistSettings({ store, driverKey }: { store: LiveStore; driverKey: string }) {
+  return (
+    <div className="motec-assists">
+      <AssistIndicator
+        store={store}
+        driverKey={driverKey}
+        label="ABS"
+        readSetting={readAbsSetting}
+        readActive={readAbsActive}
+      />
+      <AssistIndicator
+        store={store}
+        driverKey={driverKey}
+        label="TC"
+        readSetting={readTcSetting}
+        readActive={readTcActive}
+      />
+      <AssistIndicator
+        store={store}
+        driverKey={driverKey}
+        label="BB"
+        readSetting={readBrakeBias}
+        formatSetting={formatBrakeBias}
+      />
+    </div>
+  );
+}
+
+function MotecPanel({ store, driverKey }: { store: LiveStore; driverKey: string }) {
+  return (
+    <div className="motec">
+      <div className="motec__car">
+        <h4 className="focus__stack-title">Car</h4>
+        <CarMetrics store={store} driverKey={driverKey} />
+      </div>
+      <div className="motec__inputs">
+        <h4 className="focus__stack-title">Inputs</h4>
+        <Inputs store={store} driverKey={driverKey} />
+        <AssistSettings store={store} driverKey={driverKey} />
+      </div>
+      <div className="motec__trace">
+        <h4 className="focus__stack-title">Pedal trace · 30 seconds</h4>
+        <PedalTrace store={store} driverKey={driverKey} />
+      </div>
+    </div>
+  );
+}
+
 /**
  * One or two drivers at the collector's full poll rate.
  *
@@ -202,45 +318,71 @@ export function FocusPanel({
     [gameKey, stableCapabilities],
   );
 
+  const panelSections = useMemo<FocusSection[]>(() => {
+    const result: FocusSection[] = [];
+    const groups = new Map<string, typeof panels>();
+
+    for (const panel of panels) {
+      if (panel.group === undefined) {
+        result.push({
+          id: panel.id,
+          title: panel.title,
+          shape: COMPACT_PANELS.has(panel.id) ? 'compact' : 'chart',
+          render: (driverKey) => <panel.component store={store} driverKey={driverKey} />,
+          ...(panel.isEmpty === undefined
+            ? {}
+            : {
+                isEmpty: (driverKey: string) =>
+                  panel.isEmpty!(extras[driverKey] ?? null),
+              }),
+        });
+        continue;
+      }
+
+      const members = groups.get(panel.group.id);
+      if (members !== undefined) {
+        members.push(panel);
+        continue;
+      }
+
+      const groupMembers = [panel];
+      groups.set(panel.group.id, groupMembers);
+      result.push({
+        id: panel.group.id,
+        title: panel.group.title,
+        shape: 'stack',
+        render: (driverKey) => (
+          <div className="focus__stack">
+            {groupMembers.map((member) => (
+              <div key={member.id} className="focus__stack-item">
+                <h4 className="focus__stack-title">{member.group!.itemTitle}</h4>
+                <member.component store={store} driverKey={driverKey} />
+              </div>
+            ))}
+          </div>
+        ),
+        isEmpty: (driverKey) =>
+          groupMembers.every(
+            (member) =>
+              member.isEmpty !== undefined && member.isEmpty(extras[driverKey] ?? null),
+          ),
+      });
+    }
+
+    return result;
+  }, [extras, panels, store]);
+
   const sections = useMemo<FocusSection[]>(
     () => [
       {
-        id: 'car',
-        title: 'Car',
-        shape: 'car',
-        render: (driverKey) => <CarMetrics store={store} driverKey={driverKey} />,
+        id: 'motec',
+        title: 'MoTeC',
+        shape: 'motec',
+        render: (driverKey) => <MotecPanel store={store} driverKey={driverKey} />,
       },
-      {
-        id: 'inputs',
-        title: 'Inputs',
-        shape: 'inputs',
-        render: (driverKey) => <Inputs store={store} driverKey={driverKey} />,
-      },
-      {
-        // Its own section rather than stacked under the bars, which is what squeezed it into a
-        // third of the panel's width and made it square. It is the thing a race engineer stares at,
-        // so it takes the largest share of the strip.
-        id: 'trace',
-        title: 'Pedal trace',
-        shape: 'trace',
-        render: (driverKey) => <PedalTrace store={store} driverKey={driverKey} />,
-      },
-      ...panels.map(({ id, title, component: Panel, isEmpty }) => ({
-        id,
-        title,
-        // Charts want width; a meter wants a short bar and a bare readout wants less still. Asking
-        // the panel's own id keeps that judgement here rather than in the stylesheet.
-        shape: COMPACT_PANELS.has(id) ? ('compact' as const) : ('chart' as const),
-        render: (driverKey: string) => <Panel store={store} driverKey={driverKey} />,
-        // Spread rather than assigned, because `exactOptionalPropertyTypes` is on: an optional
-        // property may be absent, but it may not be present and undefined. Bound to this driver's
-        // extras here, so the section list is the only thing that has to know a panel can be empty.
-        ...(isEmpty === undefined
-          ? {}
-          : { isEmpty: (driverKey: string) => isEmpty(extras[driverKey] ?? null) }),
-      })),
+      ...panelSections,
     ],
-    [extras, panels, store],
+    [panelSections, store],
   );
 
   /**
