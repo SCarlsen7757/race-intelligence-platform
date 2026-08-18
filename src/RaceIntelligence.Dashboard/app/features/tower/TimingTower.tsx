@@ -212,8 +212,18 @@ export function TimingTower({
                     {finish !== '' && <span className="pill pill--warn">{finish}</span>}
                     {pit !== '' && <span className="pill pill--pit">{pit}</span>}
                     {crew !== '' && <span className="pill pill--muted">{crew}</span>}
+                    {/*
+                      No count: `penaltyCount` counts penalty types, not penalties, so a driver
+                      with three drive-throughs would read as one. The pill says there is
+                      something outstanding, which is all the data supports.
+                    */}
                     {row.penaltyCount != null && row.penaltyCount > 0 && (
-                      <span className="pill pill--penalty">{row.penaltyCount}P</span>
+                      <span
+                        className="pill pill--penalty"
+                        title="The simulator reports a penalty pending for this driver"
+                      >
+                        PEN
+                      </span>
                     )}
                   </span>
                 </td>

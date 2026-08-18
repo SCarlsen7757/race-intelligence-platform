@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
-import type { RaceRoomExtras } from '../../shared/live/contracts';
 import { NOT_REPORTED } from '../../shared/format/format';
 import { useExtras } from '../../shared/live/useLive';
 import type { SimPanelProps } from '../registry';
+import { parseExtras } from './extras';
 
 /**
  * The four damage channels RaceRoom reports, in the order a race engineer triages them.
@@ -35,20 +35,6 @@ export function toCondition(value: number | undefined): number | null {
   }
 
   return Math.min(1, value);
-}
-
-function parseExtras(extrasJson: string | null): RaceRoomExtras | null {
-  if (extrasJson === null) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(extrasJson) as RaceRoomExtras;
-  } catch {
-    // Extras are an opaque, connector-defined blob. One malformed payload is not a reason to take
-    // the focus panel down with it.
-    return null;
-  }
 }
 
 /**

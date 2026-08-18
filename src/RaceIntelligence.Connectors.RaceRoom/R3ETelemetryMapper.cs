@@ -652,6 +652,17 @@ internal static class R3ETelemetryMapper
 
         writer.WriteNumber("controlType", raw.ControlType);
 
+        // Incident points and the server's limit, both root-level in the shared block and therefore
+        // describing the local car only — there is no per-driver equivalent to project onto the
+        // timing tower. Written here rather than only into session extras because session extras
+        // never reach a viewer: sample extras are what the browser receives, as `extrasFrame`.
+        //
+        // Raw, sentinels included: -1 is "not available" for both (offline, or a server that sets
+        // no limit), and translating it here would lose the distinction between "no limit" and a
+        // limit of zero. The panel reading them is where -1 becomes "not reported".
+        writer.WriteNumber("incidentPoints", raw.IncidentPoints);
+        writer.WriteNumber("maxIncidentPoints", raw.MaxIncidentPoints);
+
         writer.WriteStartObject("flags");
         writer.WriteNumber("yellow", raw.Flags.Yellow);
         writer.WriteNumber("blue", raw.Flags.Blue);

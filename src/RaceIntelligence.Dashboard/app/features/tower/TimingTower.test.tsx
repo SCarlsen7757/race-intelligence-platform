@@ -217,8 +217,41 @@ describe('TimingTower', () => {
     ]);
 
     expect(screen.getByText('PIT')).toBeDefined();
-    expect(screen.getByText('2P')).toBeDefined();
+    expect(screen.getByText('PEN')).toBeDefined();
     expect(screen.getByText('DNF')).toBeDefined();
+  });
+
+  /**
+   * `penaltyCount` counts penalty types, not penalties, so the pill never carries the number — two
+   * pending kinds and three drive-throughs would both be lying if it did.
+   */
+  it('says PEN without a count, however many penalty types are pending', () => {
+    const { container } = renderTower([row({ driverKey: 'id:1', position: 1, penaltyCount: 2 })]);
+
+    const pill = container.querySelector('.pill--penalty');
+    expect(pill).not.toBeNull();
+    expect(pill!.textContent).toBe('PEN');
+  });
+
+  it('says nothing about penalties for a driver carrying none', () => {
+    const { container } = renderTower([row({ driverKey: 'id:1', position: 1, penaltyCount: 0 })]);
+
+    expect(container.querySelector('.pill--penalty')).toBeNull();
+    expect(screen.queryByText('PEN')).toBeNull();
+  });
+
+  /**
+   * Unreported is not zero anywhere else in the tower, and it is not zero here — but a simulator
+   * that says nothing about penalties must not put a pill up on the strength of its silence.
+   */
+  it('says nothing about penalties when the simulator does not report them', () => {
+    const { container } = renderTower([
+      row({ driverKey: 'id:1', position: 1, penaltyCount: null }),
+      row({ driverKey: 'id:2', position: 2 }),
+    ]);
+
+    expect(container.querySelector('.pill--penalty')).toBeNull();
+    expect(screen.queryByText('PEN')).toBeNull();
   });
 
   it('grades the pit lane in a race', () => {

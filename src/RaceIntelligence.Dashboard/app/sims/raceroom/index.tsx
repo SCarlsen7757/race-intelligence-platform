@@ -4,6 +4,7 @@ import type { TyreTraces } from '../../shared/live/store';
 import { WheelTrace } from '../../features/focus/WheelTrace';
 import { registerSimPanels, type SimPanelProps } from '../registry';
 import { DamagePanel } from './DamagePanel';
+import { IncidentsPanel } from './IncidentsPanel';
 
 /*
  * Every function below is declared at module scope rather than inline in the JSX, and that is load
@@ -114,5 +115,11 @@ registerSimPanels('raceroom', [
     title: 'Damage',
     requires: ['Damage'],
     component: DamagePanel,
+  },
+  {
+    id: 'incidents',
+    title: 'Incidents',
+    requires: ['IncidentPoints'],
+    component: IncidentsPanel,
   },
 ]);

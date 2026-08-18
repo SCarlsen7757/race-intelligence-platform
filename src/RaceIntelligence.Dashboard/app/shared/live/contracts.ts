@@ -342,4 +342,8 @@ export interface RaceRoomDamage {
 /** The shape this dashboard reads out of RaceRoom's extras document. Every field is optional. */
 export interface RaceRoomExtras {
   damage?: RaceRoomDamage;
+  /** This driver's accumulated incident points. `-1` is the simulator's "not available". */
+  incidentPoints?: number;
+  /** The server's disqualification limit. `-1` when there is none, e.g. offline. */
+  maxIncidentPoints?: number;
 }

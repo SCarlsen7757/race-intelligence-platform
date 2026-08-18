@@ -111,6 +111,9 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         SimCapabilities.Damage |
         SimCapabilities.PitWindow |
         SimCapabilities.SuspensionTelemetry |
+        // Root-level in the shared block, so local car only — which is why it is declared here and
+        // not alongside the opponent capabilities below.
+        SimCapabilities.IncidentPoints |
         // RaceRoom's driver array covers every car in the session, but only at scoring granularity
         // — hence no opponent tyre/fuel/input capability to declare alongside these three.
         SimCapabilities.OpponentStandings |

@@ -62,6 +62,8 @@ body {
 .wheel-chart__number,
 .pedal-value__number,
 .damage__value,
+.incidents__count,
+.incidents__limit,
 .laps__number,
 .tower__pos {
   font-variant-numeric: tabular-nums;
@@ -970,6 +972,31 @@ th.tower__state {
   font-size: 12px;
   text-align: right;
   color: var(--text-muted);
+}
+
+/* Incident points. One number, or one number against a limit — sized to be read from a glance away,
+   because the question it answers is whether the race is still finishable. */
+.incidents {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.incidents__count {
+  font-size: 22px;
+  color: var(--text);
+}
+
+/* The limit is context for the count, not a second reading, so it stays quiet beside it. */
+.incidents__limit {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Only ever applied where a limit is actually reported — see `IncidentsPanel`. */
+.incidents--critical .incidents__count {
+  color: var(--penalty);
 }
 
 /* Banner */
