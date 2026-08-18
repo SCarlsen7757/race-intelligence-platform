@@ -99,11 +99,15 @@ export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) 
 
     // Reused across frames so the paint loop allocates nothing. Resized only when the window the
     // buffers cover actually grows, which stops once the ring is full.
+    //
+    // Plain arrays for the channels, not typed ones: a missing pedal has to reach uPlot as null to
+    // draw as a gap, and a Float64Array cannot hold one — see `TraceBuffer.toNullableArray`. The x
+    // axis stays typed, because a sample index is never absent.
     let xs = new Float64Array(0);
-    let throttle = new Float64Array(0);
-    let brake = new Float64Array(0);
-    let clutch = new Float64Array(0);
-    let steering = new Float64Array(0);
+    let throttle: (number | null)[] = [];
+    let brake: (number | null)[] = [];
+    let clutch: (number | null)[] = [];
+    let steering: (number | null)[] = [];
 
     let frame = 0;
 
@@ -117,10 +121,10 @@ export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) 
         }
       }
 
-      throttle = traces.throttle.toArray(throttle);
-      brake = traces.brake.toArray(brake);
-      clutch = traces.clutch.toArray(clutch);
-      steering = traces.steering.toArray(steering);
+      throttle = traces.throttle.toNullableArray(throttle);
+      brake = traces.brake.toNullableArray(brake);
+      clutch = traces.clutch.toNullableArray(clutch);
+      steering = traces.steering.toNullableArray(steering);
 
       chart.setData([xs, throttle, brake, clutch, steering], true);
       frame = requestAnimationFrame(paint);

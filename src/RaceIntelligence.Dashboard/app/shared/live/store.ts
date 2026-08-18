@@ -86,6 +86,32 @@ export class TraceBuffer {
 
     return out;
   }
+
+  /**
+   * Copies the ring out in the shape a chart understands, turning every NaN into null.
+   *
+   * **This is what makes "absent is not zero" true on screen and not only in memory.** uPlot decides
+   * where a line breaks by testing values against `null`, and a NaN passes that test as a number:
+   * it is drawn, `lineTo` silently ignores the non-finite coordinate, and the path carries on from
+   * the previous point to the next one. The result is a confident straight line across data that
+   * was never captured — the exact reading `spanGaps: false` is set everywhere to prevent, quietly
+   * not working. There is no NaN handling anywhere in the library to lean on instead.
+   *
+   * A plain array rather than a typed one, because that is the only shape that can hold the null.
+   * It is still reused between paints — only the contents are written — so the paint loops keep
+   * allocating nothing, which is the constraint the whole ring-buffer design exists to satisfy.
+   */
+  toNullableArray(into?: (number | null)[]): (number | null)[] {
+    const out = into && into.length === this.filled ? into : new Array<number | null>(this.filled);
+    const start = this.filled === this.values.length ? this.writeIndex : 0;
+
+    for (let i = 0; i < this.filled; i++) {
+      const value = this.values[(start + i) % this.values.length]!;
+      out[i] = Number.isNaN(value) ? null : value;
+    }
+
+    return out;
+  }
 }
 
 /**
