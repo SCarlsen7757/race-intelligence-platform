@@ -342,26 +342,94 @@ export class LiveStore {
         break;
 
       case 'error':
+        // A room that is gone is the other half of `interruptFocus`. A socket down longer than the
+        // hub's room expiry reconnects and replays a `watchRoom` the hub can no longer honour, and
+        // this is how it says so — at which point every driver key in flight stops meaning
+        // anything, exactly as it does on a room switch. Reached from the opposite direction, so
+        // the same clearing has to happen here.
+        if (message.code === 'unknownRoom' || message.code === 'roomClosed') {
+          this.resetFocus();
+          this.resetLapHistory();
+        }
+
         this.lastError = message;
         this.emit();
         break;
     }
   }
 
+  /**
+   * Records that every followed driver's stream was interrupted, without throwing the history away.
+   *
+   * The hub keeps a room alive for thirty seconds after its last frame so that a socket which drops
+   * and returns inside that window rejoins the same room — `LiveHubOptions.RoomExpiry` says as much
+   * in its own remarks. Clearing the rings on a disconnect discarded the client's half of that
+   * bargain: a two-second hiccup mid-stint reconnected to the same room and restarted a
+   * sixty-second pedal trace from empty, with nothing on screen to explain the blank.
+   *
+   * So the rings stay and the outage is written into them. `resetFocus` remains the right answer
+   * for a room switch, where the driver keys genuinely stop meaning anything; this is the answer
+   * for a gap in a stream that is about to resume.
+   */
+  interruptFocus(): void {
+    for (const entry of this.focus.values()) {
+      // The same discipline `applyFocus` follows for a pedal the simulator did not report: absent
+      // is not zero. Resuming without this would bridge the outage with a straight line through
+      // data that was never captured, which is the same lie in a different costume — and every
+      // series sets `spanGaps: false` precisely so the hole stays a hole.
+      entry.traces.throttle.push(Number.NaN);
+      entry.traces.brake.push(Number.NaN);
+      entry.traces.clutch.push(Number.NaN);
+      entry.traces.steering.push(Number.NaN);
+      entry.traces.speed.push(Number.NaN);
+
+      for (let wheel = 0; wheel < 4; wheel++) {
+        entry.traces.tyres.pressureKpa[wheel]!.push(Number.NaN);
+        entry.traces.tyres.wear[wheel]!.push(Number.NaN);
+        entry.traces.tyres.temperatureCelsius[wheel]!.push(Number.NaN);
+      }
+
+      // Dropped rather than held. `LiveReadout` paints the last frame forever, so keeping it would
+      // leave the speed sitting at 217 km/h through an outage — a held value presented as current.
+      // Null falls back to the placeholder, which is the honest rendering.
+      entry.frame = null;
+
+      // Measured against the wrong side of the gap otherwise: an interval that elapsed during the
+      // outage would swallow the first frame back instead of sampling it.
+      entry.lastTyreSampleAtMs = Number.NEGATIVE_INFINITY;
+    }
+
+    // The followed set is deliberately left alone. Frames cannot arrive while the socket is down,
+    // and the reconnect re-states the same subscription — clearing it here is what used to take the
+    // rings with it.
+    this.dropExtras();
+  }
+
   /** Clears every followed driver's traces — on leaving a room, or losing the connection. */
   resetFocus(): void {
-    const hadExtras = Object.keys(this.extras).length > 0;
-
     this.focus.clear();
     this.followedDriverKeys = new Set();
-    this.extras = {};
+    this.dropExtras();
+  }
 
-    // Extras are the one part of the focus stream React can see, so dropping them is the one part
-    // of a reset that has to be announced. Only when there were any: an unconditional emit here
-    // would fire on every reset for nothing.
-    if (hadExtras) {
-      this.emit();
+  /**
+   * Forgets every extras document, announcing it only if there was one.
+   *
+   * Extras are the one part of the focus stream React can see, so dropping them is the one part of
+   * a reset that has to be emitted — and only when there was something to drop, or every reset
+   * fires a render for nothing.
+   *
+   * Dropped on a disconnect as well as on a room switch: an extras frame is a snapshot with an age,
+   * and a damage panel held through an outage claims to describe a car it has not heard from. The
+   * hub re-answers on re-focus, so nothing is lost by asking again.
+   */
+  private dropExtras(): void {
+    if (Object.keys(this.extras).length === 0) {
+      return;
     }
+
+    this.extras = {};
+    this.emit();
   }
 
   /** Forgets one driver's history, on collapsing their row. */

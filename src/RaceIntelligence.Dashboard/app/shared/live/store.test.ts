@@ -265,6 +265,115 @@ describe('LiveStore', () => {
   });
 
   /**
+   * The bargain the hub's thirty-second room expiry exists to keep. A socket that drops and returns
+   * inside that window rejoins the same room, so the minute of trace that preceded the drop is
+   * still about the same car and must survive.
+   */
+  it('interruptFocus keeps the traces across a reconnect into the same room', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame({ throttle: 1 }));
+    store.apply(focusFrame({ throttle: 0.5 }));
+
+    store.interruptFocus();
+
+    const throttle = [...store.tracesFor('id:2').throttle.toArray()];
+    expect(throttle.slice(0, 2)).toEqual([1, 0.5]);
+    expect(throttle).toHaveLength(3);
+  });
+
+  /** Absent is not zero, and a resumed stream must not be bridged across the hole it left. */
+  it('interruptFocus writes the outage into every channel as a gap', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame());
+
+    store.interruptFocus();
+
+    const { throttle, brake, clutch, steering, speed, tyres } = store.tracesFor('id:2');
+    for (const trace of [throttle, brake, clutch, steering, speed]) {
+      expect(trace.last()).toBeNaN();
+    }
+
+    for (let wheel = 0; wheel < 4; wheel++) {
+      expect(tyres.pressureKpa[wheel]!.last()).toBeNaN();
+      expect(tyres.wear[wheel]!.last()).toBeNaN();
+      expect(tyres.temperatureCelsius[wheel]!.last()).toBeNaN();
+    }
+  });
+
+  /** `LiveReadout` paints the last frame forever, so a held one would sit there claiming to be now. */
+  it('interruptFocus drops the held frame without dropping the history behind it', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame({ speedMetersPerSecond: 60 }));
+
+    store.interruptFocus();
+
+    expect(store.frameFor('id:2')).toBeNull();
+    expect(store.tracesFor('id:2').speed.length).toBe(2);
+  });
+
+  /**
+   * The followed set has to survive too. Clearing it was what made the old reset take the rings
+   * with it — and a frame arriving before the replayed subscription is acknowledged would then be
+   * refused as belonging to a driver nobody is following.
+   */
+  it('interruptFocus leaves the followed set intact, so frames resume without re-subscribing', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame({ throttle: 1 }));
+
+    store.interruptFocus();
+    store.apply(focusFrame({ throttle: 0.25 }));
+
+    expect(store.frameFor('id:2')?.throttle).toBe(0.25);
+    expect([...store.tracesFor('id:2').throttle.toArray()]).toEqual([1, Number.NaN, 0.25]);
+  });
+
+  /** Otherwise an interval that elapsed during the outage swallows the first frame back. */
+  it('samples the first tyre reading after an interruption rather than waiting out the interval', () => {
+    let now = 0;
+    const store = following(['id:2'], () => now);
+    store.apply(focusFrame({ tyreWear: [0.25, 0.25, 0.25, 0.25] }));
+
+    now += TYRE_SAMPLE_INTERVAL_MS * 4;
+    store.interruptFocus();
+
+    now += 1;
+    store.apply(focusFrame({ tyreWear: [0.5, 0.5, 0.5, 0.5] }));
+
+    // The reading, the gap the outage left, and the first reading back.
+    expect([...store.tracesFor('id:2').tyres.wear[0].toArray()]).toEqual([0.25, Number.NaN, 0.5]);
+  });
+
+  /**
+   * The other half of an interruption: a socket down longer than the room expiry comes back to a
+   * room the hub has forgotten, and says so with an error rather than with a room switch. The
+   * driver keys stop meaning anything either way.
+   */
+  it.each(['unknownRoom', 'roomClosed'] as const)(
+    'clears the traces and lap histories when the hub answers %s',
+    (code) => {
+      const store = following(['id:2']);
+      store.apply(focusFrame());
+      store.apply(lapHistory('id:2', [1, 2]));
+
+      store.apply({ type: 'error', code, message: 'gone' });
+
+      expect(store.frameFor('id:2')).toBeNull();
+      expect(store.tracesFor('id:2').throttle.length).toBe(0);
+      expect(store.getLapHistories()).toEqual({});
+    },
+  );
+
+  /** An error about one driver says nothing about the room, and must not cost the other one its rings. */
+  it('keeps the traces for an error that is not about the room', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame());
+
+    store.apply({ type: 'error', code: 'noTelemetryForDriver', message: 'nothing to send' });
+
+    expect(store.tracesFor('id:2').throttle.length).toBe(1);
+  });
+
+  /**
    * A tyre moves over a stint, not over a corner. Sampling the tyre rings at focus rate would fill
    * the whole window with sixty seconds of a flat line and call it information.
    */
