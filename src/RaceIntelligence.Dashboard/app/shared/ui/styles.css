@@ -725,6 +725,41 @@ th.tower__state {
   font-weight: 700;
 }
 
+/* The only animation in this file, and it has to stay the only one. Taking a purple sector is the
+   best moment this product has, and it was rendered as a number quietly changing colour between two
+   frames — if you were looking elsewhere it did not happen. A flash fixes that precisely because
+   nothing else here moves; once hovers fade and panels slide and rows settle, this stops meaning
+   anything and becomes one more thing twitching on a screen someone is trying to read a race off.
+
+   Scoped to `.tower` on purpose. `bestClass()` is shared with LapHistory, and unscoped this would
+   set every session best in a driver's lap history flashing the moment the panel was expanded — a
+   burst of motion for laps that happened minutes ago.
+
+   Fires on mount, and the tower keys a winning cell by its winning value, so React remounts it when
+   a new best arrives and not on the snapshots that merely keep it. That also catches the holder
+   improving their own time, which watching the class alone would miss: the class was already there.
+   The cost is that a genuine mount flashes too, so the leader's best lap flashes once when the
+   dashboard is opened. That is the accepted trade, not an oversight. */
+.tower .time--session-best {
+  animation: tower-session-best-flash 700ms ease-out;
+}
+
+@keyframes tower-session-best-flash {
+  from {
+    background: color-mix(in srgb, var(--flag-session-best) 32%, transparent);
+  }
+
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tower .time--session-best {
+    animation: none;
+  }
+}
+
 .time--personal-best {
   color: var(--flag-personal-best);
 }

@@ -103,6 +103,7 @@ export function TimingTower({
           const isExpanded = expandedDriverKeys.has(row.driverKey);
           const finish = formatFinishStatus(row.finishStatus);
           const detailId = `laps-${row.driverKey}`;
+          const bestLapClass = bestClass(row.bestLapMs, null, bests.lapMs);
 
           // Outside a race, the pit lane is the garage and the only honest thing to say is that the
           // car is in it. Inside one, the ladder is what a strategist reads — and the crew's
@@ -203,22 +204,33 @@ export function TimingTower({
                   )}
                 </td>
 
-                <td className={`time ${bestClass(row.bestLapMs, null, bests.lapMs)}`}>
+                <td
+                  key={`best-lap-${
+                    bestLapClass === 'time--session-best' ? row.bestLapMs : 'ordinary'
+                  }`}
+                  className={`time ${bestLapClass}`}
+                >
                   {formatLapTime(row.bestLapMs)}
                 </td>
 
-                {Array.from({ length: SECTOR_COUNT }, (_, i) => (
-                  <td
-                    key={i}
-                    className={`time ${bestClass(
-                      previous[i] ?? null,
-                      personalBest[i] ?? null,
-                      sessionBestSectors[i] ?? null,
-                    )}`}
-                  >
-                    {formatSector(previous[i] ?? null)}
-                  </td>
-                ))}
+                {Array.from({ length: SECTOR_COUNT }, (_, i) => {
+                  const sectorClass = bestClass(
+                    previous[i] ?? null,
+                    personalBest[i] ?? null,
+                    sessionBestSectors[i] ?? null,
+                  );
+
+                  return (
+                    <td
+                      key={`sector-${i}-${
+                        sectorClass === 'time--session-best' ? previous[i] : 'ordinary'
+                      }`}
+                      className={`time ${sectorClass}`}
+                    >
+                      {formatSector(previous[i] ?? null)}
+                    </td>
+                  );
+                })}
 
                 {/*
                   The pills live in a span rather than being laid out by the cell itself. A `td`
