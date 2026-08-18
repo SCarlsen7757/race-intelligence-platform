@@ -369,6 +369,46 @@ body {
   overflow-x: auto;
 }
 
+/* Two signals, never one. Opacity alone would read as a rendering glitch and colour alone would be
+   invisible to a third of the people reading it — the same argument the INV pill exists for. The
+   dimming says "not current" at a glance from a metre away; the stamp above says how long for.
+
+   Desaturation as well as opacity because the flag colours are the point: a purple sector that has
+   stopped updating must stop looking like a purple sector that just happened. */
+.session__tower--stale,
+.focus--stale {
+  opacity: 0.55;
+  filter: saturate(0.35);
+}
+
+/* Deliberately outside the dimming above: the one line that explains why everything else is dim
+   has to stay legible while it is dim. */
+.session__tower--stale .tower__stamp,
+.focus--stale .focus__stale {
+  opacity: 1;
+  filter: none;
+}
+
+.tower__stamp {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tower__stamp-age {
+  font-variant-numeric: tabular-nums;
+}
+
+.session__tower--stale .tower__stamp {
+  color: var(--invalid);
+}
+
+.focus__stale {
+  margin: 0;
+  font-size: 11px;
+  color: var(--invalid);
+}
+
 /* Track map */
 
 .track-map {
@@ -606,6 +646,16 @@ th.tower__state {
 .focus-button--open {
   background: var(--live);
   color: var(--bg);
+}
+
+/* Subscribed, nothing arriving yet. Quieter than --open rather than louder: this is a state on the
+   way to somewhere, and a control that shouted during the wait would make a fast connection flicker
+   every time a row was opened. Reads as "not yet", which is what it means. */
+.focus-button--pending {
+  background: none;
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+  cursor: progress;
 }
 
 .car-number {

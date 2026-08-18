@@ -2,7 +2,7 @@ import { useCallback, useMemo, type ReactNode } from 'react';
 import { formatGear, formatNumber, formatPercent, formatSpeed } from '../../shared/format/format';
 import type { FocusFrameMessage } from '../../shared/live/contracts';
 import type { LiveStore } from '../../shared/live/store';
-import { useLive } from '../../shared/live/useLive';
+import { useConnected, useLive } from '../../shared/live/useLive';
 import { LiveReadout } from '../../shared/ui/LiveReadout';
 import { panelsFor } from '../../sims/registry';
 import '../../sims/raceroom';
@@ -181,6 +181,7 @@ export function FocusPanel({
   note,
 }: FocusPanelProps) {
   const { store } = useLive();
+  const connected = useConnected();
 
   // Sorted and deduplicated so the panel set is stable: with two collectors in a room the same
   // capability arrives twice, and an unstable list would remount the panels on every room-list
@@ -230,8 +231,24 @@ export function FocusPanel({
   const comparing = driverKeys.length > 1;
 
   return (
-    <aside className={`focus ${comparing ? 'focus--compare' : ''}`}>
+    <aside
+      className={[
+        'focus',
+        comparing ? 'focus--compare' : '',
+        // Every readout below falls back to its em dash the moment the socket drops — the store
+        // stops holding a frame, so nothing here can present a stale speed as current. What that
+        // does not say is *why* the panel emptied, which is what this is for.
+        connected ? '' : 'focus--stale',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
       <header className="focus__header">
+        {!connected && (
+          <p className="focus__stale" role="status">
+            Not updating — reconnecting to the hub
+          </p>
+        )}
         <div className="focus__drivers">
           {driverKeys.map((driverKey) => (
             <span key={driverKey} className="focus__driver">

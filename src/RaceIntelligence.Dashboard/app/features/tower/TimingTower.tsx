@@ -23,6 +23,14 @@ interface TimingTowerProps {
   focusedDriverKeys: readonly string[];
   /** Adds the driver to the comparison, or removes them if they are already open. */
   onFocus: (driverKey: string) => void;
+  /**
+   * Focused drivers whose first frame has not arrived yet.
+   *
+   * Passed in rather than read from the store, so this component stays pure — see `renderDetail`.
+   * A click that subscribes and shows nothing looks like a click that missed, and on anything
+   * slower than a LAN the window is long enough to click twice.
+   */
+  pendingDriverKeys?: ReadonlySet<string>;
   /** Driver keys whose detail row is open. Several at once, on purpose. */
   expandedDriverKeys: ReadonlySet<string>;
   onToggleExpand: (driverKey: string) => void;
@@ -51,6 +59,7 @@ export function TimingTower({
   rows,
   focusedDriverKeys,
   onFocus,
+  pendingDriverKeys,
   expandedDriverKeys,
   onToggleExpand,
   isRace = false,
@@ -90,6 +99,7 @@ export function TimingTower({
           const sessionBestSectors = bests.sectorMs;
           const isRich = row.tier === 'Self';
           const isFocused = focusedDriverKeys.includes(row.driverKey);
+          const isPending = isFocused && pendingDriverKeys?.has(row.driverKey) === true;
           const isExpanded = expandedDriverKeys.has(row.driverKey);
           const finish = formatFinishStatus(row.finishStatus);
           const detailId = `laps-${row.driverKey}`;
@@ -151,13 +161,24 @@ export function TimingTower({
                     // show for them than the timing already on this line.
                     <button
                       type="button"
-                      className={`focus-button ${isFocused ? 'focus-button--open' : ''}`}
+                      className={[
+                        'focus-button',
+                        isFocused ? 'focus-button--open' : '',
+                        isPending ? 'focus-button--pending' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                       aria-label={`Open telemetry for ${row.displayName}`}
+                      // Still pressed while pending: the subscription is on, which is what the
+                      // control toggles. `aria-busy` is the part that says the data has not
+                      // caught up, and it is the distinction a screen reader needs to avoid
+                      // announcing an empty panel as though it were the answer.
                       aria-pressed={isFocused}
+                      aria-busy={isPending}
                       title="Pedals, tyres and damage — opens below the tower"
                       onClick={() => onFocus(row.driverKey)}
                     >
-                      {isFocused ? 'Shown' : 'Show'}
+                      {isPending ? 'Opening…' : isFocused ? 'Shown' : 'Show'}
                     </button>
                   )}
                 </td>

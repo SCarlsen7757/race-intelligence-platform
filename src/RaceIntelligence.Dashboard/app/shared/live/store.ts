@@ -23,6 +23,7 @@ export class TraceBuffer {
   private readonly values: Float32Array;
   private writeIndex = 0;
   private filled = 0;
+  private pushCount = 0;
 
   constructor(capacity: number = TRACE_CAPACITY) {
     this.values = new Float32Array(capacity);
@@ -32,17 +33,30 @@ export class TraceBuffer {
     return this.filled;
   }
 
+  /**
+   * How many values have ever been pushed.
+   *
+   * A paint loop cannot use `length` to tell whether there is anything new to draw — it plateaus
+   * the moment the ring is full, and a chart keyed on it would freeze an hour into a stint. This
+   * never stops moving, so it is what a loop that only wants to repaint on new data should watch.
+   */
+  get version(): number {
+    return this.pushCount;
+  }
+
   push(value: number): void {
     this.values[this.writeIndex] = value;
     this.writeIndex = (this.writeIndex + 1) % this.values.length;
     if (this.filled < this.values.length) {
       this.filled++;
     }
+    this.pushCount++;
   }
 
   clear(): void {
     this.writeIndex = 0;
     this.filled = 0;
+    this.pushCount = 0;
   }
 
   /** The most recently pushed value, or NaN when nothing has been pushed yet. */
@@ -183,6 +197,19 @@ export class LiveStore {
    */
   private followedDriverKeys: ReadonlySet<string> = new Set();
 
+  /**
+   * The drivers currently holding a frame — the one thing about the focus stream React is told.
+   *
+   * Clicking "Show" subscribes and then sits on a panel full of em dashes until the first frame
+   * lands. On a LAN that is twenty milliseconds and invisible; through a tunnel it is long enough
+   * to click twice and wonder whether the first one registered.
+   *
+   * A set of keys rather than a count, and replaced rather than mutated, because it is written on
+   * transitions only: gaining the first frame, losing the stream, dropping a subscription. That is
+   * what keeps it inside the 60 Hz rule — one emit per subscription, not one per frame.
+   */
+  private focusReadyKeys: ReadonlySet<string> = new Set();
+
   private rooms: LiveRoomSummary[] = [];
   private tower: TowerSnapshotMessage | null = null;
   private sessionState: SessionStateMessage | null = null;
@@ -223,6 +250,7 @@ export class LiveStore {
   getLapHistories = (): Readonly<Record<string, LapHistoryMessage>> => this.lapHistories;
   getExtras = (): Readonly<Record<string, ExtrasFrameMessage>> => this.extras;
   isConnected = (): boolean => this.connected;
+  getFocusReadyKeys = (): ReadonlySet<string> => this.focusReadyKeys;
 
   /**
    * One driver's latest focus frame, or null before the first has arrived.
@@ -261,7 +289,7 @@ export class LiveStore {
     const followed = new Set(driverKeys);
     this.followedDriverKeys = followed;
 
-    let droppedExtras = false;
+    let announce = false;
     const remainingExtras = { ...this.extras };
 
     for (const driverKey of [...this.focus.keys()]) {
@@ -273,15 +301,21 @@ export class LiveStore {
     for (const driverKey of Object.keys(remainingExtras)) {
       if (!followed.has(driverKey)) {
         delete remainingExtras[driverKey];
-        droppedExtras = true;
+        this.extras = remainingExtras;
+        announce = true;
       }
     }
 
-    // Extras are the one part of the focus stream React can see, so dropping them is the one part
-    // of this that has to be announced — and only when there was something to drop, or every
-    // subscription change would emit for nothing.
-    if (droppedExtras) {
-      this.extras = remainingExtras;
+    const readyKeys = [...this.focusReadyKeys].filter((driverKey) => followed.has(driverKey));
+    if (readyKeys.length !== this.focusReadyKeys.size) {
+      this.focusReadyKeys = new Set(readyKeys);
+      announce = true;
+    }
+
+    // Extras and readiness are the only parts of the focus stream React can see, so losing either
+    // is the only part of this that has to be announced — and only when something actually went,
+    // or every subscription change would emit for nothing.
+    if (announce) {
       this.emit();
     }
   }
@@ -328,26 +362,96 @@ export class LiveStore {
         break;
 
       case 'error':
+        // A room that is gone is the other half of `interruptFocus`. A socket down longer than the
+        // hub's room expiry reconnects and replays a `watchRoom` the hub can no longer honour, and
+        // this is how it says so — at which point every driver key in flight stops meaning
+        // anything, exactly as it does on a room switch. Reached from the opposite direction, so
+        // the same clearing has to happen here.
+        if (message.code === 'unknownRoom' || message.code === 'roomClosed') {
+          this.resetFocus();
+          this.resetLapHistory();
+        }
+
         this.lastError = message;
         this.emit();
         break;
     }
   }
 
+  /**
+   * Records that every followed driver's stream was interrupted, without throwing the history away.
+   *
+   * The hub keeps a room alive for thirty seconds after its last frame so that a socket which drops
+   * and returns inside that window rejoins the same room — `LiveHubOptions.RoomExpiry` says as much
+   * in its own remarks. Clearing the rings on a disconnect discarded the client's half of that
+   * bargain: a two-second hiccup mid-stint reconnected to the same room and restarted a
+   * sixty-second pedal trace from empty, with nothing on screen to explain the blank.
+   *
+   * So the rings stay and the outage is written into them. `resetFocus` remains the right answer
+   * for a room switch, where the driver keys genuinely stop meaning anything; this is the answer
+   * for a gap in a stream that is about to resume.
+   */
+  interruptFocus(): void {
+    for (const entry of this.focus.values()) {
+      // The same discipline `applyFocus` follows for a pedal the simulator did not report: absent
+      // is not zero. Resuming without this would bridge the outage with a straight line through
+      // data that was never captured, which is the same lie in a different costume — and every
+      // series sets `spanGaps: false` precisely so the hole stays a hole.
+      entry.traces.throttle.push(Number.NaN);
+      entry.traces.brake.push(Number.NaN);
+      entry.traces.clutch.push(Number.NaN);
+      entry.traces.steering.push(Number.NaN);
+      entry.traces.speed.push(Number.NaN);
+
+      for (let wheel = 0; wheel < 4; wheel++) {
+        entry.traces.tyres.pressureKpa[wheel]!.push(Number.NaN);
+        entry.traces.tyres.wear[wheel]!.push(Number.NaN);
+        entry.traces.tyres.temperatureCelsius[wheel]!.push(Number.NaN);
+      }
+
+      // Dropped rather than held. `LiveReadout` paints the last frame forever, so keeping it would
+      // leave the speed sitting at 217 km/h through an outage — a held value presented as current.
+      // Null falls back to the placeholder, which is the honest rendering.
+      entry.frame = null;
+
+      // Measured against the wrong side of the gap otherwise: an interval that elapsed during the
+      // outage would swallow the first frame back instead of sampling it.
+      entry.lastTyreSampleAtMs = Number.NEGATIVE_INFINITY;
+    }
+
+    // The followed set is deliberately left alone. Frames cannot arrive while the socket is down,
+    // and the reconnect re-states the same subscription — clearing it here is what used to take the
+    // rings with it.
+    this.dropVisibleFocusState();
+  }
+
   /** Clears every followed driver's traces — on leaving a room, or losing the connection. */
   resetFocus(): void {
-    const hadExtras = Object.keys(this.extras).length > 0;
-
     this.focus.clear();
     this.followedDriverKeys = new Set();
-    this.extras = {};
+    this.dropVisibleFocusState();
+  }
 
-    // Extras are the one part of the focus stream React can see, so dropping them is the one part
-    // of a reset that has to be announced. Only when there were any: an unconditional emit here
-    // would fire on every reset for nothing.
-    if (hadExtras) {
-      this.emit();
+  /**
+   * Forgets everything about the focus stream React can see, announcing it only if there was any.
+   *
+   * That is two things: the extras documents, and which drivers are holding a frame. Both are
+   * dropped on a disconnect as well as on a room switch — an extras frame is a snapshot with an
+   * age, and a damage panel held through an outage claims to describe a car it has not heard from,
+   * while a driver whose stream has stopped is not one whose panel should still read as live. The
+   * hub re-answers both on re-focus, so nothing is lost by asking again.
+   *
+   * Conditional, because an unconditional emit here fires on every reset and every disconnect for
+   * nothing.
+   */
+  private dropVisibleFocusState(): void {
+    if (Object.keys(this.extras).length === 0 && this.focusReadyKeys.size === 0) {
+      return;
     }
+
+    this.extras = {};
+    this.focusReadyKeys = new Set();
+    this.emit();
   }
 
   /** Forgets one driver's history, on collapsing their row. */
@@ -411,8 +515,18 @@ export class LiveStore {
 
     const entry = this.ensureFocus(frame.driverKey);
 
+    // Read before the assignment below overwrites it. Null means this is the first frame of a
+    // subscription, or the first one back after an interruption — the one moment on this path
+    // React has any business hearing about, and the reason the emit below is not a frame-rate emit.
+    const wasHoldingAFrame = entry.frame !== null;
+
     entry.frame = frame;
     entry.framesReceived++;
+
+    if (!wasHoldingAFrame) {
+      this.focusReadyKeys = new Set(this.focusReadyKeys).add(frame.driverKey);
+      this.emit();
+    }
 
     // Pedals are absent on some simulators rather than zero, and a missing throttle must not be
     // plotted as a lifted one. NaN leaves a gap in the trace, which is the honest rendering.

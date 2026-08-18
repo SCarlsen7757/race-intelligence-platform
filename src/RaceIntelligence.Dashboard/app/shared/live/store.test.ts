@@ -104,43 +104,106 @@ describe('TraceBuffer', () => {
 
     expect(buffer.last()).toBe(4);
   });
+
+  /**
+   * The mechanism a paint loop actually leans on: `length` plateaus once the ring is full, so a
+   * loop keyed on it would never notice a stint's five-thousandth sample arriving. `version` keeps
+   * counting regardless, which is what lets a guard tell "new sample" from "same sample again".
+   */
+  it('keeps counting past capacity in version, unlike length which plateaus', () => {
+    const buffer = new TraceBuffer(3);
+    expect(buffer.version).toBe(0);
+
+    for (const value of [1, 2, 3, 4, 5]) {
+      buffer.push(value);
+    }
+
+    expect(buffer.length).toBe(3);
+    expect(buffer.version).toBe(5);
+  });
+
+  it('resets version to zero on clear, along with length', () => {
+    const buffer = new TraceBuffer(3);
+    buffer.push(1);
+    buffer.push(2);
+
+    buffer.clear();
+
+    expect(buffer.version).toBe(0);
+  });
 });
 
 describe('LiveStore', () => {
   /**
    * The rule the whole two-rate design rests on. A subscriber firing at 60 Hz means a React render
    * per frame, which is exactly what the focus stream is kept out of React state to avoid.
+   *
+   * Not zero notifications, but a fixed number: a driver announces itself once when it starts
+   * streaming, so the panel can stop showing a click as unacknowledged. What must never happen is
+   * a count that grows with the frames, which is what this asserts by sending two hundred of them.
    */
-  it('does not notify subscribers for focus frames', () => {
+  it('notifies once when a driver starts streaming, and never again per frame', () => {
     const store = following(['id:2']);
     const listener = vi.fn();
     store.subscribe(listener);
 
     store.apply(focusFrame());
-    store.apply(focusFrame({ lapNumber: 2 }));
+    expect(listener).toHaveBeenCalledTimes(1);
 
-    expect(listener).not.toHaveBeenCalled();
-    expect(store.frameFor('id:2')?.lapNumber).toBe(2);
+    for (let lapNumber = 2; lapNumber <= 200; lapNumber++) {
+      store.apply(focusFrame({ lapNumber }));
+    }
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(store.frameFor('id:2')?.lapNumber).toBe(200);
   });
 
-  /** Even a second driver joining the comparison mid-stream must not reach React from here. */
-  it('does not notify subscribers when a second driver starts streaming', () => {
+  /** Two streams, two announcements — still one each, not one per frame of either. */
+  it('notifies once per driver when a second joins the comparison mid-stream', () => {
     const store = following(['id:2', 'id:9']);
-    store.apply({
-      type: 'extrasFrame',
-      roomId: 'room',
-      driverKey: 'id:2',
-      capturedAtUtc: '2026-08-16T12:00:00Z',
-      extras: '{}',
-    });
-
     const listener = vi.fn();
     store.subscribe(listener);
 
+    for (let i = 0; i < 50; i++) {
+      store.apply(focusFrame({ driverKey: 'id:2' }));
+      store.apply(focusFrame({ driverKey: 'id:9' }));
+    }
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(store.getFocusReadyKeys()).toEqual(new Set(['id:2', 'id:9']));
+  });
+
+  /** The click acknowledgement: subscribed is not the same as streaming, and the panel must know. */
+  it('reports a driver as ready only once a frame has actually arrived', () => {
+    const store = following(['id:2']);
+
+    expect(store.getFocusReadyKeys().has('id:2')).toBe(false);
+
+    store.apply(focusFrame());
+
+    expect(store.getFocusReadyKeys().has('id:2')).toBe(true);
+  });
+
+  /** A stream that has stopped is not one whose panel should still read as live. */
+  it('stops reporting a driver as ready when the stream is interrupted, and again when it resumes', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame());
+
+    store.interruptFocus();
+    expect(store.getFocusReadyKeys().has('id:2')).toBe(false);
+
+    store.apply(focusFrame());
+    expect(store.getFocusReadyKeys().has('id:2')).toBe(true);
+  });
+
+  it('drops readiness for a driver that went away, and keeps it for the one that stayed', () => {
+    const store = following(['id:2', 'id:9']);
     store.apply(focusFrame({ driverKey: 'id:2' }));
     store.apply(focusFrame({ driverKey: 'id:9' }));
 
-    expect(listener).not.toHaveBeenCalled();
+    store.setFollowedDrivers(['id:9']);
+
+    expect(store.getFocusReadyKeys()).toEqual(new Set(['id:9']));
   });
 
   it('notifies subscribers for the slow-changing streams', () => {
@@ -235,6 +298,115 @@ describe('LiveStore', () => {
 
     expect(store.frameFor('id:2')).toBeNull();
     expect(store.tracesFor('id:2').throttle.length).toBe(0);
+  });
+
+  /**
+   * The bargain the hub's thirty-second room expiry exists to keep. A socket that drops and returns
+   * inside that window rejoins the same room, so the minute of trace that preceded the drop is
+   * still about the same car and must survive.
+   */
+  it('interruptFocus keeps the traces across a reconnect into the same room', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame({ throttle: 1 }));
+    store.apply(focusFrame({ throttle: 0.5 }));
+
+    store.interruptFocus();
+
+    const throttle = [...store.tracesFor('id:2').throttle.toArray()];
+    expect(throttle.slice(0, 2)).toEqual([1, 0.5]);
+    expect(throttle).toHaveLength(3);
+  });
+
+  /** Absent is not zero, and a resumed stream must not be bridged across the hole it left. */
+  it('interruptFocus writes the outage into every channel as a gap', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame());
+
+    store.interruptFocus();
+
+    const { throttle, brake, clutch, steering, speed, tyres } = store.tracesFor('id:2');
+    for (const trace of [throttle, brake, clutch, steering, speed]) {
+      expect(trace.last()).toBeNaN();
+    }
+
+    for (let wheel = 0; wheel < 4; wheel++) {
+      expect(tyres.pressureKpa[wheel]!.last()).toBeNaN();
+      expect(tyres.wear[wheel]!.last()).toBeNaN();
+      expect(tyres.temperatureCelsius[wheel]!.last()).toBeNaN();
+    }
+  });
+
+  /** `LiveReadout` paints the last frame forever, so a held one would sit there claiming to be now. */
+  it('interruptFocus drops the held frame without dropping the history behind it', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame({ speedMetersPerSecond: 60 }));
+
+    store.interruptFocus();
+
+    expect(store.frameFor('id:2')).toBeNull();
+    expect(store.tracesFor('id:2').speed.length).toBe(2);
+  });
+
+  /**
+   * The followed set has to survive too. Clearing it was what made the old reset take the rings
+   * with it — and a frame arriving before the replayed subscription is acknowledged would then be
+   * refused as belonging to a driver nobody is following.
+   */
+  it('interruptFocus leaves the followed set intact, so frames resume without re-subscribing', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame({ throttle: 1 }));
+
+    store.interruptFocus();
+    store.apply(focusFrame({ throttle: 0.25 }));
+
+    expect(store.frameFor('id:2')?.throttle).toBe(0.25);
+    expect([...store.tracesFor('id:2').throttle.toArray()]).toEqual([1, Number.NaN, 0.25]);
+  });
+
+  /** Otherwise an interval that elapsed during the outage swallows the first frame back. */
+  it('samples the first tyre reading after an interruption rather than waiting out the interval', () => {
+    let now = 0;
+    const store = following(['id:2'], () => now);
+    store.apply(focusFrame({ tyreWear: [0.25, 0.25, 0.25, 0.25] }));
+
+    now += TYRE_SAMPLE_INTERVAL_MS * 4;
+    store.interruptFocus();
+
+    now += 1;
+    store.apply(focusFrame({ tyreWear: [0.5, 0.5, 0.5, 0.5] }));
+
+    // The reading, the gap the outage left, and the first reading back.
+    expect([...store.tracesFor('id:2').tyres.wear[0].toArray()]).toEqual([0.25, Number.NaN, 0.5]);
+  });
+
+  /**
+   * The other half of an interruption: a socket down longer than the room expiry comes back to a
+   * room the hub has forgotten, and says so with an error rather than with a room switch. The
+   * driver keys stop meaning anything either way.
+   */
+  it.each(['unknownRoom', 'roomClosed'] as const)(
+    'clears the traces and lap histories when the hub answers %s',
+    (code) => {
+      const store = following(['id:2']);
+      store.apply(focusFrame());
+      store.apply(lapHistory('id:2', [1, 2]));
+
+      store.apply({ type: 'error', code, message: 'gone' });
+
+      expect(store.frameFor('id:2')).toBeNull();
+      expect(store.tracesFor('id:2').throttle.length).toBe(0);
+      expect(store.getLapHistories()).toEqual({});
+    },
+  );
+
+  /** An error about one driver says nothing about the room, and must not cost the other one its rings. */
+  it('keeps the traces for an error that is not about the room', () => {
+    const store = following(['id:2']);
+    store.apply(focusFrame());
+
+    store.apply({ type: 'error', code: 'noTelemetryForDriver', message: 'nothing to send' });
+
+    expect(store.tracesFor('id:2').throttle.length).toBe(1);
   });
 
   /**

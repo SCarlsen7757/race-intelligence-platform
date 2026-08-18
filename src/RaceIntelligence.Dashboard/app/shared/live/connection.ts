@@ -152,9 +152,10 @@ export class LiveConnection {
       if (this.watchedRoomId !== null) {
         this.send({ type: 'watchRoom', roomId: this.watchedRoomId });
 
-        // The drop cleared the store's followed set along with the traces, so it has to be told
-        // again before the replayed subscriptions start delivering — otherwise every frame after a
-        // reconnect is refused as belonging to a driver nobody is following.
+        // Re-stated rather than restored: the drop leaves the followed set intact, so this is a
+        // no-op in the ordinary case and only matters when the set changed while the socket was
+        // down. Stated unconditionally because the replay has to be idempotent — the alternative
+        // is tracking whether it drifted, for an assignment that costs nothing.
         this.store.setFollowedDrivers(this.focusedDriverKeys);
 
         for (const driverKey of this.focusedDriverKeys) {
@@ -182,7 +183,12 @@ export class LiveConnection {
 
     socket.onclose = () => {
       this.store.setConnected(false);
-      this.store.resetFocus();
+
+      // Interrupted, not reset. The hub holds the room for thirty seconds after its last frame so
+      // this socket can come back to it, and throwing the rings away here would mean a two-second
+      // hiccup costs a minute of pedal trace. The gap is recorded instead, and drawn as a gap.
+      this.store.interruptFocus();
+
       this.scheduleReconnect();
     };
 

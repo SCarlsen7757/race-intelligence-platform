@@ -5,8 +5,8 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import type { LiveRoomSummary } from '../../shared/live/contracts';
 import { RoomList } from './RoomList';
 
@@ -112,5 +112,35 @@ describe('RoomList', () => {
     await renderList([room({ driverCount: 1 })]);
 
     expect(screen.getByText('1 car')).toBeDefined();
+  });
+
+  /**
+   * The room list is only pushed over the socket when something changes, so a quiet session's
+   * `rooms` array never gets replaced. The age still has to move — that's the whole bug this
+   * covers — so the clock has to be the thing ticking it, not a new prop from above.
+   *
+   * Fake timers go on after `renderList`'s own `router.load()` await, per that helper's own
+   * warning: installing them earlier stalls the router's async route matching.
+   */
+  it("ticks a session's age without a new rooms array", async () => {
+    const staleRoom = room({
+      lastUpdatedAtUtc: new Date('2026-08-18T11:59:00.000Z').toISOString(),
+    });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-08-18T12:00:00.000Z'));
+    try {
+      await renderList([staleRoom]);
+
+      expect(screen.getByText('1m ago')).toBeDefined();
+
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+
+      expect(screen.getByText('2m ago')).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

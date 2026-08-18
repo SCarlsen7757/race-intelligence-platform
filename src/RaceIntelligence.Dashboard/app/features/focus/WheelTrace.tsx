@@ -114,28 +114,45 @@ export function WheelTrace({
 
     let frame = 0;
 
+    // Tyre rings are pushed once a second (TYRE_SAMPLE_INTERVAL_MS), but requestAnimationFrame
+    // runs up to sixty times a second, so redrawing on every frame copies four full rings into
+    // uPlot fifty-nine times more often than the data changes. -1 never matches a version, so the
+    // first frame after mount still paints even when the ring is empty.
+    let paintedVersion = -1;
+
     const paint = () => {
-      // Every wheel is pushed in the same call, so one length describes all four.
-      const count = wheels[0].length;
+      // Every wheel is pushed in the same call, so one version describes all four.
+      const version = wheels[0].version;
 
-      if (count !== xs.length) {
-        xs = new Float64Array(count);
-        for (let i = 0; i < count; i++) {
-          xs[i] = i;
+      if (version !== paintedVersion) {
+        const count = wheels[0].length;
+
+        if (count !== xs.length) {
+          xs = new Float64Array(count);
+          for (let i = 0; i < count; i++) {
+            xs[i] = i;
+          }
         }
+
+        for (let wheel = 0; wheel < series.length; wheel++) {
+          series[wheel] = wheels[wheel]!.toArray(series[wheel]);
+        }
+
+        chart.setData([xs, series[0]!, series[1]!, series[2]!, series[3]!], true);
+        paintedVersion = version;
       }
 
-      for (let wheel = 0; wheel < series.length; wheel++) {
-        series[wheel] = wheels[wheel]!.toArray(series[wheel]);
-      }
-
-      chart.setData([xs, series[0]!, series[1]!, series[2]!, series[3]!], true);
       frame = requestAnimationFrame(paint);
     };
 
     frame = requestAnimationFrame(paint);
 
-    const resize = () => chart.setSize({ width: container.clientWidth, height });
+    const resize = () => {
+      chart.setSize({ width: container.clientWidth, height });
+      // Otherwise the chart sits at the old width for up to a second, until the next sample
+      // happens to arrive and the version guard above lets a repaint through.
+      paintedVersion = -1;
+    };
     window.addEventListener('resize', resize);
 
     return () => {

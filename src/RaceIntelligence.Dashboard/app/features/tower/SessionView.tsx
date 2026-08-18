@@ -3,10 +3,27 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatDriverKeys, parseDriverKeys, toggleDriverKey } from '../focus/focusDriverKeys';
 import { LapHistoryPanel } from '../laps/LapHistoryPanel';
 import { formatSessionType, isRaceSession } from '../../shared/format/format';
-import { useLive, useRooms, useSessionState, useTower } from '../../shared/live/useLive';
+import { useAge } from '../../shared/format/useAge';
+import {
+  useConnected,
+  useFocusReady,
+  useLive,
+  useRooms,
+  useSessionState,
+  useTower,
+} from '../../shared/live/useLive';
 import { PitWindowBanner } from './PitWindowBanner';
 import { TimingTower } from './TimingTower';
 import { TrackMap } from './TrackMap';
+
+/**
+ * A leaf, so the one-second tick that keeps this honest does not re-render twenty tower rows.
+ *
+ * The same shape the room list uses for its session ages, and for the same reason — see `useAge`.
+ */
+function LastUpdated({ atUtc }: { atUtc: string }) {
+  return <span className="tower__stamp-age">{useAge(atUtc)}</span>;
+}
 
 /**
  * One session: the timing tower, and whatever focus panel the URL asks for.
@@ -21,6 +38,8 @@ export function SessionView() {
   const rooms = useRooms();
   const tower = useTower();
   const sessionState = useSessionState();
+  const connected = useConnected();
+  const focusReady = useFocusReady();
   const navigate = useNavigate();
 
   // Which rows are open. Kept here rather than in the URL: it is a reading aid, not a place — a
@@ -47,6 +66,13 @@ export function SessionView() {
   // The drivers the URL asks for. A comma-separated segment, so a comparison is as linkable as a
   // single car — see `focusDriverKeys.ts`.
   const focusedDriverKeys = useMemo(() => parseDriverKeys(driverKey), [driverKey]);
+
+  // Subscribed but not yet streaming. Derived rather than tracked, so it cannot drift from either
+  // half: the URL says who was asked for, and the store says who has answered.
+  const pendingDriverKeys = useMemo(
+    () => new Set(focusedDriverKeys.filter((key) => !focusReady.has(key))),
+    [focusedDriverKeys, focusReady],
+  );
 
   // Both subscriptions are stated here, in this order, rather than the focus one living in
   // `FocusView`. React runs a child's effects before its parent's, so a focus stated from the
@@ -133,11 +159,27 @@ export function SessionView() {
           two can never disagree about where a car is.
         */}
         <div className="session__timing">
-          <div className="session__tower">
+          <div className={`session__tower ${connected ? '' : 'session__tower--stale'}`}>
+            {/*
+              Where the numbers are, not in the corner. The header's connection light is the only
+              thing on screen today that tells a frozen tower from a tower where nobody is
+              improving, and it is twelve pixels of muted text a metre from what is being read.
+              This says the same thing in the place a gap is being read off, and keeps counting
+              while the socket is down — which is exactly when it matters and exactly when no new
+              snapshot will arrive to refresh it.
+            */}
+            {tower !== null && tower.roomId === roomId && (
+              <p className="tower__stamp">
+                {connected ? 'Updated' : 'Not updating — last snapshot'}{' '}
+                <LastUpdated atUtc={tower.capturedAtUtc} />
+              </p>
+            )}
+
             <TimingTower
               rows={rows}
               focusedDriverKeys={focusedDriverKeys}
               onFocus={toggleFocus}
+              pendingDriverKeys={pendingDriverKeys}
               expandedDriverKeys={expandedDriverKeys}
               onToggleExpand={toggleExpand}
               // No room yet means no session type yet, and an unknown session is not a race. The
