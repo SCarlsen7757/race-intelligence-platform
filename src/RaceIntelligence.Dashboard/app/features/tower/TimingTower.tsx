@@ -81,7 +81,7 @@ export function TimingTower({
         <tr>
           <th className="tower__pos">#</th>
           <th className="tower__driver">Driver</th>
-          <th className="tower__telemetry">Tel</th>
+          <th className="tower__telemetry">Telemetry</th>
           <th>Laps</th>
           <th>Gap</th>
           <th>Last</th>
@@ -182,7 +182,7 @@ export function TimingTower({
                   )}
                 </td>
 
-                <td>{row.completedLaps ?? NOT_REPORTED}</td>
+                <td className="tower__laps">{row.completedLaps ?? NOT_REPORTED}</td>
                 <td className="time">{formatGap(row.gapToCarAheadMs)}</td>
 
                 {/*

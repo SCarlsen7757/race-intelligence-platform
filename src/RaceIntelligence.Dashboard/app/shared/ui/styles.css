@@ -60,6 +60,7 @@ body {
 .incidents__count,
 .incidents__limit,
 .laps__number,
+.tower__laps,
 .tower__pos {
   font-variant-numeric: tabular-nums;
 }
@@ -118,8 +119,16 @@ body {
   color: var(--text-muted);
 }
 
+/* Capped and centred. The header stays full-bleed — it is chrome and belongs to the window — but
+   on a 3440px monitor an uncapped main spreads eleven timing columns across three thousand pixels,
+   joined by a row hairline that is deliberately near-invisible, and the eye cannot carry a row from
+   position to sector time. `.session__tower` scrolls the table inside its own box, so narrowing
+   this never gives the document a horizontal scrollbar. */
 .app__main {
   flex: 1;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
   padding: 16px 20px;
 }
 
@@ -322,9 +331,16 @@ body {
   color: var(--text-muted);
 }
 
-/* The one state worth interrupting a glance for: a stop taken now counts. */
+/* The one state worth interrupting a glance for: a stop taken now counts.
+
+   Filled, not merely outlined, because `.banner--warn` speaks in washes and can sit directly above
+   this — an outline loses to a fill every time, so the state claiming to be worth interrupting a
+   glance for was being out-shouted by an error message. At 12% it reads 1.26:1 against its panel
+   where the banner reads 1.13:1 against the page, which is the two systems finally agreeing on what
+   "this matters" looks like. Green text stays legible on it at 8.0:1. */
 .pit-window--open {
   border-color: var(--flag-personal-best);
+  background: color-mix(in srgb, var(--flag-personal-best) 12%, var(--bg-raised));
   color: var(--flag-personal-best);
 }
 
@@ -430,6 +446,11 @@ body {
 .track-map {
   margin: 0;
   flex: 0 0 auto;
+  /* Was a hard 240px applied inline, which left the map a postage stamp beside a tower with width
+     to spare. A clamp grows it with the window and needs no breakpoint, which is the rule the rest
+     of this file follows. Capped, because past that the ring stops being a glance and becomes a
+     diagram. */
+  width: clamp(180px, 20vw, 360px);
   background: var(--bg-raised);
   border: 1px solid var(--edge);
   border-radius: 6px;
@@ -576,9 +597,13 @@ th.tower__driver {
   min-width: 200px;
 }
 
+/* Wide enough for the word rather than for TEL. `.tower th` uppercases its content, so the
+   abbreviation was already rendering as TEL — recasing it could not have made it less like the
+   abbreviation for telephone, and the only fix that changes what a reader sees is the whole word.
+   It costs twenty pixels. */
 .tower__telemetry,
 th.tower__telemetry {
-  width: 64px;
+  width: 84px;
   text-align: center;
 }
 
