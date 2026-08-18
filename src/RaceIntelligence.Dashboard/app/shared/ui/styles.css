@@ -251,7 +251,7 @@ body {
 .laps__table .pill {
   margin-left: 6px;
   padding: 1px 4px;
-  font-size: 9px;
+  font-size: 10px;
   text-decoration: none;
   vertical-align: middle;
 }
@@ -643,8 +643,8 @@ th.tower__state {
 }
 
 .focus-button--open {
-  background: var(--status-live);
-  color: var(--bg);
+  background: color-mix(in srgb, var(--status-live) 16%, transparent);
+  color: var(--status-live);
 }
 
 /* Subscribed, nothing arriving yet. Quieter than --open rather than louder: this is a state on the
@@ -663,9 +663,20 @@ th.tower__state {
   margin-left: 6px;
 }
 
+/* Timing is the decision-making surface; names identify the car once the numbers have found it.
+   600 and 700 rather than 500 and 600, because the Segoe UI this stack asks for first has no 500
+   face — only 300, 350, 400, 600, 700, 900 — and what a resolver does with the gap is its own
+   business. Chrome here snaps 500 to Semibold, which would have rendered an ordinary lap time at
+   exactly the weight of a session best; a resolver following the spec's fallback order instead
+   drops it to Regular, which would have rendered it at exactly the weight of a driver's name. Both
+   readings erase a distinction this rule exists to draw, so the weights name real faces. */
+.time {
+  font-weight: 600;
+}
+
 .time--session-best {
   color: var(--flag-session-best);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .time--personal-best {
