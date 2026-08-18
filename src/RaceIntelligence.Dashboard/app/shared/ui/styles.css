@@ -456,7 +456,7 @@ body {
 
 /* A car whose own machine is publishing — the only ones whose telemetry can be opened at all. */
 .track-map__car--self .track-map__dot {
-  fill: rgba(61, 220, 132, 0.2);
+  fill: color-mix(in srgb, var(--status-live) 20%, transparent);
   stroke: var(--status-live);
 }
 
@@ -476,9 +476,11 @@ body {
   stroke: var(--text);
 }
 
-/* Open telemetry, matching `.tower__row--focused` so the two views say the same thing. */
+/* Open telemetry, matching `.tower__row--focused` so the two views say the same thing. Mixed from
+   --accent rather than sharing --accent-fill: a dot is a fraction of the area of a row and needs a
+   heavier fill to read as the same strength. */
 .track-map__car--focused .track-map__dot {
-  fill: rgba(90, 169, 255, 0.35);
+  fill: color-mix(in srgb, var(--accent) 35%, transparent);
   stroke: var(--accent);
   stroke-width: 0.008;
 }
@@ -637,7 +639,7 @@ th.tower__state {
 }
 
 .focus-button:hover {
-  background: rgba(61, 220, 132, 0.15);
+  background: color-mix(in srgb, var(--status-live) 15%, transparent);
 }
 
 .focus-button--open {
