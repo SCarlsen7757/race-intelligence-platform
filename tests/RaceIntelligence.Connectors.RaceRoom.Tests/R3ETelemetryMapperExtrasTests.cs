@@ -80,6 +80,45 @@ public class R3ETelemetryMapperExtrasTests
         propertyNames.ShouldContain("tyreFlatspot");
         propertyNames.ShouldContain("tyreRotationRadiansPerSecond");
         propertyNames.ShouldContain("tyreSurfaceMaterial");
+        propertyNames.ShouldContain("incidentPoints");
+        propertyNames.ShouldContain("maxIncidentPoints");
+    }
+
+    [Fact]
+    public void SampleExtras_CarryTheIncidentPointsAndTheServerLimit()
+    {
+        // Both are root-level in the shared block and describe the local car only, so sample extras
+        // -- the one document that reaches a viewer, as `extrasFrame` -- is where they have to be.
+        // Asymmetric values so a field wired to the wrong source cannot pass.
+        var extras = SampleExtras(builder => builder.Configure((ref R3ESharedRaw raw) =>
+        {
+            raw.IncidentPoints = 4;
+            raw.MaxIncidentPoints = 10;
+        }));
+
+        extras.GetProperty("incidentPoints").GetInt32().ShouldBe(4);
+        extras.GetProperty("maxIncidentPoints").GetInt32().ShouldBe(10);
+    }
+
+    [Fact]
+    public void SampleExtras_IncidentPointsKeepTheirNotAvailableSentinel()
+    {
+        // Offline, or on a server that sets no limit, both read -1. Extras carry it untranslated --
+        // the panel is where -1 becomes "not reported", because only there is there a difference
+        // between "no limit set" and a limit that happens to be zero.
+        var extras = SampleExtras();
+
+        extras.GetProperty("incidentPoints").GetInt32().ShouldBe(-1);
+        extras.GetProperty("maxIncidentPoints").GetInt32().ShouldBe(-1);
+    }
+
+    [Fact]
+    public void SampleExtras_CarryAZeroIncidentCountAsARealAnswer()
+    {
+        // A clean sheet is not the same as no reading, and the writer must not conflate them.
+        var extras = SampleExtras(builder => builder.Configure((ref R3ESharedRaw raw) => raw.IncidentPoints = 0));
+
+        extras.GetProperty("incidentPoints").GetInt32().ShouldBe(0);
     }
 
     [Fact]

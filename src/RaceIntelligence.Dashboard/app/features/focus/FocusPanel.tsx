@@ -44,6 +44,12 @@ interface FocusSection {
   render: (driverKey: string) => ReactNode;
 }
 
+/**
+ * Sim panels that are a readout rather than a chart, and so want a narrow column instead of the
+ * width a trace needs.
+ */
+const COMPACT_PANELS = new Set(['damage', 'incidents']);
+
 function CarMetrics({ store, driverKey }: { store: LiveStore; driverKey: string }) {
   const renderSpeed = useCallback(
     (frame: FocusFrameMessage) => formatSpeed(frame.speedMetersPerSecond),
@@ -212,9 +218,9 @@ export function FocusPanel({
       ...panels.map((panel) => ({
         id: panel.id,
         title: panel.title,
-        // Charts want width; a meter wants a short bar. `damage` is the only compact one today, and
-        // asking the panel's own id keeps that judgement here rather than in the stylesheet.
-        shape: panel.id === 'damage' ? ('compact' as const) : ('chart' as const),
+        // Charts want width; a meter wants a short bar and a bare readout wants less still. Asking
+        // the panel's own id keeps that judgement here rather than in the stylesheet.
+        shape: COMPACT_PANELS.has(panel.id) ? ('compact' as const) : ('chart' as const),
         render: (driverKey: string) => <panel.component store={store} driverKey={driverKey} />,
       })),
     ],

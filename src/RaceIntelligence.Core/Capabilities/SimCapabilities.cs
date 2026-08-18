@@ -65,6 +65,18 @@ public enum SimCapabilities : ulong
 
     /// <summary>The connector reports pit lane and pit stop state for cars other than the local one.</summary>
     OpponentPitState = 1UL << 14,
+
+    /// <summary>
+    /// The connector reports the driver's accumulated incident points, and the server's limit when
+    /// one is set.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately has no opponent counterpart. The simulator reports this for the car it is
+    /// running and for no other, so it belongs with fuel, tyre wear and damage rather than in a
+    /// timing tower — a column filled in for one row out of thirty would read as "everyone else is
+    /// clean", which is the opposite of the truth.
+    /// </remarks>
+    IncidentPoints = 1UL << 15,
 }
 
 /// <summary>
