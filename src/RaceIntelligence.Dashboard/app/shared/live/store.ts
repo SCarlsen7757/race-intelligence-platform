@@ -23,6 +23,7 @@ export class TraceBuffer {
   private readonly values: Float32Array;
   private writeIndex = 0;
   private filled = 0;
+  private pushCount = 0;
 
   constructor(capacity: number = TRACE_CAPACITY) {
     this.values = new Float32Array(capacity);
@@ -32,17 +33,30 @@ export class TraceBuffer {
     return this.filled;
   }
 
+  /**
+   * How many values have ever been pushed.
+   *
+   * A paint loop cannot use `length` to tell whether there is anything new to draw — it plateaus
+   * the moment the ring is full, and a chart keyed on it would freeze an hour into a stint. This
+   * never stops moving, so it is what a loop that only wants to repaint on new data should watch.
+   */
+  get version(): number {
+    return this.pushCount;
+  }
+
   push(value: number): void {
     this.values[this.writeIndex] = value;
     this.writeIndex = (this.writeIndex + 1) % this.values.length;
     if (this.filled < this.values.length) {
       this.filled++;
     }
+    this.pushCount++;
   }
 
   clear(): void {
     this.writeIndex = 0;
     this.filled = 0;
+    this.pushCount = 0;
   }
 
   /** The most recently pushed value, or NaN when nothing has been pushed yet. */

@@ -104,6 +104,33 @@ describe('TraceBuffer', () => {
 
     expect(buffer.last()).toBe(4);
   });
+
+  /**
+   * The mechanism a paint loop actually leans on: `length` plateaus once the ring is full, so a
+   * loop keyed on it would never notice a stint's five-thousandth sample arriving. `version` keeps
+   * counting regardless, which is what lets a guard tell "new sample" from "same sample again".
+   */
+  it('keeps counting past capacity in version, unlike length which plateaus', () => {
+    const buffer = new TraceBuffer(3);
+    expect(buffer.version).toBe(0);
+
+    for (const value of [1, 2, 3, 4, 5]) {
+      buffer.push(value);
+    }
+
+    expect(buffer.length).toBe(3);
+    expect(buffer.version).toBe(5);
+  });
+
+  it('resets version to zero on clear, along with length', () => {
+    const buffer = new TraceBuffer(3);
+    buffer.push(1);
+    buffer.push(2);
+
+    buffer.clear();
+
+    expect(buffer.version).toBe(0);
+  });
 });
 
 describe('LiveStore', () => {
