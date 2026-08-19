@@ -868,6 +868,26 @@ th.tower__state {
   align-content: start;
 }
 
+/*
+ * The same three-column grid the car metrics use, so a fuel tile beside a car tile lines its
+ * numbers up rather than nearly lining them up. The basis line spans the row underneath, because a
+ * calculation that does not say what it assumed is a number pretending to be a measurement.
+ */
+.fuel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.fuel__basis {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
 /* Bars above, percentages below, both filling the tile. */
 .pedal-inputs {
   display: flex;

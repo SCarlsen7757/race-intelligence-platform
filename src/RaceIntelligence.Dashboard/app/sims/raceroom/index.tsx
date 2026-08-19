@@ -6,6 +6,7 @@ import { CarMetrics } from '../../features/focus/CarMetrics';
 import { PedalInputs } from '../../features/focus/PedalInputs';
 import { INPUT_CHANNELS, InputsTrace } from '../../features/focus/InputsTrace';
 import { LapDelta } from '../../features/focus/LapDelta';
+import { FuelPanel } from '../../features/focus/FuelPanel';
 import { LapTrend } from '../../features/laps/LapTrend';
 import { WHEEL_CHANNELS, WheelTrace } from '../../features/focus/WheelTrace';
 import { ExtrasWheelTrace, type ExtrasWheelChannel } from '../../features/focus/ExtrasWheelTrace';
@@ -258,6 +259,19 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: [],
     component: LapTrend,
+    defaultSize: { w: 4, h: 4 },
+    minSize: { w: 3, h: 3 },
+  },
+  {
+    // No capability. Fuel is a core channel on the focus frame, and gating it would be gating a
+    // question every simulator can answer on a flag every future connector had to remember.
+    id: 'fuel',
+    title: 'Fuel',
+    scope: 'driver',
+    requires: [],
+    component: FuelPanel,
+    // Three numbers and a line of prose. Wider than the car metrics because the basis line needs
+    // room to be a sentence rather than four wrapped fragments.
     defaultSize: { w: 4, h: 4 },
     minSize: { w: 3, h: 3 },
   },

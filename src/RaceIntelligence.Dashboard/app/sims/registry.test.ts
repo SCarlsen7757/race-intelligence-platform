@@ -79,6 +79,7 @@ describe('sim panel registry', () => {
       'inputs-trace',
       'lap-delta',
       'lap-trend',
+      'fuel',
       'tyre-pressure',
       'tyre-wear',
       'tyre-temperature',
@@ -106,6 +107,7 @@ describe('sim panel registry', () => {
       'inputs-trace',
       'lap-delta',
       'lap-trend',
+      'fuel',
       'tyre-wear',
       'tyre-grip',
       'brake-pressure',
@@ -135,6 +137,7 @@ describe('sim panel registry', () => {
       'inputs-trace',
       'lap-delta',
       'lap-trend',
+      'fuel',
       'tyre-grip',
       'brake-pressure',
     ]);
