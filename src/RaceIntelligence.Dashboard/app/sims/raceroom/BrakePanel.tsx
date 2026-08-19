@@ -1,32 +1,22 @@
-import { useEffect, useMemo, useRef } from 'react';
 import { formatNumber, formatPercent, NOT_REPORTED } from '../../shared/format/format';
-import type { RaceRoomExtras } from '../../shared/live/contracts';
-import { TraceBuffer, TYRE_TRACE_CAPACITY, type WheelTraces } from '../../shared/live/store';
+import { reportedNumber } from '../../shared/live/extras';
+import { TYRE_TRACE_CAPACITY, type ExtrasTraces } from '../../shared/live/store';
 import { useExtras } from '../../shared/live/useLive';
 import { ChannelLegend } from '../../features/focus/ChannelLegend';
 import { LiveChart, type LiveChartSpec } from '../../features/focus/LiveChart';
 import { WHEEL_CHANNELS } from '../../features/focus/WheelTrace';
 import type { ChannelPanelProps } from '../registry';
 
-type BrakeChannel = (extras: RaceRoomExtras) => number[] | undefined;
-
-function parseExtras(extrasJson: string | null): RaceRoomExtras | null {
-  if (extrasJson === null) return null;
-
-  try {
-    return JSON.parse(extrasJson) as RaceRoomExtras;
-  } catch {
-    return null;
-  }
-}
-
-function newWheelTraces(): WheelTraces {
-  return [
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-  ];
+/**
+ * Which extras ring a brake chart draws, and where the same channel is read for its readouts.
+ *
+ * Two accessors rather than one because the line and the number come from different places by
+ * design: the line is a stint held in a ring, the number is this second's document. They agree
+ * because the store fills the ring from that same document — see `pushExtrasSample`.
+ */
+interface BrakeChannel {
+  ring: (extras: ExtrasTraces) => ExtrasTraces['brakeTemperatureCelsius'];
+  read: (extras: ReturnType<typeof useExtras>) => readonly number[] | undefined;
 }
 
 function BrakeTrace({
@@ -34,50 +24,27 @@ function BrakeTrace({
   driverKey,
   hiddenChannels,
   onToggleChannel,
-  read,
+  channel,
   unit,
   format,
   range,
 }: ChannelPanelProps & {
-  read: BrakeChannel;
+  channel: BrakeChannel;
   unit: string;
   format: (value: number | null | undefined) => string;
   range?: readonly [number, number];
 }) {
-  const frame = useExtras(driverKey);
+  const extras = useExtras(driverKey);
+  const values = channel.read(extras);
 
   /*
-   * Held here rather than in the store, which is the wrong place for them: every other channel on
-   * screen is a ring the store owns, and these are the one exception only because the extras
-   * document is still parsed per panel. Both halves of that move together in #57 — when the store
-   * pushes extras channels into its own rings, this ref and the effect below go, and the spec's
-   * buffers resolve out of the store like every other chart's.
+   * Resolved out of the store like every other chart on the wall.
    *
-   * Rings rather than component state for the usual reason: a stint's worth of samples re-rendering
-   * a panel once a second is a cost with nothing to show for it.
+   * This panel used to keep four `TraceBuffer`s in a ref and fill them from an effect, because the
+   * extras document was parsed per panel and there was nowhere else for them to live. With the
+   * store parsing once and pushing the channels itself, the exception is gone: the rings outlive
+   * the panel, so a tile dragged to a new position keeps its stint instead of starting from empty.
    */
-  const tracesRef = useRef<WheelTraces>(newWheelTraces());
-  const lastSampleRef = useRef<string | null>(null);
-
-  const values = useMemo(() => {
-    const extras = parseExtras(frame?.extras ?? null);
-    return extras === null ? undefined : read(extras);
-  }, [frame, read]);
-
-  useEffect(() => {
-    if (frame === null || frame.capturedAtUtc === lastSampleRef.current) return;
-    lastSampleRef.current = frame.capturedAtUtc;
-
-    for (let wheel = 0; wheel < 4; wheel++) {
-      const value = values?.[wheel];
-      // NaN for anything the simulator did not report, including its -1 sentinel, so the chart
-      // draws a hole rather than a reading. A brake at -1 °C is not a cold brake.
-      tracesRef.current[wheel]!.push(
-        value === undefined || !Number.isFinite(value) || value < 0 ? Number.NaN : value,
-      );
-    }
-  }, [frame, values]);
-
   const spec: LiveChartSpec = {
     capacity: TYRE_TRACE_CAPACITY,
     scales: { y: range === undefined ? {} : { range: [...range] } },
@@ -85,7 +52,7 @@ function BrakeTrace({
       id: wheel.id,
       label: wheel.label,
       stroke: wheel.stroke,
-      buffer: () => tracesRef.current[index]!,
+      buffer: () => channel.ring(store.tracesFor(driverKey).extras)[index]!,
     })),
   };
 
@@ -106,30 +73,38 @@ function BrakeTrace({
         onToggle={onToggleChannel}
         unit={unit}
         renderValue={(_, index) => {
-          const value = values?.[index];
-          const shown =
-            value === undefined || !Number.isFinite(value) || value < 0
-              ? NOT_REPORTED
-              : format(value);
+          const value = reportedNumber(values?.[index]);
 
-          return <span className="wheel-chart__number">{shown}</span>;
+          return (
+            <span className="wheel-chart__number">
+              {value === null ? NOT_REPORTED : format(value)}
+            </span>
+          );
         }}
       />
     </div>
   );
 }
 
-const readTemperature = (extras: RaceRoomExtras) => extras.brakeTemperatureCelsius;
-const readWear = (extras: RaceRoomExtras) => extras.brakeWear;
+const TEMPERATURE: BrakeChannel = {
+  ring: (extras) => extras.brakeTemperatureCelsius,
+  read: (extras) => extras?.document?.brakeTemperatureCelsius,
+};
+
+const WEAR: BrakeChannel = {
+  ring: (extras) => extras.brakeWear,
+  read: (extras) => extras?.document?.brakeWear,
+};
+
 const formatTemperature = (value: number | null | undefined) => formatNumber(value, 0);
 const WEAR_RANGE = [0, 1] as const;
 
 export function BrakeTemperaturePanel(props: ChannelPanelProps) {
-  return <BrakeTrace {...props} read={readTemperature} unit="°C" format={formatTemperature} />;
+  return <BrakeTrace {...props} channel={TEMPERATURE} unit="°C" format={formatTemperature} />;
 }
 
 export function BrakeWearPanel(props: ChannelPanelProps) {
   return (
-    <BrakeTrace {...props} read={readWear} unit="worn" format={formatPercent} range={WEAR_RANGE} />
+    <BrakeTrace {...props} channel={WEAR} unit="worn" format={formatPercent} range={WEAR_RANGE} />
   );
 }

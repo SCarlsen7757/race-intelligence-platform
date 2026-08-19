@@ -5,9 +5,11 @@ import type {
   LiveErrorMessage,
   LiveRoomSummary,
   LiveViewMessage,
+  RaceRoomExtras,
   SessionStateMessage,
   TowerSnapshotMessage,
 } from './contracts';
+import { parseExtras, reportedOrNaN } from './extras';
 
 /**
  * How many focus frames the trace buffers keep.
@@ -133,6 +135,49 @@ export const TYRE_SAMPLE_INTERVAL_MS = 1000;
 export type WheelTraces = readonly [TraceBuffer, TraceBuffer, TraceBuffer, TraceBuffer];
 
 /**
+ * The extras channels this dashboard plots, kept on the tyre rings' slower sample index.
+ *
+ * Extras arrive at roughly 1 Hz on their own channel, which is the same cadence the tyre rings
+ * decimate to, so they share a capacity and a window rather than inventing a third timebase.
+ *
+ * Held by the store rather than by the panels that draw them. They used to live in a ref inside
+ * `BrakePanel`, which worked and was the only such exception on screen — every other channel is a
+ * ring the store owns. The exception existed only because the extras document was parsed per panel;
+ * with one parse on arrival there is no longer a reason for it, and a brake chart becomes an
+ * ordinary `LiveChart` caller like every other chart.
+ */
+export interface ExtrasTraces {
+  // Per-wheel channels, FL/FR/RL/RR.
+  brakeTemperatureCelsius: WheelTraces;
+  brakePressureKiloNewtons: WheelTraces;
+  brakeWear: WheelTraces;
+  tyreGrip: WheelTraces;
+  tyreLoadNewtons: WheelTraces;
+
+  // Scalars — car health and energy, which move over a stint rather than through a corner.
+  engineTempCelsius: TraceBuffer;
+  engineOilTempCelsius: TraceBuffer;
+  engineOilPressureKpa: TraceBuffer;
+  fuelPressureKpa: TraceBuffer;
+  turboPressureBar: TraceBuffer;
+  batteryStateOfChargePercent: TraceBuffer;
+  virtualEnergyLeftMj: TraceBuffer;
+}
+
+/** One extras frame, decoded once. */
+export interface ExtrasSnapshot {
+  /** The message as it arrived, still carrying its capture time. */
+  message: ExtrasFrameMessage;
+  /**
+   * The decoded document, or null when there was none or it would not parse.
+   *
+   * Decoded here so that a wall of extras-fed tiles shares one parse rather than each doing its
+   * own. A reader must still treat every value as raw — see `reportedNumber`.
+   */
+  document: RaceRoomExtras | null;
+}
+
+/**
  * The tyre channels over a stint, sampled at {@link TYRE_SAMPLE_INTERVAL_MS}.
  *
  * Held apart from the input traces rather than alongside them because the two share no sample
@@ -145,7 +190,7 @@ export interface TyreTraces {
   temperatureCelsius: WheelTraces;
 }
 
-/** The traces the focus panel plots for one driver. */
+/** The traces the wall plots for one driver. */
 export interface FocusTraces {
   /** Input channels, one sample per focus frame, all sharing one sample index. */
   throttle: TraceBuffer;
@@ -155,6 +200,8 @@ export interface FocusTraces {
   speed: TraceBuffer;
   /** Tyre channels, on their own slower sample index. */
   tyres: TyreTraces;
+  /** Extras channels, sharing the tyre rings' cadence — see {@link ExtrasTraces}. */
+  extras: ExtrasTraces;
 }
 
 function wheelTraces(): WheelTraces {
@@ -164,6 +211,23 @@ function wheelTraces(): WheelTraces {
     new TraceBuffer(TYRE_TRACE_CAPACITY),
     new TraceBuffer(TYRE_TRACE_CAPACITY),
   ];
+}
+
+function extrasTraces(): ExtrasTraces {
+  return {
+    brakeTemperatureCelsius: wheelTraces(),
+    brakePressureKiloNewtons: wheelTraces(),
+    brakeWear: wheelTraces(),
+    tyreGrip: wheelTraces(),
+    tyreLoadNewtons: wheelTraces(),
+    engineTempCelsius: new TraceBuffer(TYRE_TRACE_CAPACITY),
+    engineOilTempCelsius: new TraceBuffer(TYRE_TRACE_CAPACITY),
+    engineOilPressureKpa: new TraceBuffer(TYRE_TRACE_CAPACITY),
+    fuelPressureKpa: new TraceBuffer(TYRE_TRACE_CAPACITY),
+    turboPressureBar: new TraceBuffer(TYRE_TRACE_CAPACITY),
+    batteryStateOfChargePercent: new TraceBuffer(TYRE_TRACE_CAPACITY),
+    virtualEnergyLeftMj: new TraceBuffer(TYRE_TRACE_CAPACITY),
+  };
 }
 
 function newTraces(): FocusTraces {
@@ -178,8 +242,29 @@ function newTraces(): FocusTraces {
       wear: wheelTraces(),
       temperatureCelsius: wheelTraces(),
     },
+    extras: extrasTraces(),
   };
 }
+
+/** Every per-wheel extras channel, paired with where it is read from the document. */
+const EXTRAS_WHEEL_CHANNELS = [
+  ['brakeTemperatureCelsius', 'brakeTemperatureCelsius'],
+  ['brakePressureKiloNewtons', 'brakePressureKiloNewtons'],
+  ['brakeWear', 'brakeWear'],
+  ['tyreGrip', 'tyreGrip'],
+  ['tyreLoadNewtons', 'tyreLoadNewtons'],
+] as const satisfies readonly (readonly [keyof ExtrasTraces, keyof RaceRoomExtras])[];
+
+/** Every scalar extras channel, paired with where it is read from the document. */
+const EXTRAS_SCALAR_CHANNELS = [
+  ['engineTempCelsius', 'engineTempCelsius'],
+  ['engineOilTempCelsius', 'engineOilTempCelsius'],
+  ['engineOilPressureKpa', 'engineOilPressureKpa'],
+  ['fuelPressureKpa', 'fuelPressureKpa'],
+  ['turboPressureBar', 'turboPressureBar'],
+  ['batteryStateOfChargePercent', 'batteryStateOfChargePercent'],
+  ['virtualEnergyLeftMj', 'virtualEnergyLeftMj'],
+] as const satisfies readonly (readonly [keyof ExtrasTraces, keyof RaceRoomExtras])[];
 
 /** Everything held for one followed driver. Plain fields — none of this goes through React. */
 interface DriverFocus {
@@ -188,6 +273,15 @@ interface DriverFocus {
   framesReceived: number;
   /** When the tyre rings last took a sample, so the decimation is by time and not by frame count. */
   lastTyreSampleAtMs: number;
+  /**
+   * The capture time of the extras frame last pushed into the rings.
+   *
+   * Extras are already decimated by the collector, so the rings follow the frames rather than a
+   * clock. This is what stops a re-delivered or repeated document being counted twice — the sample
+   * index has to advance once per document, or a stint's width would depend on how the socket
+   * happened to behave.
+   */
+  lastExtrasCapturedAtUtc: string | null;
 }
 
 /**
@@ -248,7 +342,10 @@ export class LiveStore {
 
   // Per driver, and replaced rather than mutated, for exactly the reasons lap histories are: two
   // damage panels can be on screen at once, and useSyncExternalStore compares by identity.
-  private extras: Readonly<Record<string, ExtrasFrameMessage>> = {};
+  //
+  // Holds the decoded document beside the message, so the parse happens once here rather than once
+  // per panel per frame.
+  private extras: Readonly<Record<string, ExtrasSnapshot>> = {};
 
   private readonly listeners = new Set<() => void>();
 
@@ -273,7 +370,7 @@ export class LiveStore {
   getSessionState = (): SessionStateMessage | null => this.sessionState;
   getLastError = (): LiveErrorMessage | null => this.lastError;
   getLapHistories = (): Readonly<Record<string, LapHistoryMessage>> => this.lapHistories;
-  getExtras = (): Readonly<Record<string, ExtrasFrameMessage>> => this.extras;
+  getExtras = (): Readonly<Record<string, ExtrasSnapshot>> => this.extras;
   isConnected = (): boolean => this.connected;
   getFocusReadyKeys = (): ReadonlySet<string> => this.focusReadyKeys;
 
@@ -382,8 +479,7 @@ export class LiveStore {
       case 'extrasFrame':
         // Roughly 1 Hz, so this one *does* go through React. The whole reason extras have their own
         // channel is that they change slowly enough for that to be free.
-        this.extras = { ...this.extras, [message.driverKey]: message };
-        this.emit();
+        this.applyExtras(message);
         break;
 
       case 'error':
@@ -432,6 +528,14 @@ export class LiveStore {
         entry.traces.tyres.pressureKpa[wheel]!.push(Number.NaN);
         entry.traces.tyres.wear[wheel]!.push(Number.NaN);
         entry.traces.tyres.temperatureCelsius[wheel]!.push(Number.NaN);
+
+        for (const [ring] of EXTRAS_WHEEL_CHANNELS) {
+          entry.traces.extras[ring][wheel]!.push(Number.NaN);
+        }
+      }
+
+      for (const [ring] of EXTRAS_SCALAR_CHANNELS) {
+        entry.traces.extras[ring].push(Number.NaN);
       }
 
       // Dropped rather than held. `LiveReadout` paints the last frame forever, so keeping it would
@@ -442,6 +546,11 @@ export class LiveStore {
       // Measured against the wrong side of the gap otherwise: an interval that elapsed during the
       // outage would swallow the first frame back instead of sampling it.
       entry.lastTyreSampleAtMs = Number.NEGATIVE_INFINITY;
+
+      // Cleared for the same reason, from the other direction: the hub re-sends extras on re-focus,
+      // and a repeated capture time would otherwise be mistaken for the duplicate this guards
+      // against and dropped — leaving the first document back out of the rings entirely.
+      entry.lastExtrasCapturedAtUtc = null;
     }
 
     // The followed set is deliberately left alone. Frames cannot arrive while the socket is down,
@@ -519,6 +628,7 @@ export class LiveStore {
         // Negative infinity rather than "now", so the first frame of a stint is sampled instead of
         // being swallowed by an interval that has not elapsed yet.
         lastTyreSampleAtMs: Number.NEGATIVE_INFINITY,
+        lastExtrasCapturedAtUtc: null,
       };
 
       this.focus.set(driverKey, entry);
@@ -585,6 +695,61 @@ export class LiveStore {
       entry.traces.tyres.temperatureCelsius[wheel]!.push(
         frame.tyreTemperatureCelsius[wheel] ?? Number.NaN,
       );
+    }
+  }
+
+  /**
+   * Records one extras frame: decoded once, kept for React, and pushed into the extras rings.
+   *
+   * The decode is the point of this method. Panels used to each call `JSON.parse` on the same
+   * string, so a wall showing brakes, tyre grip and car health decoded one document three times a
+   * second to produce three identical objects — against a channel whose whole reason for existing
+   * is that parsing it should be rare.
+   *
+   * Frames for a driver nobody follows are dropped, as focus frames are, and for the same reason:
+   * admitting one leaves a car on screen that nothing will ever update again.
+   */
+  private applyExtras(message: ExtrasFrameMessage): void {
+    if (!this.followedDriverKeys.has(message.driverKey)) {
+      return;
+    }
+
+    const document = parseExtras(message.extras);
+    this.extras = { ...this.extras, [message.driverKey]: { message, document } };
+
+    this.pushExtrasSample(this.ensureFocus(message.driverKey), message, document);
+    this.emit();
+  }
+
+  /**
+   * Adds one sample to the extras rings, once per document.
+   *
+   * A malformed or missing document still advances the rings, writing NaN across every channel.
+   * Skipping it instead would close the gap in the trace and draw a line through the outage, which
+   * is the same lie `spanGaps: false` is set everywhere to prevent — the reading genuinely was not
+   * taken, and the chart should say so.
+   */
+  private pushExtrasSample(
+    entry: DriverFocus,
+    message: ExtrasFrameMessage,
+    document: RaceRoomExtras | null,
+  ): void {
+    if (entry.lastExtrasCapturedAtUtc === message.capturedAtUtc) {
+      return;
+    }
+
+    entry.lastExtrasCapturedAtUtc = message.capturedAtUtc;
+
+    for (const [ring, field] of EXTRAS_WHEEL_CHANNELS) {
+      const values = document?.[field];
+
+      for (let wheel = 0; wheel < 4; wheel++) {
+        entry.traces.extras[ring][wheel]!.push(reportedOrNaN(values?.[wheel]));
+      }
+    }
+
+    for (const [ring, field] of EXTRAS_SCALAR_CHANNELS) {
+      entry.traces.extras[ring].push(reportedOrNaN(document?.[field]));
     }
   }
 

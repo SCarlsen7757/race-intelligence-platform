@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
-import { LiveStore } from '../../shared/live/store';
+import { LiveStore, type ExtrasSnapshot } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
 import {
   IncidentsPanel,
@@ -70,18 +70,19 @@ describe('toIncidentLimit', () => {
 
 describe('IncidentsPanel', () => {
   it('uses the panel rendering rule when deciding whether its frame is empty', () => {
-    const unavailable = {
-      type: 'extrasFrame',
-      roomId: 'room',
-      driverKey: DRIVER,
-      capturedAtUtc: '2026-08-16T12:00:00Z',
-      extras: JSON.stringify({ incidentPoints: -1 }),
-    } as const;
+    const snapshot = (incidentPoints: number): ExtrasSnapshot => ({
+      message: {
+        type: 'extrasFrame',
+        roomId: 'room',
+        driverKey: DRIVER,
+        capturedAtUtc: '2026-08-16T12:00:00Z',
+        extras: JSON.stringify({ incidentPoints }),
+      },
+      document: { incidentPoints },
+    });
 
-    expect(incidentsPanelIsEmpty(unavailable)).toBe(true);
-    expect(
-      incidentsPanelIsEmpty({ ...unavailable, extras: JSON.stringify({ incidentPoints: 0 }) }),
-    ).toBe(false);
+    expect(incidentsPanelIsEmpty(snapshot(-1))).toBe(true);
+    expect(incidentsPanelIsEmpty(snapshot(0))).toBe(false);
   });
 
   it('shows the count against the limit when the server reports one', () => {

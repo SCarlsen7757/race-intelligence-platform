@@ -344,14 +344,111 @@ export interface RaceRoomDamage {
   suspension?: number;
 }
 
-/** The shape this dashboard reads out of RaceRoom's extras document. Every field is optional. */
+/** RaceRoom's flag state, as it appears under `flags`. Each is a count or a 0/1, raw. */
+export interface RaceRoomFlags {
+  yellow?: number;
+  blue?: number;
+  black?: number;
+  green?: number;
+  checkered?: number;
+  white?: number;
+  blackAndWhite?: number;
+}
+
+/** RaceRoom's DRS state, as it appears under `drs`. */
+export interface RaceRoomDrs {
+  equipped?: number;
+  available?: number;
+  numActivationsLeft?: number;
+  numActivationsTotal?: number;
+  engaged?: number;
+}
+
+/** RaceRoom's push-to-pass state, as it appears under `pushToPass`. */
+export interface RaceRoomPushToPass {
+  available?: number;
+  engaged?: number;
+  amountLeft?: number;
+  engagedTimeLeftSeconds?: number;
+  waitTimeLeftSeconds?: number;
+}
+
+/**
+ * RaceRoom's pit state, as it appears under `pit`.
+ *
+ * Distinct from `PitWindowState` on the session message, which is the hub's translated view. These
+ * are the simulator's own integers, sentinels and all.
+ */
+export interface RaceRoomPit {
+  windowStatus?: number;
+  windowStart?: number;
+  windowEnd?: number;
+  state?: number;
+  action?: number;
+  numPitstopsPerformed?: number;
+  totalDurationSeconds?: number;
+  elapsedTimeSeconds?: number;
+}
+
+/**
+ * The shape this dashboard reads out of RaceRoom's extras document.
+ *
+ * **Every field is optional and every value is raw.** Nothing upstream translates the simulator's
+ * sentinels — `R3ETelemetryMapper` says so at each block it writes — so `-1` here means "not
+ * available" and is emphatically not a reading. Run numbers through {@link reportedNumber} rather
+ * than trusting them; the alternative is a panel that reports a brake at minus one degree.
+ *
+ * Mirrors what the mapper actually writes, and deliberately not more: a field typed here that no
+ * connector produces is a promise the UI cannot keep.
+ */
 export interface RaceRoomExtras {
   damage?: RaceRoomDamage;
   /** This driver's accumulated incident points. `-1` is the simulator's "not available". */
   incidentPoints?: number;
   /** The server's disqualification limit. `-1` when there is none, e.g. offline. */
   maxIncidentPoints?: number;
+
+  // Per-wheel channels, in the platform's FL, FR, RL, RR order.
   brakeTemperatureCelsius?: number[];
-  /** Optional future channel; shown only when the collector declares BrakeWear. */
+  brakePressureKiloNewtons?: number[];
+  /**
+   * Grip loss measured directly rather than inferred from lap time.
+   *
+   * The mapper singles this one out as the reason its per-tyre block exists: a degradation model
+   * built without it can only see the symptom.
+   */
+  tyreGrip?: number[];
+  tyreLoadNewtons?: number[];
+  tyreDirt?: number[];
+  tyreFlatspot?: number[];
+  tyreRotationRadiansPerSecond?: number[];
+  tyreSurfaceMaterial?: number[];
+
+  // Engine and drivetrain health. Trends rather than instants — an oil temperature that has climbed
+  // for ten laps is information, and the same number seen once is not.
+  engineTempCelsius?: number;
+  engineOilTempCelsius?: number;
+  engineOilPressureKpa?: number;
+  fuelPressureKpa?: number;
+  turboPressureBar?: number;
+
+  // Energy, for the cars that have it.
+  batteryStateOfChargePercent?: number;
+  virtualEnergyLeftMj?: number;
+  virtualEnergyCapacityMj?: number;
+  virtualEnergyPerLapMj?: number;
+
+  flags?: RaceRoomFlags;
+  drs?: RaceRoomDrs;
+  pushToPass?: RaceRoomPushToPass;
+  pit?: RaceRoomPit;
+
+  /**
+   * Per-wheel brake-pad wear.
+   *
+   * **No connector writes this today**, and none declares `SimCapabilities.BrakeWear` either, so the
+   * brake-wear widget that requires it cannot currently appear. Kept because the widget and the
+   * capability flag both exist and are waiting on the connector, not on this type.
+   */
   brakeWear?: number[];
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { FocusFrameMessage, LapHistoryMessage, TowerSnapshotMessage } from './contracts';
+import type {
+  ExtrasFrameMessage,
+  FocusFrameMessage,
+  LapHistoryMessage,
+  TowerSnapshotMessage,
+} from './contracts';
 import { LiveStore, TraceBuffer, TYRE_SAMPLE_INTERVAL_MS, TYRE_TRACE_CAPACITY } from './store';
 
 /**
@@ -36,6 +41,17 @@ function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessa
     tyrePressureKpa: [180, 180, 175, 175],
     tyreWear: [0.1, 0.1, 0.1, 0.1],
     tyreTemperatureCelsius: [85, 85, 82, 82],
+    ...overrides,
+  };
+}
+
+function extrasFrame(overrides: Partial<ExtrasFrameMessage> = {}): ExtrasFrameMessage {
+  return {
+    type: 'extrasFrame',
+    roomId: 'room',
+    driverKey: 'id:2',
+    capturedAtUtc: '2026-08-16T12:00:00Z',
+    extras: '{}',
     ...overrides,
   };
 }
@@ -529,7 +545,76 @@ describe('LiveStore', () => {
       extras: '{"damage":{"engine":0.5}}',
     });
 
-    expect(store.getExtras()['id:2']?.extras).toContain('0.5');
+    // Decoded on arrival, so a reader gets the document rather than the string it came in.
+    expect(store.getExtras()['id:2']?.document?.damage?.engine).toBe(0.5);
+    expect(store.getExtras()['id:9']).toBeUndefined();
+  });
+
+  it('decodes one extras document once, and hands every reader the same object', () => {
+    const store = following(['id:2']);
+
+    store.apply(extrasFrame({ extras: '{"tyreGrip":[0.9,0.9,0.88,0.88]}' }));
+
+    // Identity, not equality. Two tiles reading the same frame must not each get their own decode —
+    // that is the cost this whole change exists to remove.
+    expect(store.getExtras()['id:2']?.document).toBe(store.getExtras()['id:2']?.document);
+  });
+
+  it('survives an extras payload that will not parse', () => {
+    const store = following(['id:2']);
+
+    expect(() => store.apply(extrasFrame({ extras: 'not json at all' }))).not.toThrow();
+    expect(store.getExtras()['id:2']?.document).toBeNull();
+
+    // And the rings still advance, so the hole is drawn rather than closed over.
+    expect(store.tracesFor('id:2').extras.tyreGrip[0].length).toBe(1);
+    expect(store.tracesFor('id:2').extras.tyreGrip[0].last()).toBeNaN();
+  });
+
+  it('pushes extras channels into rings, treating the -1 sentinel as absent', () => {
+    const store = following(['id:2']);
+
+    store.apply(
+      extrasFrame({
+        extras: JSON.stringify({
+          brakeTemperatureCelsius: [320, -1, 300, 300],
+          turboPressureBar: -1,
+          engineOilTempCelsius: 104,
+        }),
+      }),
+    );
+
+    const { extras } = store.tracesFor('id:2');
+
+    expect(extras.brakeTemperatureCelsius[0].last()).toBe(320);
+    // A brake at -1 °C is not a cold brake. It is a reading that was never taken.
+    expect(extras.brakeTemperatureCelsius[1].last()).toBeNaN();
+    expect(extras.turboPressureBar.last()).toBeNaN();
+    expect(extras.engineOilTempCelsius.last()).toBe(104);
+  });
+
+  it('advances the extras rings once per document, not once per delivery', () => {
+    const store = following(['id:2']);
+    const frame = extrasFrame({ extras: '{"turboPressureBar":1.4}' });
+
+    store.apply(frame);
+    store.apply(frame);
+
+    // The same capture time twice is one sample. Otherwise a re-delivery would stretch the window
+    // and the width of a stint would depend on how the socket happened to behave.
+    expect(store.tracesFor('id:2').extras.turboPressureBar.length).toBe(1);
+
+    store.apply(
+      extrasFrame({ capturedAtUtc: '2026-08-16T12:00:01Z', extras: '{"turboPressureBar":1.5}' }),
+    );
+    expect(store.tracesFor('id:2').extras.turboPressureBar.length).toBe(2);
+  });
+
+  it('refuses an extras frame for a driver nobody is following', () => {
+    const store = following(['id:2']);
+
+    store.apply(extrasFrame({ driverKey: 'id:9' }));
+
     expect(store.getExtras()['id:9']).toBeUndefined();
   });
 

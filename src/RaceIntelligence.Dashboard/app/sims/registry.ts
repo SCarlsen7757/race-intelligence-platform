@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { ExtrasFrameMessage } from '../shared/live/contracts';
+import type { ExtrasSnapshot } from '../shared/live/store';
 import type { LiveStore } from '../shared/live/store';
 import type { WallWidget } from '../shared/view/wallView';
 
@@ -110,7 +110,7 @@ interface WidgetBase {
    */
   minSize: WidgetSize;
   /** Whether this panel has nothing to say for one driver, given that driver's latest extras. */
-  isEmpty?: (extras: ExtrasFrameMessage | null) => boolean;
+  isEmpty?: (extras: ExtrasSnapshot | null) => boolean;
 }
 
 /** A widget about one car, drawing a single thing. Mounted once per driver on screen. */

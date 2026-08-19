@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
-import type { ExtrasFrameMessage, LapHistoryMessage } from './contracts';
+import type { LapHistoryMessage } from './contracts';
 import type { LiveConnection } from './connection';
-import type { LiveStore } from './store';
+import type { ExtrasSnapshot, LiveStore } from './store';
 
 export interface LiveContextValue {
   store: LiveStore;
@@ -100,7 +100,7 @@ export function useLapHistory(driverKey: string): LapHistoryMessage | null {
  * Per driver for the same reason lap history is: two cars can be compared at once, and a single
  * slot would have both damage panels showing whichever frame arrived last.
  */
-export function useExtras(driverKey: string): ExtrasFrameMessage | null {
+export function useExtras(driverKey: string): ExtrasSnapshot | null {
   const { store } = useLive();
   const read = useCallback(() => store.getExtras()[driverKey] ?? null, [store, driverKey]);
 
@@ -114,7 +114,7 @@ export function useExtras(driverKey: string): ExtrasFrameMessage | null {
  * record keeps that decision in one hook call; a per-driver hook in its section loop would make the
  * number of hooks depend on how many cars are compared.
  */
-export function useAllExtras(): Readonly<Record<string, ExtrasFrameMessage>> {
+export function useAllExtras(): Readonly<Record<string, ExtrasSnapshot>> {
   const { store } = useLive();
   return useStoreSlice(store, store.getExtras);
 }
