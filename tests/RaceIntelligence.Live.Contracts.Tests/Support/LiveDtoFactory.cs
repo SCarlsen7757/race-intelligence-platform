@@ -72,6 +72,12 @@ internal static class LiveDtoFactory
             End = 20,
             Unit = PitWindowUnit.Laps,
         },
+        RaceLength = new RaceLength
+        {
+            Laps = 30,
+            DurationSeconds = 3600,
+            Unit = RaceLengthUnit.Laps,
+        },
     };
 
     public static TelemetrySample FullyPopulatedSample() => new()

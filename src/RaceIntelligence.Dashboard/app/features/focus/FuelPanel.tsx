@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import { formatNumber } from '../../shared/format/format';
+import type { RaceLengthState } from '../../shared/live/contracts';
 import type { LapSummary } from '../../shared/live/store';
 import { LiveReadout } from '../../shared/ui/LiveReadout';
-import { useLapSummaries } from '../../shared/live/useLive';
+import { useLapSummaries, useSessionState, useTower } from '../../shared/live/useLive';
 import type { SimPanelProps } from '../../sims/registry';
 
 /**
@@ -39,6 +40,41 @@ export interface FuelModel {
   burnPerLap: number | null;
   /** How many laps that rate was averaged over, so the readout can say how sure it is. */
   lapsMeasured: number;
+}
+
+/**
+ * How many laps are left to run, when the session is one where that is a knowable number.
+ *
+ * **Only a lap race has one.** A timed race ends on the clock, and the number of laps it takes to
+ * get there depends on how fast everyone drives the rest of it — and the wire carries the session's
+ * total duration but not how much of it has elapsed, so even the estimate is out of reach. Returning
+ * null and letting the panel say so is the whole of the honesty here: the alternative is dividing a
+ * duration by a lap time and presenting the result as a lap count.
+ *
+ * `unit` is what decides, never which figure happens to be present. RaceRoom will report a lap count
+ * in a timed session, and a consumer that read it would count down to a flag that is not there.
+ */
+export function lapsRemainingIn(
+  raceLength: RaceLengthState | null | undefined,
+  completedLaps: number | null | undefined,
+): number | null {
+  if (raceLength?.unit !== 'Laps') {
+    return null;
+  }
+
+  const total = raceLength.laps;
+  if (total === null || total === undefined || !Number.isFinite(total)) {
+    return null;
+  }
+
+  // A driver the tower has not placed yet has completed nothing, which is the right assumption for
+  // the only moment it applies: before the lights.
+  const done = completedLaps ?? 0;
+
+  // Never negative. The leader crosses the line and keeps being reported for a moment afterwards,
+  // and a margin computed against minus one lap remaining would read as an enormous surplus at
+  // exactly the moment the number stops mattering.
+  return Math.max(0, total - done);
 }
 
 /**
@@ -87,19 +123,18 @@ export function modelFrom(laps: readonly LapSummary[]): FuelModel {
  *   whole point — "3.1 laps" and "2.9 laps" are different decisions, and rounding both to three
  *   would hide the one that matters.
  *
- * ### The projection that is not here
+ * ### The margin, and where it stops
  *
- * The handover asks for a projected margin at the finish, and it cannot be built today. That
- * calculation needs the race length, and **the race length does not cross the live wire**:
- * `numberOfLaps` and `sessionTimeDurationSeconds` are written by `WriteSessionExtras`, which feeds
- * the ingest path's session record, while the live extras frame carries `WriteSampleExtras` only.
- * `SessionStateMessage` carries the layout length and the pit window and no duration of any kind.
+ * A fourth reading when the session is a lap race: **laps in the tank minus laps left to run**.
+ * Positive is fuel to spare, negative is a stop or a lift-and-coast, and zero is the number nobody
+ * wants to see. This is the reading a strategist actually acts on, and it only became possible when
+ * the race length reached the wire — before that the panel showed the first three and said why the
+ * fourth was missing.
  *
- * So the margin is left out rather than guessed at. "Laps left in the tank" is the half of the
- * question this side of the wire can answer honestly, and it is the half a driver is radioed
- * anyway. Putting a finish margin here would mean inventing a race length, and a fuel number
- * invented from a guess is exactly the sort of confident wrong answer that gets somebody parked on
- * the last lap.
+ * It still says so in a timed race, because there the lap count genuinely is not known: the wire
+ * carries the session's total duration but not how much of it has run, so the laps remaining cannot
+ * even be estimated, let alone measured. Saying "not in a timed race" is the honest answer; dividing
+ * a duration by a lap time and printing the result would be a guess wearing a decimal point.
  *
  * ### It is a model, and it says so
  *
@@ -111,7 +146,21 @@ export function modelFrom(laps: readonly LapSummary[]): FuelModel {
  */
 export function FuelPanel({ store, driverKey }: SimPanelProps) {
   const laps = useLapSummaries(driverKey);
+  const sessionState = useSessionState();
+  const tower = useTower();
   const derived = useMemo(() => modelFrom(laps), [laps]);
+
+  // From the tower rather than the focus frame's lap number, because they answer different
+  // questions: the frame says which lap the car is on, the tower says how many it has finished, and
+  // counting a lap in progress as run would report the margin one lap better than it is.
+  const lapsRemaining = useMemo(
+    () =>
+      lapsRemainingIn(
+        sessionState?.raceLength,
+        tower?.drivers.find((row) => row.driverKey === driverKey)?.completedLaps,
+      ),
+    [sessionState, tower, driverKey],
+  );
 
   return (
     <div className="fuel">
@@ -151,10 +200,39 @@ export function FuelPanel({ store, driverKey }: SimPanelProps) {
         <span className="metric__unit">laps left</span>
       </div>
 
+      {lapsRemaining !== null && (
+        <div className="metric metric--large">
+          {/*
+            Per frame for the same reason laps-left is: it is laps-left minus a constant, so it
+            drains just as continuously. Signed deliberately — "+1.4" and "−1.4" are the two
+            opposite decisions this panel exists to tell apart, and an unsigned number would need
+            reading twice.
+          */}
+          <LiveReadout
+            store={store}
+            driverKey={driverKey}
+            className="metric__value"
+            render={(frame) => {
+              if (derived.burnPerLap === null || !Number.isFinite(frame.fuelLeftLiters)) {
+                return '—';
+              }
+
+              const margin = frame.fuelLeftLiters / derived.burnPerLap - lapsRemaining;
+              return `${margin >= 0 ? '+' : ''}${formatNumber(margin, 1)}`;
+            }}
+          />
+          <span className="metric__unit">laps margin</span>
+        </div>
+      )}
+
       <p className="fuel__basis">
         {derived.lapsMeasured === 0
           ? 'No completed lap has reported fuel use yet.'
-          : `Assumes the next laps burn what the last ${derived.lapsMeasured} did. Race length is not on the live wire, so no finish margin is shown.`}
+          : `Assumes the next laps burn what the last ${derived.lapsMeasured} did.${
+              lapsRemaining === null
+                ? ' No margin: the laps left to run are only known in a lap race.'
+                : ` ${lapsRemaining} ${lapsRemaining === 1 ? 'lap' : 'laps'} left to run.`
+            }`}
       </p>
     </div>
   );

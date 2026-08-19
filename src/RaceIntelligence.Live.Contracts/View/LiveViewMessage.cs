@@ -139,10 +139,55 @@ public sealed record LivePublisherSummary(
 /// <param name="PitWindow">
 /// The session's mandatory pit window, or <see langword="null"/> when no publisher reports one.
 /// </param>
+/// <param name="RaceLength">
+/// How long the race is, or <see langword="null"/> when no publisher reports it.
+/// <para>
+/// This is what turns a fuel readout into a decision. Litres remaining and litres per lap are both
+/// arithmetic a browser can do unaided; whether the fuel reaches the flag needs to know where the
+/// flag is, and nothing else on this wire says.
+/// </para>
+/// </param>
 public sealed record SessionStateMessage(
     string RoomId,
     float? LayoutLengthMeters,
-    PitWindowState? PitWindow) : LiveViewMessage;
+    PitWindowState? PitWindow,
+    RaceLengthState? RaceLength = null) : LiveViewMessage;
+
+/// <summary>How long the race is, as a browser sees it.</summary>
+/// <remarks>
+/// <para>
+/// <see cref="Unit"/> crosses as a <b>string</b> for the reason <see cref="PitWindowState"/> gives:
+/// this message is low-rate, so the bytes buy nothing back, and a browser matching on
+/// <c>"Laps"</c> cannot drift out of step with the server the way a hand-copied table of integers
+/// can.
+/// </para>
+/// <para>
+/// <b>Both figures are present and only <see cref="Unit"/> says which governs.</b> A consumer that
+/// picked whichever was non-null would divide fuel by a lap count in a session that ends on the
+/// clock, and report a comfortable margin in a race the car cannot finish.
+/// </para>
+/// </remarks>
+/// <param name="Laps">Total laps, or null when the race is not run to a lap count.</param>
+/// <param name="DurationSeconds">Total length in seconds, or null when not run to a clock.</param>
+/// <param name="Unit">Which of the two ends the race.</param>
+public sealed record RaceLengthState(
+    int? Laps,
+    double? DurationSeconds,
+    RaceLengthUnitView Unit);
+
+/// <summary>What a race's length is measured in. Mirrors <see cref="RaceIntelligence.Core.Sessions.RaceLengthUnit"/>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<RaceLengthUnitView>))]
+public enum RaceLengthUnitView
+{
+    /// <summary>The simulator did not say, so neither figure can be trusted to govern.</summary>
+    Unknown,
+
+    /// <summary>The race ends after a fixed number of laps.</summary>
+    Laps,
+
+    /// <summary>The race ends after a fixed duration.</summary>
+    Time,
+}
 
 /// <summary>The session's mandatory pit window, as a browser sees it.</summary>
 /// <remarks>

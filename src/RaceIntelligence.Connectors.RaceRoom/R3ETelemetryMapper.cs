@@ -449,8 +449,39 @@ internal static class R3ETelemetryMapper
             LocalSimDriverId = (NullIfNotPositive(raw.VehicleInfo.UserId) ?? NullIfNotPositive(raw.Player.UserId))?.ToString(),
             Drivers = standings,
             PitWindow = ToPitWindow(in raw),
+            RaceLength = ToRaceLength(in raw),
         };
     }
+
+    /// <summary>
+    /// Maps RaceRoom's session-length fields into the canonical form.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same sentinel discipline <see cref="ToPitWindow"/> follows, and the same source for the
+    /// unit: <c>SessionLengthFormat</c>, not the session type. RaceRoom fills whichever of the two
+    /// length fields does not apply with <c>-1</c>, so reading the format is also what stops a
+    /// timed race being reported as lasting minus one laps.
+    /// </para>
+    /// <para>
+    /// Format <c>2</c> is "time plus an extra lap", which ends on the clock and then runs one more
+    /// lap. It is counted as time-based here, exactly as the pit window counts it, because the
+    /// duration is the figure that governs when the flag is in sight — but it does mean a fuel
+    /// projection against this length is one lap optimistic in that format, which is a thing for
+    /// the consumer to say rather than for this to smuggle into the number.
+    /// </para>
+    /// </remarks>
+    internal static RaceLength ToRaceLength(in R3ESharedRaw raw) => new()
+    {
+        Laps = NullIfNegative(raw.NumberOfLaps),
+        DurationSeconds = NullIfNegative(raw.SessionTimeDuration),
+        Unit = raw.SessionLengthFormat switch
+        {
+            0 or 2 => RaceLengthUnit.Time,
+            1 => RaceLengthUnit.Laps,
+            _ => RaceLengthUnit.Unknown,
+        },
+    };
 
     /// <summary>
     /// Maps RaceRoom's pit window fields into the canonical form.

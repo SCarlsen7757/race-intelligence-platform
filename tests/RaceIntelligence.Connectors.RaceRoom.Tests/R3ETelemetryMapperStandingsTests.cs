@@ -321,4 +321,88 @@ public sealed class R3ETelemetryMapperStandingsTests
         window.Unit.ShouldBe(PitWindowUnit.Unknown);
         window.Exists.ShouldBeFalse();
     }
+
+    /// <summary>
+    /// Format 1 is a lap race: the lap count governs, and RaceRoom fills the duration it does not
+    /// use with its <c>-1</c> sentinel.
+    /// </summary>
+    [Fact]
+    public void A_lap_race_reports_its_length_in_laps()
+    {
+        var raw = new R3ESharedRawBuilder()
+            .InRaceSession("Spa", "Grand Prix")
+            .Configure((ref R3ESharedRaw r) =>
+            {
+                r.SessionLengthFormat = 1;
+                r.NumberOfLaps = 30;
+                r.SessionTimeDuration = -1f;
+            })
+            .Build();
+
+        var length = R3ETelemetryMapper
+            .ToSessionStandings([], in raw, Guid.NewGuid(), DateTimeOffset.UnixEpoch, R3ESectorTimeConvention.Cumulative)
+            .RaceLength.ShouldNotBeNull();
+
+        length.Laps.ShouldBe(30);
+        length.DurationSeconds.ShouldBeNull();
+        length.Unit.ShouldBe(RaceLengthUnit.Laps);
+        length.Exists.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Format 0 is timed and format 2 is timed plus a lap. Both end on the clock, so the duration
+    /// governs — and the unit is read off the format rather than from which figure happens to be
+    /// filled in, because a simulator reporting both would otherwise be read either way round.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void A_timed_race_reports_its_length_as_a_duration(int sessionLengthFormat)
+    {
+        var raw = new R3ESharedRawBuilder()
+            .InRaceSession("Spa", "Grand Prix")
+            .Configure((ref R3ESharedRaw r) =>
+            {
+                r.SessionLengthFormat = sessionLengthFormat;
+                r.NumberOfLaps = -1;
+                r.SessionTimeDuration = 3600f;
+            })
+            .Build();
+
+        var length = R3ETelemetryMapper
+            .ToSessionStandings([], in raw, Guid.NewGuid(), DateTimeOffset.UnixEpoch, R3ESectorTimeConvention.Cumulative)
+            .RaceLength.ShouldNotBeNull();
+
+        length.Unit.ShouldBe(RaceLengthUnit.Time);
+        length.DurationSeconds.ShouldBe(3600);
+        length.Laps.ShouldBeNull();
+        length.Exists.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The same sentinel discipline the pit window follows, and the same consequence for getting it
+    /// wrong: a fuel readout counting down to a race that is minus one laps long.
+    /// </summary>
+    [Fact]
+    public void A_session_with_no_reported_length_does_not_exist()
+    {
+        var raw = new R3ESharedRawBuilder()
+            .InRaceSession("Spa", "Grand Prix")
+            .Configure((ref R3ESharedRaw r) =>
+            {
+                r.SessionLengthFormat = -1;
+                r.NumberOfLaps = -1;
+                r.SessionTimeDuration = -1f;
+            })
+            .Build();
+
+        var length = R3ETelemetryMapper
+            .ToSessionStandings([], in raw, Guid.NewGuid(), DateTimeOffset.UnixEpoch, R3ESectorTimeConvention.Cumulative)
+            .RaceLength.ShouldNotBeNull();
+
+        length.Laps.ShouldBeNull();
+        length.DurationSeconds.ShouldBeNull();
+        length.Unit.ShouldBe(RaceLengthUnit.Unknown);
+        length.Exists.ShouldBeFalse();
+    }
 }

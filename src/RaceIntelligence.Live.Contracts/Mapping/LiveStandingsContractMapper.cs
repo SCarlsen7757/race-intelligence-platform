@@ -116,7 +116,38 @@ public static class LiveStandingsContractMapper
             standings.SimulationTime,
             standings.LocalSimDriverId,
             drivers,
-            standings.PitWindow is { } window ? ToDto(window) : null);
+            standings.PitWindow is { } window ? ToDto(window) : null,
+            standings.RaceLength is { } length ? ToDto(length) : null);
+    }
+
+    /// <summary>Converts a canonical race length into its wire form.</summary>
+    public static LiveRaceLengthDto ToDto(RaceLength length)
+    {
+        ArgumentNullException.ThrowIfNull(length);
+
+        return new LiveRaceLengthDto(length.Laps, length.DurationSeconds, (int)length.Unit);
+    }
+
+    /// <summary>Converts a wire race length back into its canonical form.</summary>
+    /// <remarks>
+    /// The unit is validated rather than cast, for the reason <see cref="ToCore(LivePitWindowDto)"/>
+    /// gives. An unrecognised unit becomes <see cref="RaceLengthUnit.Unknown"/>, which
+    /// <see cref="RaceLength.Exists"/> already reports as no usable length — so a build that has not
+    /// heard of some future session format declines to compute rather than dividing fuel by a figure
+    /// it cannot label.
+    /// </remarks>
+    public static RaceLength ToCore(LiveRaceLengthDto dto)
+    {
+        ArgumentNullException.ThrowIfNull(dto);
+
+        return new RaceLength
+        {
+            Laps = dto.Laps,
+            DurationSeconds = dto.DurationSeconds,
+            Unit = Enum.IsDefined((RaceLengthUnit)dto.Unit)
+                ? (RaceLengthUnit)dto.Unit
+                : RaceLengthUnit.Unknown,
+        };
     }
 
     /// <summary>Converts a canonical pit window into its wire form.</summary>
@@ -168,6 +199,7 @@ public static class LiveStandingsContractMapper
             LocalSimDriverId = frame.LocalSimDriverId,
             Drivers = drivers,
             PitWindow = frame.PitWindow is { } window ? ToCore(window) : null,
+            RaceLength = frame.RaceLength is { } length ? ToCore(length) : null,
         };
     }
 

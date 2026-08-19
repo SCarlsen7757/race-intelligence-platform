@@ -168,6 +168,33 @@ export interface SessionStateMessage {
   layoutLengthMeters?: number | null;
   /** Absent when the session has no mandatory window, or the simulator reports none. */
   pitWindow?: PitWindowState | null;
+  /** Absent when no publisher reports a race length. See `RaceLengthState`. */
+  raceLength?: RaceLengthState | null;
+}
+
+/**
+ * What ends the race.
+ *
+ * `'Time'` rather than `'Minutes'` — unlike a pit window's bounds, a duration crosses the wire in
+ * seconds, and naming the unit after a figure it is not expressed in is how a division ends up out
+ * by sixty.
+ */
+export type RaceLengthUnit = 'Unknown' | 'Laps' | 'Time';
+
+/**
+ * How long the race is.
+ *
+ * **Both figures may be present, and only `unit` says which one governs.** A simulator will happily
+ * report a lap count in a session that ends on the clock. Reading whichever is non-null would divide
+ * fuel by the wrong number and promise a margin in a race the car cannot finish, which is precisely
+ * the mistake `PitWindowUnit` exists to prevent one field further down.
+ */
+export interface RaceLengthState {
+  /** Total laps, or absent when the race is not run to a lap count. */
+  laps?: number | null;
+  /** Total length in seconds, or absent when not run to a clock. */
+  durationSeconds?: number | null;
+  unit: RaceLengthUnit;
 }
 
 /**

@@ -1,10 +1,15 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
-import type { FocusFrameMessage, LapRecord } from '../../shared/live/contracts';
+import type {
+  FocusFrameMessage,
+  LapRecord,
+  RaceLengthState,
+  TowerRow,
+} from '../../shared/live/contracts';
 import { LiveStore, type LapSummary } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
-import { FuelPanel, modelFrom } from './FuelPanel';
+import { FuelPanel, lapsRemainingIn, modelFrom } from './FuelPanel';
 
 const DRIVER = 'id:9';
 
@@ -36,6 +41,22 @@ function lap(lapNumber: number): LapRecord {
   return { lapNumber, lapTimeMs: 90_000, sectorMs: [null, null, 90_000] };
 }
 
+/** The one row the margin reads: how many laps this driver has finished. */
+function towerRow(completedLaps: number): TowerRow {
+  return {
+    driverKey: DRIVER,
+    displayName: 'Driver 9',
+    completedLaps,
+    currentSectorMs: [],
+    previousSectorMs: [],
+    bestSectorMs: [],
+    pitLaneState: -1,
+    pitStopStatus: -1,
+    finishStatus: 0,
+    tier: 'Self',
+  };
+}
+
 /**
  * Drives a stint through the store, so the panel reads summaries the store actually derived.
  *
@@ -44,7 +65,10 @@ function lap(lapNumber: number): LapRecord {
  * the store. Feeding summaries directly would test the panel against a shape the store never
  * produces.
  */
-function renderFuel(tankAtEndOfLap: number[]) {
+function renderFuel(
+  tankAtEndOfLap: number[],
+  session?: { raceLength?: RaceLengthState; completedLaps?: number },
+) {
   const store = new LiveStore();
   store.setFollowedDrivers([DRIVER]);
   store.apply({
@@ -54,6 +78,21 @@ function renderFuel(tankAtEndOfLap: number[]) {
     laps: tankAtEndOfLap.map((_, index) => lap(index + 1)),
     truncated: false,
   });
+
+  if (session !== undefined) {
+    store.apply({
+      type: 'sessionState',
+      roomId: 'room-1',
+      ...(session.raceLength === undefined ? {} : { raceLength: session.raceLength }),
+    });
+
+    store.apply({
+      type: 'towerSnapshot',
+      roomId: 'room-1',
+      capturedAtUtc: '2026-08-19T12:00:00Z',
+      drivers: [towerRow(session.completedLaps ?? 0)],
+    });
+  }
 
   tankAtEndOfLap.forEach((litres, index) => {
     // Two frames per lap: one carrying the tank as the lap runs, one whose lap counter has moved
@@ -122,10 +161,76 @@ describe('the fuel panel', () => {
    * A projection is arithmetic over an assumption, and the panel has to say which. Presenting it as
    * a measurement is how a fuel number nobody questioned puts a car out on the last lap.
    */
-  it('states the assumption behind the rate, and that no finish margin is shown', () => {
+  it('states the assumption behind the rate', () => {
     const view = renderFuel([60, 57, 54]);
 
     expect(view.getByText(/Assumes the next laps burn what the last 2 did/)).toBeTruthy();
-    expect(view.getByText(/Race length is not on the live wire/)).toBeTruthy();
+  });
+
+  /**
+   * 54 litres at 3 a lap is 18 laps in the tank; 10 left to run leaves 8 spare.
+   *
+   * Awaited rather than read straight off the render, because the margin is a `LiveReadout` — it
+   * writes its own `textContent` from a paint loop rather than through React, which is the whole
+   * reason a 60 Hz channel costs no renders. `findByText` polls until that loop has run.
+   */
+  it('shows the margin over the laps left to run', async () => {
+    const view = renderFuel([60, 57, 54], {
+      raceLength: { laps: 12, unit: 'Laps' },
+      completedLaps: 2,
+    });
+
+    expect(await view.findByText('+8.0')).toBeTruthy();
+    expect(view.getByText(/10 laps left to run/)).toBeTruthy();
+  });
+
+  /** The sign is the decision: 18 laps in the tank against 25 still to run is a stop, planned or not. */
+  it('shows a negative margin when the tank will not reach the flag', async () => {
+    const view = renderFuel([60, 57, 54], {
+      raceLength: { laps: 30, unit: 'Laps' },
+      completedLaps: 5,
+    });
+
+    expect(await view.findByText('-7.0')).toBeTruthy();
+  });
+
+  /**
+   * A timed race has no knowable lap count from this wire, and inventing one is exactly the guess
+   * this panel refuses to make.
+   */
+  it('shows no margin in a timed race, and says why', () => {
+    const view = renderFuel([60, 57, 54], {
+      raceLength: { durationSeconds: 3_600, unit: 'Time' },
+      completedLaps: 2,
+    });
+
+    expect(view.queryByText('laps margin')).toBeNull();
+    expect(view.getByText(/only known in a lap race/)).toBeTruthy();
+  });
+});
+
+describe('the laps left to run', () => {
+  it('counts down from the race length', () => {
+    expect(lapsRemainingIn({ laps: 30, unit: 'Laps' }, 12)).toBe(18);
+  });
+
+  /**
+   * The unit decides, never which figure is present. RaceRoom reports a lap count in a timed
+   * session too, and counting down to it would name a flag that is not there.
+   */
+  it('refuses a lap count the simulator did not say governs', () => {
+    expect(lapsRemainingIn({ laps: 30, durationSeconds: 3_600, unit: 'Time' }, 12)).toBeNull();
+    expect(lapsRemainingIn({ laps: 30, unit: 'Unknown' }, 12)).toBeNull();
+    expect(lapsRemainingIn(null, 12)).toBeNull();
+  });
+
+  /** The leader keeps being reported for a moment after the flag; a surplus there is meaningless. */
+  it('never goes negative once the distance is run', () => {
+    expect(lapsRemainingIn({ laps: 30, unit: 'Laps' }, 31)).toBe(0);
+  });
+
+  /** Before the lights, a driver the tower has not placed has run nothing. */
+  it('treats an unplaced driver as having completed nothing', () => {
+    expect(lapsRemainingIn({ laps: 30, unit: 'Laps' }, null)).toBe(30);
   });
 });

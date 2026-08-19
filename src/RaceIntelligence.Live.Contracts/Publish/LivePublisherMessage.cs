@@ -154,7 +154,8 @@ public sealed record LiveStandingsFrame(
     [property: Key(2)] double? SimulationTime,
     [property: Key(3)] string? LocalSimDriverId,
     [property: Key(4)] IReadOnlyList<LiveDriverDto> Drivers,
-    [property: Key(5)] LivePitWindowDto? PitWindow = null) : LivePublisherMessage;
+    [property: Key(5)] LivePitWindowDto? PitWindow = null,
+    [property: Key(6)] LiveRaceLengthDto? RaceLength = null) : LivePublisherMessage;
 
 /// <summary>The session's mandatory pit window, on the wire.</summary>
 /// <remarks>
@@ -173,6 +174,26 @@ public sealed record LivePitWindowDto(
     [property: Key(1)] int? Start,
     [property: Key(2)] int? End,
     [property: Key(3)] int Unit);
+
+/// <summary>How long the race is, on the wire.</summary>
+/// <remarks>
+/// <see cref="Unit"/> travels as a plain <see cref="int"/> for the reason
+/// <see cref="LivePitWindowDto"/> gives: the value comes from another machine's build, and an
+/// unrecognised code must degrade to "unknown" rather than land in an enum out of range.
+/// <para>
+/// Both figures ride together and neither is inferred from the other. A simulator may report a lap
+/// count in a timed session or a duration in a lap race, and only <see cref="Unit"/> says which one
+/// actually ends the race.
+/// </para>
+/// </remarks>
+/// <param name="Laps">Total laps; null when the session is not run to a lap count.</param>
+/// <param name="DurationSeconds">Total session length in seconds; null when not run to a clock.</param>
+/// <param name="Unit">As <see cref="RaceIntelligence.Core.Sessions.RaceLengthUnit"/>.</param>
+[MessagePackObject]
+public sealed record LiveRaceLengthDto(
+    [property: Key(0)] int? Laps,
+    [property: Key(1)] double? DurationSeconds,
+    [property: Key(2)] int Unit);
 
 /// <summary>
 /// The rich channels only the machine running the simulator can see, for the car it is driving.

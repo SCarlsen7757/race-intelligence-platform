@@ -46,4 +46,17 @@ public sealed record SessionStandings
     /// change. <see langword="null"/> from a connector that does not report windows at all.
     /// </remarks>
     public PitWindow? PitWindow { get; init; }
+
+    /// <summary>
+    /// How long the race is, when the simulator reports it.
+    /// </summary>
+    /// <remarks>
+    /// Rides the snapshot beside <see cref="PitWindow"/>, and for a reason the window shares only
+    /// partly. The window's status genuinely changes as the race runs; a race length does not. It
+    /// travels here anyway because simulators do not necessarily know it at announcement time —
+    /// RaceRoom reports <c>-1</c> laps until the session is under way — and the snapshot is the
+    /// message that gets re-sent, so a length that arrives late still arrives.
+    /// <see langword="null"/> from a connector that does not report one at all.
+    /// </remarks>
+    public RaceLength? RaceLength { get; init; }
 }

@@ -126,6 +126,7 @@ public sealed class LiveWireRoundTripTests
         restored.SimulationTime.ShouldBe(original.SimulationTime);
         restored.LocalSimDriverId.ShouldBe(original.LocalSimDriverId);
         restored.PitWindow.ShouldBe(original.PitWindow);
+        restored.RaceLength.ShouldBe(original.RaceLength);
         restored.Drivers.Count.ShouldBe(original.Drivers.Count);
 
         for (int i = 0; i < restored.Drivers.Count; i++)
@@ -231,6 +232,65 @@ public sealed class LiveWireRoundTripTests
             RoundTrip(LiveStandingsContractMapper.ToFrame(original)));
 
         restored.PitWindow.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The unit is what says which figure ends the race, so an unrecognised one must not leave a lap
+    /// count looking authoritative. <c>Unknown</c> makes <c>Exists</c> false, and a fuel readout
+    /// then declines to project rather than counting down to a flag it has mislabelled.
+    /// </summary>
+    [Fact]
+    public void An_unrecognised_race_length_unit_decodes_as_unknown()
+    {
+        var restored = LiveStandingsContractMapper.ToCore(new LiveRaceLengthDto(30, 3600, 96));
+
+        restored.Unit.ShouldBe(RaceLengthUnit.Unknown);
+        restored.Exists.ShouldBeFalse();
+        restored.Laps.ShouldBe(30);
+    }
+
+    /// <summary>
+    /// Both figures cross together and neither is inferred from the other: RaceRoom reports a lap
+    /// count in a timed session too, and a consumer reading whichever is present would count down to
+    /// a flag that is not there.
+    /// </summary>
+    [Fact]
+    public void A_timed_race_keeps_its_lap_count_but_is_governed_by_the_clock()
+    {
+        var original = LiveDtoFactory.FullyPopulatedStandings() with
+        {
+            RaceLength = new RaceLength { Laps = 30, DurationSeconds = 3600, Unit = RaceLengthUnit.Time },
+        };
+
+        var restored = LiveStandingsContractMapper.ToCore(
+            RoundTrip(LiveStandingsContractMapper.ToFrame(original)));
+
+        restored.RaceLength!.Unit.ShouldBe(RaceLengthUnit.Time);
+        restored.RaceLength.Laps.ShouldBe(30);
+        restored.RaceLength.Exists.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A unit with no matching figure is not a length. <c>Exists</c> folds that away so every
+    /// consumer answers it the same way rather than each remembering to check both.
+    /// </summary>
+    [Fact]
+    public void A_lap_race_that_never_reported_its_lap_count_is_not_a_usable_length()
+    {
+        var length = new RaceLength { DurationSeconds = 3600, Unit = RaceLengthUnit.Laps };
+
+        length.Exists.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_snapshot_without_a_race_length_round_trips_as_none()
+    {
+        var original = LiveDtoFactory.FullyPopulatedStandings() with { RaceLength = null };
+
+        var restored = LiveStandingsContractMapper.ToCore(
+            RoundTrip(LiveStandingsContractMapper.ToFrame(original)));
+
+        restored.RaceLength.ShouldBeNull();
     }
 
     [Fact]

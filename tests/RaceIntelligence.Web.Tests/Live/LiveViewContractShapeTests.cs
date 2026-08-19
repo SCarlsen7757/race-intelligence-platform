@@ -121,13 +121,49 @@ public sealed class LiveViewContractShapeTests
         var json = Serialize(new SessionStateMessage(
             "room-1",
             7004f,
-            new PitWindowState(PitWindowStatusView.Open, 12, 20, PitWindowUnitView.Laps)));
+            new PitWindowState(PitWindowStatusView.Open, 12, 20, PitWindowUnitView.Laps),
+            new RaceLengthState(30, 3600, RaceLengthUnitView.Laps)));
 
         json.GetProperty("type").GetString().ShouldBe("sessionState");
 
-        PropertyNames(json).ShouldBe(["type", "roomId", "layoutLengthMeters", "pitWindow"], ignoreOrder: true);
+        PropertyNames(json).ShouldBe(
+            ["type", "roomId", "layoutLengthMeters", "pitWindow", "raceLength"], ignoreOrder: true);
         PropertyNames(json.GetProperty("pitWindow")).ShouldBe(
             ["status", "start", "end", "unit"], ignoreOrder: true);
+        PropertyNames(json.GetProperty("raceLength")).ShouldBe(
+            ["laps", "durationSeconds", "unit"], ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// The unit crosses as a name for the reason the pit window's does, and it carries more weight
+    /// here: it is the only thing saying which of the two figures ends the race, and a browser that
+    /// read the lap count of a timed session would count down to a flag that is not there.
+    /// </summary>
+    [Fact]
+    public void The_race_length_unit_crosses_as_a_name_and_keeps_both_figures()
+    {
+        var length = Serialize(new SessionStateMessage(
+                "room-1",
+                null,
+                null,
+                new RaceLengthState(30, 3600, RaceLengthUnitView.Time)))
+            .GetProperty("raceLength");
+
+        length.GetProperty("unit").GetString().ShouldBe("Time");
+        length.GetProperty("laps").GetInt32().ShouldBe(30);
+        length.GetProperty("durationSeconds").GetDouble().ShouldBe(3600);
+    }
+
+    /// <summary>
+    /// A session nobody reported a length for omits it entirely, so a browser sees an absent
+    /// property rather than a length of zero laps.
+    /// </summary>
+    [Fact]
+    public void A_session_with_no_reported_length_omits_it()
+    {
+        var json = Serialize(new SessionStateMessage("room-1", null, null, null));
+
+        PropertyNames(json).ShouldNotContain("raceLength");
     }
 
     /// <summary>

@@ -459,7 +459,27 @@ public sealed class LiveRoom
     private SessionStateMessage BuildSessionStateLocked(SessionStandings? standings) => new(
         RoomId,
         _layoutLengthMeters,
-        standings?.PitWindow is { Exists: true } window ? ToPitWindowState(window) : null);
+        standings?.PitWindow is { Exists: true } window ? ToPitWindowState(window) : null,
+        standings?.RaceLength is { Exists: true } length ? ToRaceLengthState(length) : null);
+
+    /// <summary>
+    /// Converts a canonical race length into the browser's view of it.
+    /// </summary>
+    /// <remarks>
+    /// Gated on <see cref="RaceLength.Exists"/> at the call site rather than sent regardless, so a
+    /// unit with no matching figure never reaches a browser looking like a length. Mapped member by
+    /// member for the reason <see cref="ToPitWindowState"/> gives — the two enums do not share a
+    /// numbering and a cast between them would be a silent mislabel.
+    /// </remarks>
+    private static RaceLengthState ToRaceLengthState(RaceLength length) => new(
+        length.Laps,
+        length.DurationSeconds,
+        length.Unit switch
+        {
+            RaceLengthUnit.Laps => RaceLengthUnitView.Laps,
+            RaceLengthUnit.Time => RaceLengthUnitView.Time,
+            _ => RaceLengthUnitView.Unknown,
+        });
 
     /// <summary>
     /// Converts a canonical pit window into the browser's view of it.
