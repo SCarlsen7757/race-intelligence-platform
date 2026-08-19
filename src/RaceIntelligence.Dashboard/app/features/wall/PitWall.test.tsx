@@ -14,6 +14,7 @@ import {
   registerDefaultWall,
   registerSimPanels,
   type SimPanel,
+  type ChannelPanelProps,
   type SimPanelProps,
 } from '../../sims/registry';
 import { PitWall } from './PitWall';
@@ -43,6 +44,35 @@ function gatedPanel(): SimPanel {
     component: () => <span data-testid="gated">gated</span>,
     defaultSize: { w: 4, h: 6 },
     minSize: { w: 2, h: 2 },
+  };
+}
+
+/**
+ * A chart widget, which is the only kind that has channels to turn off.
+ *
+ * Renders its hidden set as text so a test can read what the wall handed it, and a button per
+ * channel so a test can toggle one the way the legend does.
+ */
+function chartPanel(): SimPanel {
+  return {
+    id: 'chart',
+    title: 'Chart',
+    scope: 'driver',
+    requires: ['Reading'],
+    channels: [
+      { id: 'fl', label: 'FL' },
+      { id: 'fr', label: 'FR' },
+    ],
+    component: ({ hiddenChannels, onToggleChannel }: ChannelPanelProps) => (
+      <span data-testid="chart">
+        <span data-testid="chart-hidden">{[...hiddenChannels].sort().join(',')}</span>
+        <button type="button" onClick={() => onToggleChannel('fl')}>
+          toggle fl
+        </button>
+      </span>
+    ),
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
   };
 }
 
@@ -105,7 +135,7 @@ async function addWidget(title: string) {
 describe('PitWall', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    registerSimPanels(GAME, [readingPanel(), gatedPanel()]);
+    registerSimPanels(GAME, [readingPanel(), gatedPanel(), chartPanel()]);
     registerDefaultWall(GAME, []);
   });
 
@@ -384,6 +414,100 @@ describe('PitWall', () => {
 
       expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
       expect(loadWallView(GAME)?.widgets).toHaveLength(1);
+    });
+  });
+  /**
+   * The arrangement this whole feature exists for: two tyre-wear tiles, one narrowed to the front
+   * left and one to the rear right. It only works if visibility belongs to the placement, so this
+   * is the test that would fail if it ever became a property of the widget type.
+   */
+  describe('channel toggles', () => {
+    it('starts with every channel shown', async () => {
+      renderWall();
+      await addWidget('Chart');
+
+      expect(screen.getByTestId('chart-hidden').textContent).toBe('');
+    });
+
+    it('hides a channel for one tile without touching another of the same widget', async () => {
+      renderWall();
+      await addWidget('Chart');
+      await addWidget('Chart');
+
+      const tiles = screen.getAllByTestId('chart');
+      expect(tiles).toHaveLength(2);
+
+      await act(async () => {
+        (tiles[0]!.querySelector('button') as HTMLButtonElement).click();
+      });
+
+      const hidden = screen.getAllByTestId('chart-hidden');
+      expect(hidden[0]!.textContent).toBe('fl');
+      expect(hidden[1]!.textContent).toBe('');
+    });
+
+    it('turns a channel back on', async () => {
+      renderWall();
+      await addWidget('Chart');
+
+      const click = async () => {
+        await act(async () => {
+          (screen.getByTestId('chart').querySelector('button') as HTMLButtonElement).click();
+        });
+      };
+
+      await click();
+      expect(screen.getByTestId('chart-hidden').textContent).toBe('fl');
+
+      await click();
+      expect(screen.getByTestId('chart-hidden').textContent).toBe('');
+    });
+
+    /** A wall of one-corner-per-tile is worth arranging only if it is still there tomorrow. */
+    it('remembers which channels were hidden', async () => {
+      const first = renderWall();
+      await addWidget('Chart');
+
+      await act(async () => {
+        (screen.getByTestId('chart').querySelector('button') as HTMLButtonElement).click();
+      });
+
+      expect(loadWallView(GAME)?.widgets[0]?.hiddenChannels).toEqual(['fl']);
+
+      first.unmount();
+      renderWall();
+
+      expect(screen.getByTestId('chart-hidden').textContent).toBe('fl');
+    });
+
+    /**
+     * A wall saved before channels had toggles carries nothing here, and must come back drawing
+     * everything — which is what its author saw when they saved it. The same holds when a widget
+     * gains a channel in a later build, which is why the field records what to *hide*.
+     */
+    it('shows every channel for a wall saved without any record of them', () => {
+      saveWallView(GAME, { version: WALL_VIEW_VERSION, widgets: [savedWidget('chart')] });
+      renderWall();
+
+      expect(screen.getByTestId('chart-hidden').textContent).toBe('');
+    });
+
+    it('carries hidden channels through an export and back', async () => {
+      const first = renderWall();
+      await addWidget('Chart');
+
+      await act(async () => {
+        (screen.getByTestId('chart').querySelector('button') as HTMLButtonElement).click();
+      });
+
+      const exported = serialiseViewFile(GAME, loadWallView(GAME) ?? { version: 1, widgets: [] });
+      first.unmount();
+      window.localStorage.clear();
+
+      renderWall();
+      await importFile(new File([exported], 'wall.json', { type: 'application/json' }));
+
+      expect(screen.getByTestId('chart-hidden').textContent).toBe('fl');
     });
   });
 });

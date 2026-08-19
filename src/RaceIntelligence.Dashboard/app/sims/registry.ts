@@ -27,6 +27,34 @@ export interface SimPanelProps extends RoomPanelProps {
 }
 
 /**
+ * One line a chart widget draws, as the catalogue describes it.
+ *
+ * The id is what a saved wall remembers, so it has to outlive a rebuild: the fourth entry in a
+ * series array is a position and positions get reordered, whereas `rr` is still the right rear next
+ * year. The label is what the legend shows, and exists so the toggle UI can be generated from the
+ * catalogue rather than hand-written once per widget.
+ */
+export interface WidgetChannel {
+  id: string;
+  label: string;
+}
+
+/**
+ * Props a chart widget receives on top of {@link SimPanelProps}.
+ *
+ * **Per placement, never per widget type.** Two tyre-wear tiles on the same wall are two separate
+ * answers to "which corners am I watching" — one narrowed to the front left and one to the rear
+ * right is the arrangement this whole feature exists for, and it only works if the visibility lives
+ * with the placement.
+ */
+export interface ChannelPanelProps extends SimPanelProps {
+  /** Channel ids the user has turned off here. Everything not named is drawn. */
+  hiddenChannels: readonly string[];
+  /** Turns one channel off, or back on, for this placement alone. */
+  onToggleChannel: (channelId: string) => void;
+}
+
+/**
  * How much of the wall a widget asks for, in grid cells.
  *
  * Cells rather than pixels because the pit wall is a grid the user rearranges, and a widget that
@@ -85,11 +113,32 @@ interface WidgetBase {
   isEmpty?: (extras: ExtrasFrameMessage | null) => boolean;
 }
 
-/** A widget about one car. Mounted once per driver on screen. */
-export interface DriverWidget extends WidgetBase {
+/** A widget about one car, drawing a single thing. Mounted once per driver on screen. */
+export interface PlainDriverWidget extends WidgetBase {
   scope: 'driver';
+  /** Absent, and that is what tells it apart from a {@link ChannelDriverWidget}. */
+  channels?: undefined;
   component: ComponentType<SimPanelProps>;
 }
+
+/** A widget about one car, drawing several channels the user can turn on and off. */
+export interface ChannelDriverWidget extends WidgetBase {
+  scope: 'driver';
+  channels: readonly WidgetChannel[];
+  component: ComponentType<ChannelPanelProps>;
+}
+
+/**
+ * A widget about one car.
+ *
+ * Split on whether it has channels for the same reason {@link SimPanel} is split on scope: it makes
+ * the compiler enforce what would otherwise be a convention. A widget that declares channels is
+ * exactly the set of widgets that must accept somewhere to send a toggle, and one that declares
+ * none is never handed controls it would ignore. An optional pair of props on every widget, honoured
+ * by the ones that happen to need them, is the arrangement this avoids — the wall could then forget
+ * to pass them and the toggles would quietly do nothing.
+ */
+export type DriverWidget = PlainDriverWidget | ChannelDriverWidget;
 
 /** A widget about the session. Mounted once, however many cars are being watched. */
 export interface RoomWidget extends WidgetBase {
@@ -156,6 +205,18 @@ export function findPanel(gameKey: string, id: string): SimPanel | null {
  */
 export function isDriverWidget(panel: SimPanel): panel is DriverWidget {
   return panel.scope === 'driver';
+}
+
+/**
+ * Narrows a driver widget to one that draws channels the user can toggle.
+ *
+ * A predicate rather than an inline test for the same reason {@link isDriverWidget} is one: the
+ * value of the union is that the compiler refuses to hand a plain widget the toggle props, and a
+ * bare `entry.channels !== undefined` at a call site inside JSX does not always narrow the component
+ * type along with it.
+ */
+export function hasChannels(panel: DriverWidget): panel is ChannelDriverWidget {
+  return panel.channels !== undefined;
 }
 
 const defaultWalls = new Map<string, readonly string[]>();

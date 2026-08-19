@@ -30,6 +30,19 @@ export interface WallWidget {
   y: number;
   w: number;
   h: number;
+  /**
+   * Channel ids this placement has turned off. Absent means every channel is drawn.
+   *
+   * **Hidden rather than visible, and that is the whole of why this defaults correctly.** A wall
+   * saved before channels existed carries nothing here and shows everything, which is what its
+   * author saw when they saved it. The same holds when a widget *gains* a channel in a later build:
+   * a list of what to hide leaves the new line drawn, where a list of what to show would silently
+   * suppress it and give no clue why. The absent case being the permissive one is what makes both
+   * work without a migration.
+   *
+   * Per placement, so two tyre-wear tiles can watch different corners — see `ChannelPanelProps`.
+   */
+  hiddenChannels?: readonly string[];
 }
 
 /**
@@ -79,7 +92,12 @@ export function isWallWidget(value: unknown): value is WallWidget {
     typeof item.x === 'number' &&
     typeof item.y === 'number' &&
     typeof item.w === 'number' &&
-    typeof item.h === 'number'
+    typeof item.h === 'number' &&
+    // Absent is the ordinary case, not a defect: every wall saved before channels had toggles, and
+    // every widget that draws only one thing, has nothing to say here.
+    (item.hiddenChannels === undefined ||
+      (Array.isArray(item.hiddenChannels) &&
+        item.hiddenChannels.every((id) => typeof id === 'string')))
   );
 }
 
@@ -101,6 +119,13 @@ export function normaliseWidget(widget: WallWidget): WallWidget {
     y: widget.y,
     w: widget.w,
     h: widget.h,
+    // Spread rather than assigned, because `exactOptionalPropertyTypes` distinguishes an absent
+    // property from one present and undefined. An empty list is dropped too: "nothing hidden" and
+    // "no opinion" are the same wall, and writing `[]` into every widget on every save would put a
+    // field in the document for the majority of tiles that never toggle anything.
+    ...(widget.hiddenChannels === undefined || widget.hiddenChannels.length === 0
+      ? {}
+      : { hiddenChannels: [...widget.hiddenChannels] }),
   };
 }
 

@@ -12,6 +12,7 @@ import {
 import {
   defaultWallFor,
   findPanel,
+  hasChannels,
   isDriverWidget,
   panelsFor,
   WIDGET_GRID_COLUMNS,
@@ -69,6 +70,14 @@ const ROW_HEIGHT = 34;
  * scope so it is not a fresh object on every render, for the same reason the chart specs are.
  */
 const DRAG_CONFIG = { handle: '.wall__widget-grip' } as const;
+
+/**
+ * Stands in for a tile that has hidden nothing, hoisted so it is the same array every render.
+ *
+ * A fresh `[]` per render would re-run `LiveChart`'s visibility effect on every layout change, and
+ * that effect forces a repaint — so a drag anywhere on the wall would repaint every chart on it.
+ */
+const NO_HIDDEN_CHANNELS: readonly string[] = [];
 
 /** Enough to tell two placements of the same widget apart, which is all an instance id is for. */
 function newInstanceId(): string {
@@ -195,6 +204,31 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
 
   const removeWidget = useCallback((instanceId: string) => {
     setWidgets((current) => current.filter((widget) => widget.instanceId !== instanceId));
+  }, []);
+
+  /**
+   * Turns one channel off, or back on, for one tile.
+   *
+   * Keyed by `instanceId` rather than by widget id, which is the whole point: two tyre-wear tiles
+   * are two separate questions, and narrowing one to the front left must leave the other alone. It
+   * is also why this lives on the widget in the saved wall rather than anywhere central — there is
+   * no such thing as "the" tyre-wear chart's channels.
+   */
+  const toggleChannel = useCallback((instanceId: string, channelId: string) => {
+    setWidgets((current) =>
+      current.map((widget) => {
+        if (widget.instanceId !== instanceId) {
+          return widget;
+        }
+
+        const hidden = widget.hiddenChannels ?? [];
+        const next = hidden.includes(channelId)
+          ? hidden.filter((id) => id !== channelId)
+          : [...hidden, channelId];
+
+        return { ...widget, hiddenChannels: next };
+      }),
+    );
   }, []);
 
   const exportView = useCallback(() => {
@@ -429,6 +463,13 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
                     <entry.component store={store} />
                   ) : entry.isEmpty?.(extras[driverKey] ?? null) === true ? (
                     <UnavailableWidget reason="Nothing reported for this car yet." />
+                  ) : hasChannels(entry) ? (
+                    <entry.component
+                      store={store}
+                      driverKey={driverKey}
+                      hiddenChannels={widget.hiddenChannels ?? NO_HIDDEN_CHANNELS}
+                      onToggleChannel={(channelId) => toggleChannel(widget.instanceId, channelId)}
+                    />
                   ) : (
                     <entry.component store={store} driverKey={driverKey} />
                   )}

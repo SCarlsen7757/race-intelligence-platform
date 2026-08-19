@@ -4,9 +4,14 @@ import type { TyreTraces } from '../../shared/live/store';
 import { AssistSettings } from '../../features/focus/AssistSettings';
 import { CarMetrics } from '../../features/focus/CarMetrics';
 import { PedalInputs } from '../../features/focus/PedalInputs';
-import { PedalTrace } from '../../features/focus/PedalTrace';
-import { WheelTrace } from '../../features/focus/WheelTrace';
-import { registerDefaultWall, registerSimPanels, type SimPanelProps } from '../registry';
+import { PEDAL_CHANNELS, PedalTrace } from '../../features/focus/PedalTrace';
+import { WHEEL_CHANNELS, WheelTrace } from '../../features/focus/WheelTrace';
+import {
+  registerDefaultWall,
+  registerSimPanels,
+  type ChannelPanelProps,
+  type WidgetChannel,
+} from '../registry';
 import { DamagePanel } from './DamagePanel';
 import { IncidentsPanel, incidentsPanelIsEmpty } from './IncidentsPanel';
 import { BrakeTemperaturePanel, BrakeWearPanel } from './BrakePanel';
@@ -39,11 +44,35 @@ const formatTemperature = (value: number | null | undefined) => formatNumber(val
  */
 const WEAR_RANGE = [0, 1] as const;
 
-function TyrePressurePanel({ store, driverKey }: SimPanelProps) {
+/**
+ * The channels a four-wheel chart declares, as the catalogue wants them.
+ *
+ * Derived from the same list the charts and their legends draw from, rather than written out again
+ * here: an id in a saved wall has to match the id on the series it hides, and two hand-kept lists
+ * are one edit away from a wall that quietly stops hiding anything.
+ */
+const WHEEL_WIDGET_CHANNELS: readonly WidgetChannel[] = WHEEL_CHANNELS.map(({ id, label }) => ({
+  id,
+  label,
+}));
+
+const PEDAL_WIDGET_CHANNELS: readonly WidgetChannel[] = PEDAL_CHANNELS.map(({ id, label }) => ({
+  id,
+  label,
+}));
+
+function TyrePressurePanel({
+  store,
+  driverKey,
+  hiddenChannels,
+  onToggleChannel,
+}: ChannelPanelProps) {
   return (
     <WheelTrace
       store={store}
       driverKey={driverKey}
+      hiddenChannels={hiddenChannels}
+      onToggleChannel={onToggleChannel}
       channel={pressureChannel}
       read={readPressure}
       format={formatPressure}
@@ -52,11 +81,13 @@ function TyrePressurePanel({ store, driverKey }: SimPanelProps) {
   );
 }
 
-function TyreWearPanel({ store, driverKey }: SimPanelProps) {
+function TyreWearPanel({ store, driverKey, hiddenChannels, onToggleChannel }: ChannelPanelProps) {
   return (
     <WheelTrace
       store={store}
       driverKey={driverKey}
+      hiddenChannels={hiddenChannels}
+      onToggleChannel={onToggleChannel}
       channel={wearChannel}
       read={readWear}
       format={formatPercent}
@@ -66,11 +97,18 @@ function TyreWearPanel({ store, driverKey }: SimPanelProps) {
   );
 }
 
-function TyreTemperaturePanel({ store, driverKey }: SimPanelProps) {
+function TyreTemperaturePanel({
+  store,
+  driverKey,
+  hiddenChannels,
+  onToggleChannel,
+}: ChannelPanelProps) {
   return (
     <WheelTrace
       store={store}
       driverKey={driverKey}
+      hiddenChannels={hiddenChannels}
+      onToggleChannel={onToggleChannel}
       channel={temperatureChannel}
       read={readTemperature}
       format={formatTemperature}
@@ -140,6 +178,7 @@ registerSimPanels('raceroom', [
     title: 'Pedal trace',
     scope: 'driver',
     requires: [],
+    channels: PEDAL_WIDGET_CHANNELS,
     component: PedalTrace,
     defaultSize: { w: 6, h: 5 },
     minSize: { w: 4, h: 4 },
@@ -150,6 +189,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: ['TyrePressure'],
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Pressure' },
+    channels: WHEEL_WIDGET_CHANNELS,
     component: TyrePressurePanel,
     defaultSize: { w: 4, h: 6 },
     minSize: { w: 3, h: 4 },
@@ -160,6 +200,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: ['TyreWear'],
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Wear' },
+    channels: WHEEL_WIDGET_CHANNELS,
     component: TyreWearPanel,
     defaultSize: { w: 4, h: 6 },
     minSize: { w: 3, h: 4 },
@@ -170,6 +211,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: ['TyreTemperature'],
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Temperature' },
+    channels: WHEEL_WIDGET_CHANNELS,
     component: TyreTemperaturePanel,
     defaultSize: { w: 4, h: 6 },
     minSize: { w: 3, h: 4 },
@@ -180,6 +222,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: ['BrakeTemperature'],
     group: { id: 'brakes', title: 'Brakes', itemTitle: 'Temperature' },
+    channels: WHEEL_WIDGET_CHANNELS,
     component: BrakeTemperaturePanel,
     defaultSize: { w: 4, h: 6 },
     minSize: { w: 3, h: 4 },
@@ -190,6 +233,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: ['BrakeWear'],
     group: { id: 'brakes', title: 'Brakes', itemTitle: 'Wear' },
+    channels: WHEEL_WIDGET_CHANNELS,
     component: BrakeWearPanel,
     defaultSize: { w: 4, h: 6 },
     minSize: { w: 3, h: 4 },

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { formatNumber, formatPercent, NOT_REPORTED } from '../../shared/format/format';
 import type { RaceRoomExtras } from '../../shared/live/contracts';
-import { WHEELS } from '../../shared/live/contracts';
 import { TraceBuffer, TYRE_TRACE_CAPACITY, type WheelTraces } from '../../shared/live/store';
 import { useExtras } from '../../shared/live/useLive';
+import { ChannelLegend } from '../../features/focus/ChannelLegend';
 import { LiveChart, type LiveChartSpec } from '../../features/focus/LiveChart';
-import { WHEEL_COLOURS } from '../../features/focus/traceColours';
-import type { SimPanelProps } from '../registry';
+import { WHEEL_CHANNELS } from '../../features/focus/WheelTrace';
+import type { ChannelPanelProps } from '../registry';
 
 type BrakeChannel = (extras: RaceRoomExtras) => number[] | undefined;
 
@@ -32,11 +32,13 @@ function newWheelTraces(): WheelTraces {
 function BrakeTrace({
   store,
   driverKey,
+  hiddenChannels,
+  onToggleChannel,
   read,
   unit,
   format,
   range,
-}: SimPanelProps & {
+}: ChannelPanelProps & {
   read: BrakeChannel;
   unit: string;
   format: (value: number | null | undefined) => string;
@@ -79,9 +81,10 @@ function BrakeTrace({
   const spec: LiveChartSpec = {
     capacity: TYRE_TRACE_CAPACITY,
     scales: { y: range === undefined ? {} : { range: [...range] } },
-    series: WHEELS.map((wheel, index) => ({
-      label: wheel,
-      stroke: WHEEL_COLOURS[index]!,
+    series: WHEEL_CHANNELS.map((wheel, index) => ({
+      id: wheel.id,
+      label: wheel.label,
+      stroke: wheel.stroke,
       buffer: () => tracesRef.current[index]!,
     })),
   };
@@ -92,27 +95,26 @@ function BrakeTrace({
         store={store}
         driverKey={driverKey}
         spec={spec}
+        hidden={hiddenChannels}
         height={112}
         className="wheel-chart__plot"
       />
 
-      <div className="wheel-chart__values">
-        {WHEELS.map((wheel, index) => {
+      <ChannelLegend
+        channels={WHEEL_CHANNELS}
+        hidden={hiddenChannels}
+        onToggle={onToggleChannel}
+        unit={unit}
+        renderValue={(_, index) => {
           const value = values?.[index];
           const shown =
             value === undefined || !Number.isFinite(value) || value < 0
               ? NOT_REPORTED
               : format(value);
-          return (
-            <div key={wheel} className="wheel-chart__value">
-              <span className="wheel-chart__key" style={{ background: WHEEL_COLOURS[index]! }} />
-              <span className="wheel-chart__wheel">{wheel}</span>
-              <span className="wheel-chart__number">{shown}</span>
-            </div>
-          );
-        })}
-        <span className="wheel-chart__unit">{unit}</span>
-      </div>
+
+          return <span className="wheel-chart__number">{shown}</span>;
+        }}
+      />
     </div>
   );
 }
@@ -122,11 +124,11 @@ const readWear = (extras: RaceRoomExtras) => extras.brakeWear;
 const formatTemperature = (value: number | null | undefined) => formatNumber(value, 0);
 const WEAR_RANGE = [0, 1] as const;
 
-export function BrakeTemperaturePanel(props: SimPanelProps) {
+export function BrakeTemperaturePanel(props: ChannelPanelProps) {
   return <BrakeTrace {...props} read={readTemperature} unit="°C" format={formatTemperature} />;
 }
 
-export function BrakeWearPanel(props: SimPanelProps) {
+export function BrakeWearPanel(props: ChannelPanelProps) {
   return (
     <BrakeTrace {...props} read={readWear} unit="worn" format={formatPercent} range={WEAR_RANGE} />
   );

@@ -1,4 +1,5 @@
 import { TRACE_CAPACITY, type LiveStore } from '../../shared/live/store';
+import { ChannelLegend, type LegendChannel } from './ChannelLegend';
 import { LiveChart, type LiveChartSpec } from './LiveChart';
 import { TRACE_COLOURS } from './traceColours';
 
@@ -26,10 +27,27 @@ function hexToRgba(hex: string, alpha: number) {
  */
 const BRAKE_FILL = hexToRgba(TRACE_COLOURS.brake, 0.28);
 
+/**
+ * The trace's four channels.
+ *
+ * Steering is the one most often turned off: it is on its own scale and crosses the pedals
+ * constantly, so a coach reading where the throttle picks up against where the brake releases
+ * usually wants it gone. That is the case this widget's toggles exist for.
+ */
+export const PEDAL_CHANNELS: readonly LegendChannel[] = [
+  { id: 'throttle', label: 'Throttle', stroke: TRACE_COLOURS.throttle },
+  { id: 'brake', label: 'Brake', stroke: TRACE_COLOURS.brake },
+  { id: 'clutch', label: 'Clutch', stroke: TRACE_COLOURS.clutch },
+  { id: 'steering', label: 'Steering', stroke: TRACE_COLOURS.steering },
+];
+
 interface PedalTraceProps {
   store: LiveStore;
   /** Which driver's stream to plot. Two can be on screen at once. */
   driverKey: string;
+  /** Channel ids this placement has turned off, and where a click on the legend goes. */
+  hiddenChannels: readonly string[];
+  onToggleChannel: (channelId: string) => void;
   height?: number;
 }
 
@@ -43,7 +61,13 @@ interface PedalTraceProps {
  *
  * The painting is `LiveChart`'s — see there for why none of this goes through React after mount.
  */
-export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) {
+export function PedalTrace({
+  store,
+  driverKey,
+  hiddenChannels,
+  onToggleChannel,
+  height = 140,
+}: PedalTraceProps) {
   // `tracesFor` creates the rings on demand, so it is reached from inside the buffer closures
   // rather than here: those are called when the chart is built, which keeps a store write out of a
   // render pass. The panel routinely mounts before the driver's first frame has arrived, which is
@@ -54,12 +78,14 @@ export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) 
     axis: { scale: 'pedal' },
     series: [
       {
+        id: 'throttle',
         label: 'Throttle',
         scale: 'pedal',
         stroke: TRACE_COLOURS.throttle,
         buffer: () => store.tracesFor(driverKey).throttle,
       },
       {
+        id: 'brake',
         label: 'Brake',
         scale: 'pedal',
         stroke: TRACE_COLOURS.brake,
@@ -67,12 +93,14 @@ export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) 
         buffer: () => store.tracesFor(driverKey).brake,
       },
       {
+        id: 'clutch',
         label: 'Clutch',
         scale: 'pedal',
         stroke: TRACE_COLOURS.clutch,
         buffer: () => store.tracesFor(driverKey).clutch,
       },
       {
+        id: 'steering',
         label: 'Steering',
         scale: 'steer',
         stroke: TRACE_COLOURS.steering,
@@ -83,6 +111,19 @@ export function PedalTrace({ store, driverKey, height = 140 }: PedalTraceProps) 
   };
 
   return (
-    <LiveChart store={store} driverKey={driverKey} spec={spec} height={height} className="trace" />
+    <div className="wheel-chart">
+      <LiveChart
+        store={store}
+        driverKey={driverKey}
+        spec={spec}
+        hidden={hiddenChannels}
+        height={height}
+        className="trace"
+      />
+
+      {/* No readouts here: the pedal bars beside this on the wall already carry the numbers, and a
+          second set under the trace would be the same three percentages twice. */}
+      <ChannelLegend channels={PEDAL_CHANNELS} hidden={hiddenChannels} onToggle={onToggleChannel} />
+    </div>
   );
 }

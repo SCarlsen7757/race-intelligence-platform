@@ -4,8 +4,26 @@ import 'uplot/dist/uPlot.min.css';
 import type { LiveStore, TraceBuffer } from '../../shared/live/store';
 import { TRACE_COLOURS } from './traceColours';
 
+/**
+ * The default for `hidden`, hoisted so a chart with nothing to toggle is not handed a fresh array
+ * on every render — which would re-run the visibility effect forever.
+ */
+const EMPTY_HIDDEN: readonly string[] = [];
+
+function NOOP(): void {
+  // Stands in until a chart exists to repaint. See `repaintRef`.
+}
+
 /** One line on the chart, and the ring it is drawn from. */
 export interface LiveChartSeries {
+  /**
+   * The channel id this line draws, where the caller lets the user turn channels off.
+   *
+   * Matched against {@link LiveChartProps.hidden}. Omitted on a chart with nothing to toggle, which
+   * is why it is not simply the array index: an id survives a series being reordered, and it is what
+   * a saved wall remembers.
+   */
+  id?: string;
   label: string;
   stroke: string;
   /**
@@ -62,6 +80,15 @@ interface LiveChartProps {
   store: LiveStore;
   driverKey: string;
   spec: LiveChartSpec;
+  /**
+   * Channel ids not to draw, matched against each series' `id`.
+   *
+   * A prop rather than part of the spec, and deliberately so: the spec is read once when the chart
+   * is built, whereas this changes while the user is looking at the chart. Applied in place through
+   * uPlot's `setSeries`, so turning a corner off does not rebuild the chart and flash away the
+   * fifteen minutes of stint already drawn.
+   */
+  hidden?: readonly string[];
   height?: number;
   className?: string;
 }
@@ -101,6 +128,7 @@ export function LiveChart({
   store,
   driverKey,
   spec,
+  hidden = EMPTY_HIDDEN,
   height = 112,
   className = 'trace',
 }: LiveChartProps) {
@@ -117,6 +145,22 @@ export function LiveChart({
   useEffect(() => {
     specRef.current = spec;
   });
+
+  // Read by the paint loop, which is not a React consumer and must not become one — sixty renders a
+  // second is the cost this whole component exists to avoid. The visibility effect below writes it
+  // and then forces one repaint, which is the entire mechanism.
+  const hiddenRef = useRef<ReadonlySet<string>>(new Set(hidden));
+
+  // Kept so the visibility effect can reach the chart the build effect made. Cleared on teardown,
+  // so a toggle arriving between a driver change and the next build has nothing to talk to rather
+  // than a destroyed instance.
+  const chartRef = useRef<uPlot | null>(null);
+  const repaintRef = useRef<() => void>(NOOP);
+
+  // A string rather than the array itself, because a caller rebuilding `['fl']` on every render
+  // would otherwise re-run the visibility effect forever. Joined on a character no id contains, so
+  // two ids cannot be spelled to collide with a third.
+  const hiddenKey = hidden.join(',');
 
   useEffect(() => {
     const container = containerRef.current;
@@ -158,6 +202,10 @@ export function LiveChart({
             stroke: entry.stroke,
             width: entry.width ?? 1.5,
             spanGaps: false,
+            // Applied at build time as well as through `setSeries` below, so a chart rebuilt for
+            // another driver comes back with the same corners turned off. Without it, changing car
+            // would quietly undo the narrowing the user set up.
+            show: entry.id === undefined || !hiddenRef.current.has(entry.id),
             ...(entry.scale === undefined ? {} : { scale: entry.scale }),
             ...(entry.fill === undefined ? {} : { fill: entry.fill }),
           })),
@@ -174,7 +222,22 @@ export function LiveChart({
     // to draw as a gap, and a Float64Array cannot hold one — see `TraceBuffer.toNullableArray`.
     // The x axis stays typed, because a sample index is never absent.
     let xs = new Float64Array(0);
-    let columns: (number | null)[][] = series.map(() => []);
+    const columns: (number | null)[][] = series.map(() => []);
+
+    /*
+     * What a hidden channel is handed instead of its ring.
+     *
+     * uPlot wants a column per series whatever their state, so a hidden one still needs an array as
+     * long as the x axis — but it need not be *its* array, and building that is the cost worth
+     * avoiding. Copying a ring is O(capacity) per series per repaint, and the arrangement this
+     * feature exists for is exactly the expensive one: a wall of four-channel tiles narrowed to one
+     * corner each, where three quarters of the copying draws nothing.
+     *
+     * One array shared by every hidden series on the chart, rebuilt only when the window grows.
+     * Nulls rather than zeroes because uPlot excludes a hidden series from its scale calculation
+     * anyway, and a column of zeroes would be a trap for the day that stops being true.
+     */
+    let blanks: null[] = [];
 
     let frame = 0;
 
@@ -198,15 +261,41 @@ export function LiveChart({
           for (let i = 0; i < count; i++) {
             xs[i] = capacity - count + i;
           }
+
+          blanks = new Array<null>(count).fill(null);
         }
 
-        columns = columns.map((column, index) => buffers[index]!.toNullableArray(column));
+        // The scratch arrays stay per series and keep their identity across frames, so re-showing a
+        // channel finds its buffer where it left it. Only what is handed to uPlot switches to the
+        // shared blank — writing the blank into `columns` would let the next `toNullableArray` fill
+        // the array every other hidden series is also using.
+        const drawn: (number | null)[][] = [];
 
-        chart.setData([xs, ...columns], true);
+        for (let index = 0; index < buffers.length; index++) {
+          const id = series[index]!.id;
+
+          if (id !== undefined && hiddenRef.current.has(id)) {
+            drawn.push(blanks);
+            continue;
+          }
+
+          columns[index] = buffers[index]!.toNullableArray(columns[index]);
+          drawn.push(columns[index]!);
+        }
+
+        chart.setData([xs, ...drawn], true);
         paintedVersion = version;
       }
 
       frame = requestAnimationFrame(paint);
+    };
+
+    chartRef.current = chart;
+    // Lets the visibility effect force the next frame to redraw. A toggle changes what should be on
+    // screen without advancing any ring, and the version guard above would otherwise hold the old
+    // picture until the next sample happened to arrive — up to a second for a tyre channel.
+    repaintRef.current = () => {
+      paintedVersion = -1;
     };
 
     frame = requestAnimationFrame(paint);
@@ -227,8 +316,41 @@ export function LiveChart({
       cancelAnimationFrame(frame);
       observer.disconnect();
       chart.destroy();
+      chartRef.current = null;
+      repaintRef.current = NOOP;
     };
   }, [store, driverKey, height]);
+
+  /*
+   * Turns channels on and off in place.
+   *
+   * Declared after the build effect and that ordering is load bearing: React runs setups in
+   * declaration order, so on a driver change the chart below has already been rebuilt — with the
+   * right channels hidden from the start — by the time this runs against it.
+   *
+   * `setSeries` rather than a rebuild, because a rebuild would throw away the drawn window. On a
+   * tyre chart that is fifteen minutes of stint disappearing and slowly redrawing because somebody
+   * wanted to look at one corner, which would make the feature not worth using.
+   */
+  useEffect(() => {
+    hiddenRef.current = new Set(hiddenKey === '' ? [] : hiddenKey.split(','));
+
+    const chart = chartRef.current;
+    if (chart === null) {
+      return;
+    }
+
+    specRef.current.series.forEach((entry, index) => {
+      if (entry.id === undefined) {
+        return;
+      }
+
+      // uPlot's series are one-based to the caller: index 0 is the x axis.
+      chart.setSeries(index + 1, { show: !hiddenRef.current.has(entry.id) });
+    });
+
+    repaintRef.current();
+  }, [hiddenKey, store, driverKey]);
 
   return <div ref={containerRef} className={className} />;
 }

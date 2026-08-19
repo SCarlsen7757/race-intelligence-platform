@@ -154,4 +154,45 @@ describe('readViewFile', () => {
 
     expect(readViewFile(text, knowsWidget).ok).toBe(false);
   });
+  /**
+   * The field records what to *hide*, so an absent one means "draw everything" — which is what a
+   * wall saved before channels had toggles should come back as, and what a widget that gains a
+   * channel later should do with the new line.
+   */
+  it('keeps hidden channels through a file', () => {
+    const text = JSON.stringify({
+      version: WALL_VIEW_VERSION,
+      gameKey: 'raceroom',
+      widgets: [
+        { instanceId: 'i', widgetId: KNOWN, x: 0, y: 0, w: 4, h: 6, hiddenChannels: ['fl'] },
+      ],
+    });
+
+    const result = readViewFile(text, knowsWidget);
+
+    expect(result.ok && result.view.widgets[0]?.hiddenChannels).toEqual(['fl']);
+  });
+
+  /**
+   * "Nothing hidden" and "no opinion" are the same wall, so an empty list is not written out. The
+   * majority of tiles never toggle anything and should not each carry an empty field for it.
+   */
+  it('leaves an empty hidden list out of the file entirely', () => {
+    const text = serialiseViewFile('raceroom', {
+      version: WALL_VIEW_VERSION,
+      widgets: [{ instanceId: 'i', widgetId: KNOWN, x: 0, y: 0, w: 4, h: 6, hiddenChannels: [] }],
+    });
+
+    expect(text).not.toContain('hiddenChannels');
+  });
+
+  it('refuses a wall whose hidden channels are not strings', () => {
+    const text = JSON.stringify({
+      version: WALL_VIEW_VERSION,
+      gameKey: 'raceroom',
+      widgets: [{ instanceId: 'i', widgetId: KNOWN, x: 0, y: 0, w: 4, h: 6, hiddenChannels: [7] }],
+    });
+
+    expect(readViewFile(text, knowsWidget).ok).toBe(false);
+  });
 });

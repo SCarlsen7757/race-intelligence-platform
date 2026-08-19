@@ -7,12 +7,30 @@ import {
   type WheelTraces,
 } from '../../shared/live/store';
 import { LiveReadout } from '../../shared/ui/LiveReadout';
+import { ChannelLegend, type LegendChannel } from './ChannelLegend';
 import { LiveChart, type LiveChartSpec } from './LiveChart';
 import { WHEEL_COLOURS } from './traceColours';
+
+/**
+ * The four corners as channels, in the wire's FL, FR, RL, RR order.
+ *
+ * Lower-case ids rather than the labels, because an id is written into somebody's saved wall and
+ * outlives however the label is later spelled. Shared by every four-wheel chart — tyres and brakes
+ * ask about the same four corners, and a wall that called them `fl` on one tile and `front-left` on
+ * another would be two vocabularies for one car.
+ */
+export const WHEEL_CHANNELS: readonly LegendChannel[] = WHEELS.map((wheel, index) => ({
+  id: wheel.toLowerCase(),
+  label: wheel,
+  stroke: WHEEL_COLOURS[index]!,
+}));
 
 interface WheelTraceProps {
   store: LiveStore;
   driverKey: string;
+  /** Channel ids this placement has turned off, and where a click on the legend goes. */
+  hiddenChannels: readonly string[];
+  onToggleChannel: (channelId: string) => void;
   /** Which of the tyre rings to plot. */
   channel: (tyres: TyreTraces) => WheelTraces;
   /** The same channel read off a frame, for the current-value labels. */
@@ -51,6 +69,8 @@ interface WheelTraceProps {
 export function WheelTrace({
   store,
   driverKey,
+  hiddenChannels,
+  onToggleChannel,
   channel,
   read,
   format,
@@ -63,9 +83,10 @@ export function WheelTrace({
     scales: { y: range === undefined ? {} : { range: [...range] } },
     // Resolved inside the closures rather than here, so the on-demand ring creation in `tracesFor`
     // stays out of a render pass. See the same note in `PedalTrace`.
-    series: WHEELS.map((wheel, index) => ({
-      label: wheel,
-      stroke: WHEEL_COLOURS[index]!,
+    series: WHEEL_CHANNELS.map((wheel, index) => ({
+      id: wheel.id,
+      label: wheel.label,
+      stroke: wheel.stroke,
       buffer: () => channel(store.tracesFor(driverKey).tyres)[index]!,
     })),
   };
@@ -76,25 +97,28 @@ export function WheelTrace({
         store={store}
         driverKey={driverKey}
         spec={spec}
+        hidden={hiddenChannels}
         height={height}
         className="wheel-chart__plot"
       />
 
-      <div className="wheel-chart__values">
-        {WHEELS.map((wheel, index) => (
-          <div key={wheel} className="wheel-chart__value">
-            <span className="wheel-chart__key" style={{ background: WHEEL_COLOURS[index]! }} />
-            <span className="wheel-chart__wheel">{wheel}</span>
-            <LiveReadout
-              store={store}
-              driverKey={driverKey}
-              className="wheel-chart__number"
-              render={(liveFrame) => format(read(liveFrame, index))}
-            />
-          </div>
-        ))}
-        <span className="wheel-chart__unit">{unit}</span>
-      </div>
+      <ChannelLegend
+        channels={WHEEL_CHANNELS}
+        hidden={hiddenChannels}
+        onToggle={onToggleChannel}
+        unit={unit}
+        // Kept live even for a hidden channel. The line going away is what the user asked for; the
+        // number is a reading they may still want, and blanking it would make hiding a corner look
+        // like losing it.
+        renderValue={(_, index) => (
+          <LiveReadout
+            store={store}
+            driverKey={driverKey}
+            className="wheel-chart__number"
+            render={(liveFrame) => format(read(liveFrame, index))}
+          />
+        )}
+      />
     </div>
   );
 }

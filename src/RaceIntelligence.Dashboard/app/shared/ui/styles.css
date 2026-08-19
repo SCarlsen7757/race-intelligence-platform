@@ -1023,6 +1023,42 @@ th.tower__state {
   font-weight: 600;
 }
 
+/*
+ * The legend is also the switch panel, so each entry is a button that has to look like it was
+ * always one — no border, no background, inheriting its type. The affordance is the pointer and the
+ * hover, because a dozen tiles each growing four outlined buttons would be more chrome than chart.
+ */
+.channel-toggle {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.channel-toggle:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+/* Off is stated twice — dimmed and struck — because the swatch is the only other cue and colour
+   alone is not one every reader has. Same argument as the INV pill beside a struck lap time. */
+.channel-toggle--off {
+  opacity: 0.45;
+}
+
+.channel-toggle--off .wheel-chart__wheel {
+  text-decoration: line-through;
+}
+
+/* The last channel still drawn. Not hidden — it has to stay visible to be turned back off once
+   something else is on — but plainly not a control at that moment. */
+.channel-toggle:disabled {
+  cursor: default;
+}
+
 .wheel-chart__unit {
   margin-left: auto;
 }
