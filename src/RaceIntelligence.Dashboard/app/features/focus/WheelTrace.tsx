@@ -8,7 +8,7 @@ import {
 } from '../../shared/live/store';
 import { LiveReadout } from '../../shared/ui/LiveReadout';
 import { ChannelLegend, type LegendChannel } from './ChannelLegend';
-import { LiveChart, type LiveChartSpec } from './LiveChart';
+import { LiveChart, type LiveChartSpec, type OperatingWindowValues } from './LiveChart';
 import { WHEEL_COLOURS } from './traceColours';
 
 /**
@@ -45,6 +45,14 @@ interface WheelTraceProps {
    * temperature have no natural bounds and are left to scale to what arrived.
    */
   range?: readonly [number, number];
+  /**
+   * Reads the simulator's operating window off a frame, for the channels that have one.
+   *
+   * Only temperature does. Pressure and wear are deliberately left without a band: RaceRoom reports
+   * a window for tread temperature and nothing equivalent for the others, and a band drawn from a
+   * nominal pressure would be this dashboard's opinion wearing the simulator's clothes.
+   */
+  window?: (frame: FocusFrameMessage) => OperatingWindowValues | null;
   height?: number;
 }
 
@@ -76,6 +84,7 @@ export function WheelTrace({
   format,
   unit,
   range,
+  window: readWindow,
   height = 112,
 }: WheelTraceProps) {
   const spec: LiveChartSpec = {
@@ -89,6 +98,19 @@ export function WheelTrace({
       stroke: wheel.stroke,
       buffer: () => channel(store.tracesFor(driverKey).tyres)[index]!,
     })),
+    ...(readWindow === undefined
+      ? {}
+      : {
+          band: {
+            // Read from the store on every draw rather than from a captured frame. The chart is
+            // built before the first frame arrives, and a window captured then would be null for
+            // the life of the panel.
+            read: () => {
+              const frame = store.frameFor(driverKey);
+              return frame === null ? null : readWindow(frame);
+            },
+          },
+        }),
   };
 
   return (

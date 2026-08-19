@@ -82,6 +82,8 @@ describe('sim panel registry', () => {
       'tyre-pressure',
       'tyre-wear',
       'tyre-temperature',
+      'tyre-tread',
+      'tyre-grip',
       'brake-temperature',
       'damage',
     ]);
@@ -104,15 +106,22 @@ describe('sim panel registry', () => {
       'lap-delta',
       'lap-trend',
       'tyre-wear',
+      'tyre-grip',
     ]);
   });
 
   /**
-   * Four widgets need no capability at all, and that is deliberate rather than an oversight: what
-   * the car is doing, what the driver is doing, what the car is set to, and the trace of the last
-   * thirty seconds are built from channels every simulator reports. Gating them on a flag would
-   * mean remembering to set that flag for every new simulator, to describe data none of them can
-   * fail to send. They are also exactly the default wall, for the same reason — see `raceroom`.
+   * Several widgets need no capability at all, and that is deliberate rather than an oversight:
+   * what the car is doing, what the driver is doing, what the car is set to, and the trace of the
+   * last thirty seconds are built from channels every simulator reports. Gating them on a flag
+   * would mean remembering to set that flag for every new simulator, to describe data none of them
+   * can fail to send. The first four are also exactly the default wall — see `raceroom`.
+   *
+   * Tyre grip is here for a different reason and it is worth keeping the distinction visible: it
+   * has no `SimCapabilities` flag because it rides in the extras document rather than the typed
+   * wire, and RaceRoom's mapper writes it unconditionally. The registry being keyed by game key is
+   * what gates it — borrowing `TyreWear` would be asserting a relationship between two channels
+   * that do not have one.
    */
   it('offers the core widgets to a collector that reports nothing at all', async () => {
     await import('./raceroom');
@@ -124,6 +133,7 @@ describe('sim panel registry', () => {
       'inputs-trace',
       'lap-delta',
       'lap-trend',
+      'tyre-grip',
     ]);
   });
 

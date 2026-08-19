@@ -12,7 +12,10 @@ import { LiveChart, type LiveChartSpec } from './LiveChart';
  */
 const uplot = vi.hoisted(() => ({
   builds: [] as {
-    options: { series: { label: string; show?: boolean }[] };
+    options: {
+      series: { label: string; show?: boolean }[];
+      plugins?: { hooks: { drawClear?: (chart: unknown) => void } }[];
+    };
     data: unknown[];
     setData: ReturnType<typeof vi.fn>;
     setSeries: ReturnType<typeof vi.fn>;
@@ -309,5 +312,100 @@ describe('LiveChart', () => {
 
     expect(uplot.builds[0]!.destroy).toHaveBeenCalled();
     expect(uplot.builds[0]!.setData.mock.calls.length).toBe(settled);
+  });
+});
+
+/**
+ * A stand-in for the parts of uPlot the band hook touches.
+ *
+ * A linear scale is enough: the hook's job is to turn three numbers into a rectangle and a line in
+ * the right order, and whether uPlot maps 90 °C to pixel 40 or pixel 41 is uPlot's business.
+ */
+function fakeChart() {
+  const ctx = {
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    fillRect: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    stroke: vi.fn(),
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0,
+  };
+
+  return {
+    ctx,
+    bbox: { left: 0, top: 0, width: 200, height: 100 },
+    // 0 °C at the bottom, 200 °C at the top of a 100px plot.
+    valToPos: (value: number) => 100 - value / 2,
+  };
+}
+
+function bandHook(spec: LiveChartSpec) {
+  const store = following();
+  // Rendered directly rather than through `Harness`, which owns its own spec by design — the point
+  // of that component is that a caller cannot pass one in.
+  render(<LiveChart store={store} driverKey={DRIVER} spec={spec} />);
+
+  return uplot.builds.at(-1)!.options.plugins?.[0]?.hooks.drawClear;
+}
+
+describe('LiveChart operating window', () => {
+  const seriesOnly: LiveChartSpec = {
+    capacity: TRACE_CAPACITY,
+    series: [
+      { id: 'fl', label: 'FL', stroke: '#fff', buffer: () => following().tracesFor(DRIVER).speed },
+    ],
+  };
+
+  /** A chart with no window to draw should not carry a plugin that draws nothing. */
+  it('registers no plugin at all when the spec declares no band', () => {
+    expect(bandHook(seriesOnly)).toBeUndefined();
+  });
+
+  it('fills between cold and hot, and marks the optimum', () => {
+    const hook = bandHook({
+      ...seriesOnly,
+      band: { read: () => ({ cold: 70, hot: 110, optimal: 90 }) },
+    })!;
+
+    const chart = fakeChart();
+    hook(chart);
+
+    // 110 °C is the top of the band and so the smaller y: 100 - 55 = 45, down to 100 - 35 = 65.
+    expect(chart.ctx.fillRect).toHaveBeenCalledWith(0, 45, 200, 20);
+    expect(chart.ctx.stroke).toHaveBeenCalled();
+    // Clipped, or a window the data does not reach paints over the axis and the panel.
+    expect(chart.ctx.clip).toHaveBeenCalled();
+    expect(chart.ctx.restore).toHaveBeenCalled();
+  });
+
+  /**
+   * The whole point of a band read from the simulator: one that does not report a window gets no
+   * band, never a plausible-looking one invented from a nominal value.
+   */
+  it('draws nothing when the simulator reports no window', () => {
+    const hook = bandHook({ ...seriesOnly, band: { read: () => null } })!;
+
+    const chart = fakeChart();
+    hook(chart);
+
+    expect(chart.ctx.fillRect).not.toHaveBeenCalled();
+    expect(chart.ctx.stroke).not.toHaveBeenCalled();
+  });
+
+  /** Bounds and optimum are independent, so a partial window still draws the half it has. */
+  it('marks an optimum reported without bounds', () => {
+    const hook = bandHook({ ...seriesOnly, band: { read: () => ({ optimal: 90 }) } })!;
+
+    const chart = fakeChart();
+    hook(chart);
+
+    expect(chart.ctx.fillRect).not.toHaveBeenCalled();
+    expect(chart.ctx.stroke).toHaveBeenCalled();
   });
 });

@@ -1,111 +1,75 @@
-import { formatNumber, formatPercent, NOT_REPORTED } from '../../shared/format/format';
-import { reportedNumber } from '../../shared/live/extras';
-import { TYRE_TRACE_CAPACITY, type ExtrasTraces } from '../../shared/live/store';
-import { useExtras } from '../../shared/live/useLive';
-import { ChannelLegend } from '../../features/focus/ChannelLegend';
-import { LiveChart, type LiveChartSpec } from '../../features/focus/LiveChart';
-import { WHEEL_CHANNELS } from '../../features/focus/WheelTrace';
+import { formatNumber, formatPercent } from '../../shared/format/format';
+import { ExtrasWheelTrace, type ExtrasWheelChannel } from '../../features/focus/ExtrasWheelTrace';
+import { firstReportedWindow } from '../../features/focus/operatingWindow';
 import type { ChannelPanelProps } from '../registry';
 
-/**
- * Which extras ring a brake chart draws, and where the same channel is read for its readouts.
- *
- * Two accessors rather than one because the line and the number come from different places by
- * design: the line is a stint held in a ring, the number is this second's document. They agree
- * because the store fills the ring from that same document — see `pushExtrasSample`.
- */
-interface BrakeChannel {
-  ring: (extras: ExtrasTraces) => ExtrasTraces['brakeTemperatureCelsius'];
-  read: (extras: ReturnType<typeof useExtras>, wheel: number) => number | undefined;
-}
-
-function BrakeTrace({
-  store,
-  driverKey,
-  hiddenChannels,
-  onToggleChannel,
-  channel,
-  unit,
-  format,
-  range,
-}: ChannelPanelProps & {
-  channel: BrakeChannel;
-  unit: string;
-  format: (value: number | null | undefined) => string;
-  range?: readonly [number, number];
-}) {
-  const extras = useExtras(driverKey);
-
-  /*
-   * Resolved out of the store like every other chart on the wall.
-   *
-   * This panel used to keep four `TraceBuffer`s in a ref and fill them from an effect, because the
-   * extras document was parsed per panel and there was nowhere else for them to live. With the
-   * store parsing once and pushing the channels itself, the exception is gone: the rings outlive
-   * the panel, so a tile dragged to a new position keeps its stint instead of starting from empty.
-   */
-  const spec: LiveChartSpec = {
-    capacity: TYRE_TRACE_CAPACITY,
-    scales: { y: range === undefined ? {} : { range: [...range] } },
-    series: WHEEL_CHANNELS.map((wheel, index) => ({
-      id: wheel.id,
-      label: wheel.label,
-      stroke: wheel.stroke,
-      buffer: () => channel.ring(store.tracesFor(driverKey).extras)[index]!,
-    })),
-  };
-
-  return (
-    <div className="wheel-chart">
-      <LiveChart
-        store={store}
-        driverKey={driverKey}
-        spec={spec}
-        hidden={hiddenChannels}
-        height={112}
-        className="wheel-chart__plot"
-      />
-
-      <ChannelLegend
-        channels={WHEEL_CHANNELS}
-        hidden={hiddenChannels}
-        onToggle={onToggleChannel}
-        unit={unit}
-        renderValue={(_, index) => {
-          const value = reportedNumber(channel.read(extras, index));
-
-          return (
-            <span className="wheel-chart__number">
-              {value === null ? NOT_REPORTED : format(value)}
-            </span>
-          );
-        }}
-      />
-    </div>
-  );
-}
-
-const TEMPERATURE: BrakeChannel = {
+const TEMPERATURE: ExtrasWheelChannel = {
   ring: (extras) => extras.brakeTemperatureCelsius,
   // The reading, not the window. `optimal`, `cold` and `hot` ride alongside it on the same object
-  // and are what a band behind this trace will read; the line and its readout stay the temperature.
-  read: (extras, wheel) => extras?.document?.brakeTemperatureCelsius?.[wheel]?.current,
+  // and are what the band reads; the line and its readout stay the temperature.
+  read: (document, wheel) => document?.brakeTemperatureCelsius?.[wheel]?.current,
+  window: (document) => firstReportedWindow(document?.brakeTemperatureCelsius),
 };
 
-const WEAR: BrakeChannel = {
+const PRESSURE: ExtrasWheelChannel = {
+  ring: (extras) => extras.brakePressureKiloNewtons,
+  read: (document, wheel) => document?.brakePressureKiloNewtons?.[wheel],
+};
+
+const WEAR: ExtrasWheelChannel = {
   ring: (extras) => extras.brakeWear,
-  read: (extras, wheel) => extras?.document?.brakeWear?.[wheel],
+  read: (document, wheel) => document?.brakeWear?.[wheel],
 };
 
 const formatTemperature = (value: number | null | undefined) => formatNumber(value, 0);
+const formatPressure = (value: number | null | undefined) => formatNumber(value, 1);
 const WEAR_RANGE = [0, 1] as const;
 
+/**
+ * Brake temperature per corner, against the window the simulator says the pads want.
+ *
+ * The band is the whole reason this panel is worth more than four numbers. **380 °C is cold on one
+ * car and cooking on another**, and an engineer who has not memorised the pad compound cannot read a
+ * raw temperature at all — with the window behind it, "climbing out of the top of the band" is
+ * legible to anybody.
+ */
 export function BrakeTemperaturePanel(props: ChannelPanelProps) {
-  return <BrakeTrace {...props} channel={TEMPERATURE} unit="°C" format={formatTemperature} />;
+  return <ExtrasWheelTrace {...props} channel={TEMPERATURE} unit="°C" format={formatTemperature} />;
 }
 
+/**
+ * Brake pressure per corner, in kilonewtons.
+ *
+ * Temperature says the discs are working; pressure says how they were *asked* to. Read together,
+ * the pair is how an imbalance shows up before it becomes a temperature: **a front left
+ * consistently taking less than the front right is a car that will be inconsistent under braking**
+ * long before it overheats anything, and that difference is a gap between two lines here and
+ * invisible in a single brake-pedal trace.
+ *
+ * No fixed range. Force has no natural ceiling to scale against — it depends on the car and on how
+ * hard this driver brakes — so the axis fits what arrived, and the shape of the stint is the
+ * message rather than the absolute height.
+ */
+export function BrakePressurePanel(props: ChannelPanelProps) {
+  return <ExtrasWheelTrace {...props} channel={PRESSURE} unit="kN" format={formatPressure} />;
+}
+
+/**
+ * Brake pad wear per corner.
+ *
+ * **Not registered in the catalogue**, and deliberately so: `SimCapabilities.BrakeWear` is set by
+ * nothing because RaceRoom's shared memory has no pad-wear member to set it from. The component
+ * stays because the flag and the `brakeWear` field stay — they are waiting on a connector that
+ * reports the channel, and re-registering is one entry. See the remark in `sims/raceroom/index.tsx`.
+ */
 export function BrakeWearPanel(props: ChannelPanelProps) {
   return (
-    <BrakeTrace {...props} channel={WEAR} unit="worn" format={formatPercent} range={WEAR_RANGE} />
+    <ExtrasWheelTrace
+      {...props}
+      channel={WEAR}
+      unit="worn"
+      format={formatPercent}
+      range={WEAR_RANGE}
+    />
   );
 }

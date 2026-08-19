@@ -1063,6 +1063,92 @@ th.tower__state {
   margin-left: auto;
 }
 
+/* Tread heatmap */
+
+/*
+ * The car, from above.
+ *
+ * Two columns and two rows, matching where the wheels actually are, because that is the whole
+ * argument for this widget over four separate readouts: a hot inner shoulder on both left tyres is
+ * a pattern you see in a diagram and calculate from a table.
+ *
+ * The grid fills its tile rather than sitting at a fixed size — a tread map is a picture, and a
+ * picture with room reads better than one squeezed into a corner of the space it was given.
+ */
+.tyre-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tyre-heatmap__car {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 28px;
+  flex: 1;
+  /* The gap between the columns is the car: wide enough to read as two sides rather than four
+     adjacent tyres, which is what the extra column gap above is doing. */
+  align-content: center;
+}
+
+.tyre-heatmap__corner {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* A corner the user has switched off. Dimmed rather than removed, so the car keeps its shape and
+   the empty place is obviously a choice — a missing quarter would read as a missing reading. */
+.tyre-heatmap__corner--off {
+  opacity: 0.25;
+}
+
+.tyre-heatmap__corner-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.tyre-heatmap__tread {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+}
+
+/*
+ * One tread reading.
+ *
+ * The background is written from the paint loop, never from CSS — see `TyreHeatmap`. What is here
+ * is only what does not change per frame: the shape, the border that keeps a transparent cell
+ * visible when no window has been reported, and the type.
+ */
+.tyre-heatmap__cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: transparent;
+}
+
+.tyre-heatmap__value {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  /* Dark, because it sits on the heat colours rather than on the panel. Those run from a mid blue
+     to a mid red and all five are light enough to carry dark type; light type would vanish on the
+     green in the middle of the scale, which is the band a tyre spends most of its life in. */
+  color: #10121a;
+  /* Until a window arrives the cell is transparent and this sits on the panel instead, where a dark
+     ink would be invisible. The shadow is what keeps it legible in both states without the colour
+     having to be decided in two places. */
+  text-shadow: 0 0 3px var(--bg-raised);
+}
+
 /* Damage */
 
 /*

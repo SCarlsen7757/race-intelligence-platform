@@ -8,6 +8,9 @@ import { INPUT_CHANNELS, InputsTrace } from '../../features/focus/InputsTrace';
 import { LapDelta } from '../../features/focus/LapDelta';
 import { LapTrend } from '../../features/laps/LapTrend';
 import { WHEEL_CHANNELS, WheelTrace } from '../../features/focus/WheelTrace';
+import { ExtrasWheelTrace, type ExtrasWheelChannel } from '../../features/focus/ExtrasWheelTrace';
+import { firstReportedWindow } from '../../features/focus/operatingWindow';
+import { TyreHeatmap } from '../../features/focus/TyreHeatmap';
 import {
   registerDefaultWall,
   registerSimPanels,
@@ -29,8 +32,22 @@ const pressureChannel = (tyres: TyreTraces) => tyres.pressureKpa;
 const wearChannel = (tyres: TyreTraces) => tyres.wear;
 const temperatureChannel = (tyres: TyreTraces) => tyres.temperatureCelsius;
 
+const gripChannel: ExtrasWheelChannel = {
+  ring: (extras) => extras.tyreGrip,
+  read: (document, wheel) => document?.tyreGrip?.[wheel],
+};
+
 const readPressure = (frame: FocusFrameMessage, wheel: number) => frame.tyrePressureKpa[wheel];
 const readWear = (frame: FocusFrameMessage, wheel: number) => frame.tyreWear[wheel];
+
+/**
+ * The tread window, taken off the frame for the temperature chart's band.
+ *
+ * Every corner reports the same three numbers because they are the compound's, not the corner's —
+ * see `firstReportedWindow` for why only the first reported one is drawn.
+ */
+const readTyreWindow = (frame: FocusFrameMessage) =>
+  firstReportedWindow(frame.tyreTemperatureCelsius);
 // The middle of the tread, matching the line this chart draws. The shoulders and the simulator's
 // window arrive on the same frame and are what the tread heatmap and the window band will read;
 // this readout stays the one number that belongs beside a single line.
@@ -48,6 +65,9 @@ const formatTemperature = (value: number | null | undefined) => formatNumber(val
  * where it has to end, and that only reads against the whole range.
  */
 const WEAR_RANGE = [0, 1] as const;
+
+/** Grip is RaceRoom's own 0..1 fraction, and belongs on the whole of it for the same reason. */
+const GRIP_RANGE = [0, 1] as const;
 
 /**
  * The channels a four-wheel chart declares, as the catalogue wants them.
@@ -118,6 +138,30 @@ function TyreTemperaturePanel({
       read={readTemperature}
       format={formatTemperature}
       unit="°C"
+      window={readTyreWindow}
+    />
+  );
+}
+
+/**
+ * How much grip the tyre is actually giving, per corner, over the stint.
+ *
+ * The companion to wear rather than a duplicate of it: **wear is how much rubber has gone, grip is
+ * what is left of the tyre's job**, and the two come apart exactly where the interesting answers
+ * are. A tyre a third worn and still gripping is a stint worth extending; one barely worn and
+ * losing grip has been overheated, and the wear chart alone would call that a healthy tyre.
+ *
+ * A fraction, so it takes the full scale for the same reason wear does — auto-scaling a channel
+ * that has dropped four percent would draw a cliff and call it degradation.
+ */
+function TyreGripPanel(props: ChannelPanelProps) {
+  return (
+    <ExtrasWheelTrace
+      {...props}
+      channel={gripChannel}
+      unit="grip"
+      format={formatPercent}
+      range={GRIP_RANGE}
     />
   );
 }
@@ -247,6 +291,36 @@ registerSimPanels('raceroom', [
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Temperature' },
     channels: WHEEL_WIDGET_CHANNELS,
     component: TyreTemperaturePanel,
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
+  },
+  {
+    // The one tyre widget that is not a stint chart, which is why it is not in the `tyres` group:
+    // grouping it with three traces would suggest a fourth trace, and this is the car at one
+    // instant rather than a quarter of an hour of it.
+    id: 'tyre-tread',
+    title: 'Tread temperature',
+    scope: 'driver',
+    requires: ['TyreTemperature'],
+    channels: WHEEL_WIDGET_CHANNELS,
+    component: TyreHeatmap,
+    // Squarer than the traces, because it is a picture of a car rather than a window of time — and
+    // width past the point where four corners are legible buys nothing.
+    defaultSize: { w: 4, h: 5 },
+    minSize: { w: 3, h: 4 },
+  },
+  {
+    id: 'tyre-grip',
+    title: 'Tyre grip',
+    scope: 'driver',
+    // No capability of its own. Grip rides in the extras document rather than the typed wire, and
+    // there is no `SimCapabilities` flag for it — gating on `TyreWear` would be claiming a
+    // relationship that does not exist, so this appears wherever the connector writes the channel
+    // and says so itself when it does not.
+    requires: [],
+    group: { id: 'tyres', title: 'Tyres', itemTitle: 'Grip' },
+    channels: WHEEL_WIDGET_CHANNELS,
+    component: TyreGripPanel,
     defaultSize: { w: 4, h: 6 },
     minSize: { w: 3, h: 4 },
   },

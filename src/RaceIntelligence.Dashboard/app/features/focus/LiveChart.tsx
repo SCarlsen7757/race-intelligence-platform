@@ -75,6 +75,41 @@ export interface LiveChartSeries {
 }
 
 /**
+ * The simulator's own operating window, drawn behind the lines.
+ *
+ * **This is the one thing on these charts the dashboard does not have to be clever about.** A tread
+ * or brake temperature means nothing without the range it belongs in — 380 °C is cold on one car
+ * and cooking on another — and rather than inferring that from the data, the game simply says. The
+ * band turns "84 °C, climbing" into "eight degrees below the window, climbing" for somebody who has
+ * never driven the car.
+ *
+ * Read per draw rather than captured at build time, because the window arrives on a frame and the
+ * chart is built before the first one lands. Returning null draws nothing at all: a simulator that
+ * does not report a window gets no band, never a plausible-looking one invented from a nominal
+ * value, which would be a reading the chart made up.
+ */
+export interface LiveChartBand {
+  /** The window now, or null while the simulator has not reported one. Sentinels already resolved. */
+  read: () => OperatingWindowValues | null;
+  /** Which named y scale the window's numbers belong to. Omitted uses uPlot's default `y`. */
+  scale?: string;
+}
+
+/**
+ * A window's three numbers, with the simulator's sentinels already resolved to null.
+ *
+ * Separate from the wire's `OperatingWindow` because that type is what arrived and this is what
+ * survived being checked: the extras document carries raw `-1`s, and a band drawn from those would
+ * put a brake's optimum a degree below zero. Whoever builds one of these has run the numbers
+ * through `reportedNumber`.
+ */
+export interface OperatingWindowValues {
+  cold?: number | null;
+  hot?: number | null;
+  optimal?: number | null;
+}
+
+/**
  * Everything about a chart except which stream it is showing.
  *
  * Deliberately data rather than props: it is held in a ref and read only when the chart is built,
@@ -95,6 +130,69 @@ export interface LiveChartSpec {
   /** Which scale the one visible axis is drawn against. Omitted uses uPlot's default. */
   axis?: { scale?: string };
   series: readonly LiveChartSeries[];
+  /** The simulator's operating window, where it reports one. See {@link LiveChartBand}. */
+  band?: LiveChartBand;
+}
+
+/**
+ * Paints the operating window across the plot, under the lines.
+ *
+ * Returns the hook rather than being one, so the band it draws is captured once when the chart is
+ * built while the *values* are still read on every draw — the window arrives on a frame, and the
+ * chart is built before the first frame lands.
+ *
+ * Each of the three numbers is optional on its own, and they are drawn independently rather than
+ * all-or-nothing: a simulator reporting an optimum but no bounds should get its line, and one
+ * reporting bounds but no optimum should get its band. Requiring the full set would throw away two
+ * thirds of a window because the third was missing.
+ */
+function drawBand(band: LiveChartBand): (chart: uPlot) => void {
+  return (chart) => {
+    const window = band.read();
+    if (window === null) {
+      return;
+    }
+
+    const scale = band.scale ?? 'y';
+    const { ctx } = chart;
+    const { left, top, width, height } = chart.bbox;
+
+    ctx.save();
+    // Clipped to the plot area. `valToPos` happily returns a coordinate outside it for a window the
+    // current data does not reach — a tyre thirty degrees below its cold threshold puts the band
+    // off the top of the chart — and without a clip that would paint over the axis and the panel.
+    ctx.beginPath();
+    ctx.rect(left, top, width, height);
+    ctx.clip();
+
+    const { cold, hot, optimal } = window;
+
+    if (cold !== null && cold !== undefined && hot !== null && hot !== undefined) {
+      // Hot is the larger number and so the *smaller* y, canvas coordinates running downwards.
+      // Taken as min/max rather than assumed, because a simulator reporting them the other way
+      // round should still get a band rather than one of negative height, which draws nothing.
+      const first = chart.valToPos(cold, scale, true);
+      const second = chart.valToPos(hot, scale, true);
+
+      ctx.fillStyle = TRACE_COLOURS.window;
+      ctx.fillRect(left, Math.min(first, second), width, Math.abs(first - second));
+    }
+
+    if (optimal !== null && optimal !== undefined) {
+      const y = chart.valToPos(optimal, scale, true);
+
+      ctx.strokeStyle = TRACE_COLOURS.windowEdge;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      // Half a pixel off, so a one-pixel line lands on a pixel instead of straddling two and
+      // drawing as a two-pixel smear.
+      ctx.moveTo(left, Math.round(y) + 0.5);
+      ctx.lineTo(left + width, Math.round(y) + 0.5);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  };
 }
 
 interface LiveChartProps {
@@ -196,7 +294,7 @@ export function LiveChart({
       return;
     }
 
-    const { capacity, scales, axis, series } = specRef.current;
+    const { capacity, scales, axis, series, band } = specRef.current;
 
     // Resolved once, then read every frame. The rings for a driver outlive every paint, so looking
     // them up per frame would be a map probe sixty times a second for an answer that never changes.
@@ -220,6 +318,11 @@ export function LiveChart({
         ],
         legend: { show: false },
         cursor: { show: false },
+        // `drawClear` fires after uPlot has cleared the canvas and before it draws any series, which
+        // is the only hook that puts the band *behind* the lines. Drawn on top it would be a tinted
+        // sheet over the measurements, which is the wrong way round: the window is the context and
+        // the traces are the reading.
+        plugins: band === undefined ? [] : [{ hooks: { drawClear: drawBand(band) } }],
         series: [
           {},
           // spanGaps: false throughout, and not negotiable per series. The rings hold NaN for a
