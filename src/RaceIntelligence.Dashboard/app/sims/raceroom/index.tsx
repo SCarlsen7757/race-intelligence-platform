@@ -4,7 +4,7 @@ import type { TyreTraces } from '../../shared/live/store';
 import { AssistSettings } from '../../features/focus/AssistSettings';
 import { CarMetrics } from '../../features/focus/CarMetrics';
 import { PedalInputs } from '../../features/focus/PedalInputs';
-import { PEDAL_CHANNELS, PedalTrace } from '../../features/focus/PedalTrace';
+import { INPUT_CHANNELS, InputsTrace } from '../../features/focus/InputsTrace';
 import { WHEEL_CHANNELS, WheelTrace } from '../../features/focus/WheelTrace';
 import {
   registerDefaultWall,
@@ -59,7 +59,7 @@ const WHEEL_WIDGET_CHANNELS: readonly WidgetChannel[] = WHEEL_CHANNELS.map(({ id
   label,
 }));
 
-const PEDAL_WIDGET_CHANNELS: readonly WidgetChannel[] = PEDAL_CHANNELS.map(({ id, label }) => ({
+const INPUT_WIDGET_CHANNELS: readonly WidgetChannel[] = INPUT_CHANNELS.map(({ id, label }) => ({
   id,
   label,
 }));
@@ -177,13 +177,19 @@ registerSimPanels('raceroom', [
     minSize: { w: 2, h: 2 },
   },
   {
-    id: 'pedal-trace',
-    title: 'Pedal trace',
+    // Renamed from `pedal-trace`, which it outgrew: it now carries speed, gear, RPM and the two
+    // assist markers as well. The id changes with the meaning rather than being kept as a
+    // convenient lie, and a wall saved under the old one loses this tile and is told so — which is
+    // the cheaper of the two confusions before there is anybody to break.
+    id: 'inputs-trace',
+    title: 'Inputs',
     scope: 'driver',
     requires: [],
-    channels: PEDAL_WIDGET_CHANNELS,
-    component: PedalTrace,
-    defaultSize: { w: 6, h: 5 },
+    channels: INPUT_WIDGET_CHANNELS,
+    component: InputsTrace,
+    // Wider and taller than the pedal trace was. Nine channels on seven scales needs the room, and
+    // this is the tile somebody arranges a wall around.
+    defaultSize: { w: 8, h: 6 },
     minSize: { w: 4, h: 4 },
   },
   {
@@ -263,11 +269,11 @@ registerSimPanels('raceroom', [
  * The four that need no capability at all, which is not a coincidence: they are the channels every
  * simulator reports, so this arrangement is the one that cannot greet somebody with a tile
  * explaining why it is empty. What the car is doing, what the driver is doing, what the car is set
- * to, and the trace that shows the last thirty seconds of it.
+ * to, and and the trace that shows the last thirty seconds of all of it.
  *
  * The tyre and brake stacks are deliberately not here despite being the most useful things on the
  * wall. They are four-wheel stint charts, and four of them opened unasked would fill a 1440p wall
  * before the user had chosen anything — a default should be a starting point, not an opinion that
  * takes a minute to undo.
  */
-registerDefaultWall('raceroom', ['car-metrics', 'pedals', 'assists', 'pedal-trace']);
+registerDefaultWall('raceroom', ['car-metrics', 'pedals', 'assists', 'inputs-trace']);

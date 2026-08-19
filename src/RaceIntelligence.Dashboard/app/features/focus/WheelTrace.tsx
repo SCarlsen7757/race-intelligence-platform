@@ -82,7 +82,7 @@ export function WheelTrace({
     capacity: TYRE_TRACE_CAPACITY,
     scales: { y: range === undefined ? {} : { range: [...range] } },
     // Resolved inside the closures rather than here, so the on-demand ring creation in `tracesFor`
-    // stays out of a render pass. See the same note in `PedalTrace`.
+    // stays out of a render pass. See the same note in `InputsTrace`.
     series: WHEEL_CHANNELS.map((wheel, index) => ({
       id: wheel.id,
       label: wheel.label,

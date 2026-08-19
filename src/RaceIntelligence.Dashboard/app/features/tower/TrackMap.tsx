@@ -97,7 +97,7 @@ function layOut(rows: TowerRow[]): Dot[] {
  * a racing line traced from collected samples, and neither should hold up the useful eighty percent.
  *
  * Rendered from the tower snapshot, through React like the tower itself. Standings arrive at a tenth
- * of the focus rate, so the reason `PedalTrace` reaches for canvas — a thousand points redrawn sixty
+ * of the focus rate, so the reason `InputsTrace` reaches for canvas — a thousand points redrawn sixty
  * times a second — simply does not apply to twenty circles.
  */
 export function TrackMap({ rows, focusedDriverKeys, expandedDriverKeys, onSelect }: TrackMapProps) {

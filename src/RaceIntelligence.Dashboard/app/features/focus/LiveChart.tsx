@@ -37,6 +37,13 @@ export interface LiveChartSeries {
   /** An area under the line, where one channel has to be told apart from another by shape. */
   fill?: string;
   /**
+   * How the points are joined, where a straight line between them would be a lie.
+   *
+   * Gear is the case this exists for: interpolating between third and fourth draws a car passing
+   * through 3.5, and rounds off the very instant — the shift point — somebody is looking for.
+   */
+  paths?: uPlot.Series.PathBuilder;
+  /**
    * Resolves the ring this line draws, at the moment the chart is built.
    *
    * A function rather than the buffer itself because the rings for a driver are replaced when that
@@ -208,6 +215,7 @@ export function LiveChart({
             show: entry.id === undefined || !hiddenRef.current.has(entry.id),
             ...(entry.scale === undefined ? {} : { scale: entry.scale }),
             ...(entry.fill === undefined ? {} : { fill: entry.fill }),
+            ...(entry.paths === undefined ? {} : { paths: entry.paths }),
           })),
         ],
       },

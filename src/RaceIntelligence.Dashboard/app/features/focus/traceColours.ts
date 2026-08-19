@@ -18,6 +18,19 @@ export const TRACE_COLOURS = {
   clutch: '#ffc35c',
   steering: '#5aa9ff',
 
+  // CHANNELS the inputs trace adds. Speed, gear and RPM each carry their own units and so their own
+  // scale, which is exactly why they need their own hues too: four lines sharing an axis are told
+  // apart by position, and three that do not share one can only be told apart by colour.
+  speed: '#e8eaf0',
+  gear: '#b388ff',
+  rpm: '#ff9f45',
+
+  // The assist markers, drawn as a baseline near the foot of the plot rather than as a channel.
+  // Deliberately quieter than any measured line: an assist intervening is context for the pedal
+  // trace above it, not a reading competing with it.
+  abs: '#7dd3fc',
+  tractionControl: '#fbbf6e',
+
   // GROUND: cross-file tests stop axis and track retaining the colours CSS used to have.
   axis: '#8b93a7',
   grid: '#1f1f25',

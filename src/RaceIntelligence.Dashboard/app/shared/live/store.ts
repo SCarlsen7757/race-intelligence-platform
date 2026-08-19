@@ -225,6 +225,17 @@ export class LapTrace {
 export const TYRE_TRACE_CAPACITY = 900;
 export const TYRE_SAMPLE_INTERVAL_MS = 1000;
 
+/**
+ * One assist flag as a ring holds it: 1 intervening, 0 watched and quiet, NaN never reported.
+ *
+ * Nullish rather than falsy, which is the whole point. `flag ? 1 : NaN` reads the same for a
+ * simulator that said "no" and one that said nothing, and those are the two cases a trace has to
+ * keep apart — see {@link FocusTraces.absActive}.
+ */
+function assistState(flag: boolean | null | undefined): number {
+  return flag === null || flag === undefined ? Number.NaN : flag ? 1 : 0;
+}
+
 /** One per-wheel channel over time, in the wire's wheel order — FL, FR, RL, RR. */
 export type WheelTraces = readonly [TraceBuffer, TraceBuffer, TraceBuffer, TraceBuffer];
 
@@ -344,6 +355,16 @@ export interface FocusTraces {
   speed: TraceBuffer;
   gear: TraceBuffer;
   engineRpm: TraceBuffer;
+  /**
+   * Whether the car's assists were intervening, as 1, 0, or NaN for a simulator that stays quiet.
+   *
+   * Three states rather than two, and the third is what makes the trace honest. A flat line along
+   * the bottom says the assist was watched and did nothing; a gap says nobody asked. Collapsing
+   * those into a single falsy value would let a simulator that never reports ABS look exactly like
+   * a lap where it never engaged, which is the difference the chart exists to show.
+   */
+  absActive: TraceBuffer;
+  tractionControlActive: TraceBuffer;
   /** Tyre channels, on their own slower sample index. */
   tyres: TyreTraces;
   /** Extras channels, sharing the tyre rings' cadence — see {@link ExtrasTraces}. */
@@ -385,6 +406,8 @@ function newTraces(): FocusTraces {
     speed: new TraceBuffer(),
     gear: new TraceBuffer(),
     engineRpm: new TraceBuffer(),
+    absActive: new TraceBuffer(),
+    tractionControlActive: new TraceBuffer(),
     tyres: {
       pressureKpa: wheelTraces(),
       wear: wheelTraces(),
@@ -755,6 +778,8 @@ export class LiveStore {
       entry.traces.speed.push(Number.NaN);
       entry.traces.gear.push(Number.NaN);
       entry.traces.engineRpm.push(Number.NaN);
+      entry.traces.absActive.push(Number.NaN);
+      entry.traces.tractionControlActive.push(Number.NaN);
 
       for (let wheel = 0; wheel < 4; wheel++) {
         entry.traces.tyres.pressureKpa[wheel]!.push(Number.NaN);
@@ -928,6 +953,12 @@ export class LiveStore {
     // hole rather than a zero — the same discipline the pedals follow.
     entry.traces.gear.push(frame.gear ?? Number.NaN);
     entry.traces.engineRpm.push(frame.engineRpm);
+
+    // Three-valued on purpose — see the remarks on `FocusTraces.absActive`. `?? null` first, so a
+    // reported `false` becomes 0 and an absent one becomes NaN; `frame.absActive ? 1 : NaN` would
+    // quietly turn "not intervening" into "not reported" and lose the baseline.
+    entry.traces.absActive.push(assistState(frame.absActive));
+    entry.traces.tractionControlActive.push(assistState(frame.tractionControlActive));
 
     this.pushTyreSample(entry, frame);
     this.pushLapSample(entry, frame);
