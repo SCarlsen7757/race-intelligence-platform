@@ -215,14 +215,11 @@ public static class LiveStandingsContractMapper
                 sample.TyreWear.FrontRight,
                 sample.TyreWear.RearLeft,
                 sample.TyreWear.RearRight),
-            // The middle-of-tread reading stands in for the tyre as a whole. Inner/middle/outer is
-            // a setup-analysis signal read across a stint, not something a race engineer watches
-            // move in real time.
-            new LiveWheelValues(
-                sample.TyreTemperature.FrontLeft.Middle,
-                sample.TyreTemperature.FrontRight.Middle,
-                sample.TyreTemperature.RearLeft.Middle,
-                sample.TyreTemperature.RearRight.Middle),
+            new LiveTyreTemperatures(
+                ToTreadTemperatures(sample.TyreTemperature.FrontLeft),
+                ToTreadTemperatures(sample.TyreTemperature.FrontRight),
+                ToTreadTemperatures(sample.TyreTemperature.RearLeft),
+                ToTreadTemperatures(sample.TyreTemperature.RearRight)),
             sample.Clutch,
             sample.AbsSetting,
             sample.AbsActive,
@@ -230,4 +227,24 @@ public static class LiveStandingsContractMapper
             sample.TractionControlActive,
             sample.BrakeBias);
     }
+
+    /// <summary>
+    /// Carries one tyre's readings onto the wire whole.
+    /// </summary>
+    /// <remarks>
+    /// This used to select <c>Middle</c> and drop the other five, on the reasoning that
+    /// inner/middle/outer is a setup signal read across a stint rather than something watched in
+    /// real time. The reasoning was sound about the tread and wrong about the consequence: the
+    /// archive kept all six, so the analysis the argument pointed at was possible — but only after
+    /// the session, and only for the person holding the database. A race engineer watching a stint
+    /// could not see the shoulder running away, and could not see the window the simulator was
+    /// perfectly willing to name. Five floats per tyre is a cheap price for both.
+    /// </remarks>
+    private static LiveTreadTemperatures ToTreadTemperatures(TyreTemperature temperature) => new(
+        temperature.Inner,
+        temperature.Middle,
+        temperature.Outer,
+        temperature.Optimal,
+        temperature.Cold,
+        temperature.Hot);
 }

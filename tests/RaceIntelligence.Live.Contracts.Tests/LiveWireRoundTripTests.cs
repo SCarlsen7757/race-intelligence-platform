@@ -261,7 +261,10 @@ public sealed class LiveWireRoundTripTests
         // The unreported rear-right wheel stays null rather than reading as a brand-new tyre.
         frame.TyreWear.ShouldBe(new LiveWheelValues(0.1f, 0.2f, 0.3f, null));
 
-        // Tyre temperature is reduced to the middle-of-tread reading for the live path.
-        frame.TyreTemperature.ShouldBe(new LiveWheelValues(81f, 84f, 87f, 90f));
+        // All three tread readings and the simulator's window survive the live path. The front left
+        // is enough to pin it: if the record were being flattened to one number again, the shoulders
+        // and the band would be the members that vanished.
+        frame.TyreTemperature.FrontLeft.ShouldBe(new LiveTreadTemperatures(80f, 81f, 82f, 90f, 60f, 110f));
+        frame.TyreTemperature.RearRight.ShouldBe(new LiveTreadTemperatures(89f, 90f, 91f, 90f, 60f, 110f));
     }
 }

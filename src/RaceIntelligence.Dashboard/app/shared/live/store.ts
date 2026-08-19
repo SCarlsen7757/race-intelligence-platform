@@ -941,8 +941,13 @@ export class LiveStore {
     for (let wheel = 0; wheel < 4; wheel++) {
       entry.traces.tyres.pressureKpa[wheel]!.push(frame.tyrePressureKpa[wheel] ?? Number.NaN);
       entry.traces.tyres.wear[wheel]!.push(frame.tyreWear[wheel] ?? Number.NaN);
+      // The middle of the tread is what the stint trace plots — one line per tyre, which is the
+      // question "is this corner running away from its opposite number". The shoulders and the
+      // window are on the frame too and are read straight off it by the widgets that want them: a
+      // spread is drawn at one instant across the car, and a band does not move, so neither is
+      // something a ring of samples over fifteen minutes would answer better.
       entry.traces.tyres.temperatureCelsius[wheel]!.push(
-        frame.tyreTemperatureCelsius[wheel] ?? Number.NaN,
+        frame.tyreTemperatureCelsius[wheel]?.middle ?? Number.NaN,
       );
     }
   }

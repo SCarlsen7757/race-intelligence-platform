@@ -204,7 +204,7 @@ public sealed record LivePitWindowDto(
 /// <param name="FuelLeft">Liters.</param>
 /// <param name="TyrePressure">Kilopascals, FL/FR/RL/RR. Members are <see langword="null"/> when unreported.</param>
 /// <param name="TyreWear">0 (new) to 1 (fully worn), FL/FR/RL/RR.</param>
-/// <param name="TyreTemperature">Core tyre temperature in celsius, FL/FR/RL/RR.</param>
+/// <param name="TyreTemperature">Tread temperatures and the simulator's operating window, FL/FR/RL/RR.</param>
 /// <param name="Clutch">
 /// 0 (engaged) to 1 (fully disengaged), or <see langword="null"/> when unreported — the normal case
 /// for a car with an automatic clutch, where a dashboard must draw nothing rather than a bar at
@@ -230,7 +230,7 @@ public sealed record LiveSelfFrame(
     [property: Key(14)] float FuelLeft,
     [property: Key(15)] LiveWheelValues TyrePressure,
     [property: Key(16)] LiveWheelValues TyreWear,
-    [property: Key(17)] LiveWheelValues TyreTemperature,
+    [property: Key(17)] LiveTyreTemperatures TyreTemperature,
     [property: Key(18)] float? Clutch,
     [property: Key(19)] int? AbsSetting = null,
     [property: Key(20)] bool? AbsActive = null,
@@ -251,6 +251,54 @@ public sealed record LiveWheelValues(
     [property: Key(1)] float? FrontRight,
     [property: Key(2)] float? RearLeft,
     [property: Key(3)] float? RearRight);
+
+/// <summary>
+/// One tyre's tread temperatures and the operating window the simulator says they belong in.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A whole record per tyre rather than a <see cref="LiveWheelValues"/> of one reading, because the
+/// two questions a tyre temperature answers are both about differences and neither survives being
+/// reduced to a single number. <b>Inner against outer is the camber and pressure story</b> — a front
+/// left twenty degrees hotter on its inner shoulder is a setup that is wrong in a nameable way,
+/// where the middle reading alone says only "warm". And a reading without its window is a number an
+/// engineer has to already know the answer for: 84 °C is cold for one compound and overheating for
+/// another, and the simulator is willing to say which.
+/// </para>
+/// <para>
+/// The window travels on every frame rather than once per session because it is a property of the
+/// compound currently fitted, and a pit stop can change it mid-race. It costs five floats on a
+/// message that already carries fifteen.
+/// </para>
+/// <para>
+/// Every member is nullable for the reason
+/// <see cref="Core.Telemetry.TyreTemperature"/> gives: a simulator may not report a reading, and its
+/// "not available" sentinel must have been translated to <see langword="null"/> by the connector
+/// before it reaches here. A window of nulls means the simulator declined to name a band, and a
+/// consumer must draw no band rather than one built from a nominal value.
+/// </para>
+/// </remarks>
+[MessagePackObject]
+public sealed record LiveTreadTemperatures(
+    [property: Key(0)] float? Inner,
+    [property: Key(1)] float? Middle,
+    [property: Key(2)] float? Outer,
+    [property: Key(3)] float? Optimal,
+    [property: Key(4)] float? Cold,
+    [property: Key(5)] float? Hot);
+
+/// <summary>Per-tyre tread temperatures in the platform's FL, FR, RL, RR order.</summary>
+/// <remarks>
+/// The same grouping <see cref="LiveWheelValues"/> uses, for the same reason — four named members
+/// rather than four flattened parameters on the frame — but carrying a record per corner instead of
+/// a float.
+/// </remarks>
+[MessagePackObject]
+public sealed record LiveTyreTemperatures(
+    [property: Key(0)] LiveTreadTemperatures FrontLeft,
+    [property: Key(1)] LiveTreadTemperatures FrontRight,
+    [property: Key(2)] LiveTreadTemperatures RearLeft,
+    [property: Key(3)] LiveTreadTemperatures RearRight);
 
 /// <summary>
 /// The local car's simulator-specific channels, at their own slow rate.

@@ -5,6 +5,7 @@ import type {
   LapHistoryMessage,
   TowerRow,
   TowerSnapshotMessage,
+  TreadTemperatures,
 } from './contracts';
 import {
   LAP_BINS,
@@ -28,6 +29,16 @@ function following(driverKeys: string[], now?: () => number): LiveStore {
   return store;
 }
 
+/**
+ * One tyre's temperatures, with a plausible window around the given middle-of-tread reading.
+ *
+ * Shoulders either side of the middle rather than three identical numbers, so a test that started
+ * reading the wrong one would fail rather than pass by coincidence.
+ */
+function tread(middle: number): TreadTemperatures {
+  return { inner: middle + 2, middle, outer: middle - 2, optimal: 90, cold: 70, hot: 110 };
+}
+
 function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessage {
   return {
     type: 'focusFrame',
@@ -47,7 +58,7 @@ function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessa
     fuelLeftLiters: 40,
     tyrePressureKpa: [180, 180, 175, 175],
     tyreWear: [0.1, 0.1, 0.1, 0.1],
-    tyreTemperatureCelsius: [85, 85, 82, 82],
+    tyreTemperatureCelsius: [tread(85), tread(85), tread(82), tread(82)],
     ...overrides,
   };
 }
@@ -497,14 +508,60 @@ describe('LiveStore', () => {
     store.apply(
       focusFrame({
         tyrePressureKpa: [180, 181, 175, 176],
-        tyreTemperatureCelsius: [85, 86, 82, 83],
+        tyreTemperatureCelsius: [tread(85), tread(86), tread(82), tread(83)],
       }),
     );
 
     const { pressureKpa, temperatureCelsius } = store.tracesFor('id:2').tyres;
 
     expect(pressureKpa.map((buffer) => buffer.last())).toEqual([180, 181, 175, 176]);
+
+    // The stint trace plots the middle of the tread — one line per tyre. `tread()` puts the
+    // shoulders either side of it, so reading the wrong one would show here.
     expect(temperatureCelsius.map((buffer) => buffer.last())).toEqual([85, 86, 82, 83]);
+  });
+
+  /**
+   * The live path used to carry the middle reading alone, which made two whole charts unbuildable:
+   * the shoulder spread that shows a camber problem, and the band the simulator is willing to name.
+   * Both arrive on the frame now, and neither belongs in a ring — a spread is read across the car at
+   * one instant, and a window does not move — so the frame is where a widget reaches for them.
+   */
+  it('keeps the tread shoulders and the operating window on the frame', () => {
+    const store = following(['id:2']);
+
+    store.apply(
+      focusFrame({
+        tyreTemperatureCelsius: [tread(85), tread(86), tread(82), tread(83)],
+      }),
+    );
+
+    const frontLeft = store.frameFor('id:2')!.tyreTemperatureCelsius[0]!;
+
+    expect(frontLeft.inner).toBe(87);
+    expect(frontLeft.outer).toBe(83);
+    expect(frontLeft.optimal).toBe(90);
+    expect(frontLeft.cold).toBe(70);
+    expect(frontLeft.hot).toBe(110);
+  });
+
+  /**
+   * A simulator that names no band must leave the dashboard drawing none. An absent bound read as
+   * zero would put every tyre on the car permanently over its hot threshold.
+   */
+  it('leaves an unreported window absent rather than zero', () => {
+    const store = following(['id:2']);
+
+    store.apply(focusFrame({ tyreTemperatureCelsius: [{ middle: 85 }, {}, {}, {}] }));
+
+    const frontLeft = store.frameFor('id:2')!.tyreTemperatureCelsius[0]!;
+
+    expect(frontLeft.optimal).toBeUndefined();
+    expect(frontLeft.hot).toBeUndefined();
+    expect(store.tracesFor('id:2').tyres.temperatureCelsius[0].last()).toBe(85);
+
+    // And a tyre reporting nothing at all leaves a hole, not a reading at zero.
+    expect(store.tracesFor('id:2').tyres.temperatureCelsius[1].last()).toBeNaN();
   });
 
   /**

@@ -594,7 +594,7 @@ public sealed class LiveRoom
         frame.FuelLeft,
         ToWheelArray(frame.TyrePressure),
         ToWheelArray(frame.TyreWear),
-        ToWheelArray(frame.TyreTemperature),
+        ToTreadArray(frame.TyreTemperature),
         frame.AbsSetting,
         frame.AbsActive,
         frame.TractionControlSetting,
@@ -611,6 +611,30 @@ public sealed class LiveRoom
     /// </remarks>
     private static IReadOnlyList<float?> ToWheelArray(LiveWheelValues values) =>
         [values.FrontLeft, values.FrontRight, values.RearLeft, values.RearRight];
+
+    /// <summary>
+    /// Flattens per-tyre tread temperatures into the same FL, FR, RL, RR order.
+    /// </summary>
+    /// <remarks>
+    /// The publish and view records are separate types carrying identical members, so this is a
+    /// rename rather than a translation — the same arrangement every other field on this frame has,
+    /// and the reason the two contracts can move independently at all.
+    /// </remarks>
+    private static IReadOnlyList<TreadTemperatures> ToTreadArray(LiveTyreTemperatures values) =>
+        [
+            ToTread(values.FrontLeft),
+            ToTread(values.FrontRight),
+            ToTread(values.RearLeft),
+            ToTread(values.RearRight),
+        ];
+
+    private static TreadTemperatures ToTread(LiveTreadTemperatures tread) => new(
+        tread.Inner,
+        tread.Middle,
+        tread.Outer,
+        tread.Optimal,
+        tread.Cold,
+        tread.Hot);
 }
 
 /// <summary>

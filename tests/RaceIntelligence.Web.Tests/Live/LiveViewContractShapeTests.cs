@@ -217,7 +217,13 @@ public sealed class LiveViewContractShapeTests
         var message = new FocusFrameMessage(
             "room-1", "id:1", DateTimeOffset.UnixEpoch, 1.0, 2, 1, 0.25f, 55f,
             1f, 0f, 0.5f, 0.1f, 4, 7200f, 40f, [180f, 181f, 175f, 176f], [0.1f, 0.1f, 0.1f, 0.1f],
-            [85f, 86f, 82f, 83f], 3, true, 4, false, 0.43f);
+            [
+                new TreadTemperatures(84f, 85f, 86f, 90f, 70f, 110f),
+                new TreadTemperatures(85f, 86f, 87f, 90f, 70f, 110f),
+                new TreadTemperatures(81f, 82f, 83f, 90f, 70f, 110f),
+                new TreadTemperatures(82f, 83f, 84f, 90f, 70f, null),
+            ],
+            3, true, 4, false, 0.43f);
 
         var json = Serialize(message);
         json.GetProperty("type").GetString().ShouldBe("focusFrame");
@@ -234,6 +240,21 @@ public sealed class LiveViewContractShapeTests
 
         // FL, FR, RL, RR — the platform's wheel order, which the dashboard indexes positionally.
         json.GetProperty("tyrePressureKpa").GetArrayLength().ShouldBe(4);
+
+        // A tyre temperature is an object per corner, not a number: three tread readings plus the
+        // window the simulator says they belong in. The live path used to send only the middle
+        // reading, which left the dashboard unable to draw either the shoulder spread or the band.
+        var frontLeft = json.GetProperty("tyreTemperatureCelsius")[0];
+        PropertyNames(frontLeft).ShouldBe(
+            ["inner", "middle", "outer", "optimal", "cold", "hot"],
+            ignoreOrder: true);
+        frontLeft.GetProperty("inner").GetSingle().ShouldBe(84f);
+        frontLeft.GetProperty("optimal").GetSingle().ShouldBe(90f);
+
+        // And a window bound the simulator did not report is absent rather than zero — the same
+        // rule as everywhere else here. A hot threshold of 0 °C would put every tyre on the car
+        // permanently over its limit.
+        PropertyNames(json.GetProperty("tyreTemperatureCelsius")[3]).ShouldNotContain("hot");
     }
 
     /// <summary>

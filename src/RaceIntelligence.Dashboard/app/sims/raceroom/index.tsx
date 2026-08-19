@@ -29,8 +29,11 @@ const temperatureChannel = (tyres: TyreTraces) => tyres.temperatureCelsius;
 
 const readPressure = (frame: FocusFrameMessage, wheel: number) => frame.tyrePressureKpa[wheel];
 const readWear = (frame: FocusFrameMessage, wheel: number) => frame.tyreWear[wheel];
+// The middle of the tread, matching the line this chart draws. The shoulders and the simulator's
+// window arrive on the same frame and are what the tread heatmap and the window band will read;
+// this readout stays the one number that belongs beside a single line.
 const readTemperature = (frame: FocusFrameMessage, wheel: number) =>
-  frame.tyreTemperatureCelsius[wheel];
+  frame.tyreTemperatureCelsius[wheel]?.middle;
 
 const formatPressure = (value: number | null | undefined) => formatNumber(value, 1);
 const formatTemperature = (value: number | null | undefined) => formatNumber(value, 0);

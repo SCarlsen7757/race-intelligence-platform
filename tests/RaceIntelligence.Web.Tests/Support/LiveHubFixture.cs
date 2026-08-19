@@ -234,7 +234,11 @@ public static class LiveDtoFactory
             FuelLeft: 40f,
             new LiveWheelValues(180f, 181f, 175f, 176f),
             new LiveWheelValues(0.1f, 0.11f, 0.09f, 0.12f),
-            new LiveWheelValues(85f, 86f, 82f, 83f),
+            new LiveTyreTemperatures(
+                new LiveTreadTemperatures(84f, 85f, 86f, 90f, 70f, 110f),
+                new LiveTreadTemperatures(85f, 86f, 87f, 90f, 70f, 110f),
+                new LiveTreadTemperatures(81f, 82f, 83f, 90f, 70f, 110f),
+                new LiveTreadTemperatures(82f, 83f, 84f, 90f, 70f, 110f)),
             clutch,
             absSetting,
             absActive,

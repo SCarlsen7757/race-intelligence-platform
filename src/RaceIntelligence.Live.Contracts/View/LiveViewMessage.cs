@@ -335,7 +335,7 @@ public sealed record TowerRow(
 /// <param name="FuelLeftLiters">Fuel remaining.</param>
 /// <param name="TyrePressureKpa">Kilopascals, FL/FR/RL/RR.</param>
 /// <param name="TyreWear">0 (new) to 1 (fully worn), FL/FR/RL/RR.</param>
-/// <param name="TyreTemperatureCelsius">Core tread temperature, FL/FR/RL/RR.</param>
+/// <param name="TyreTemperatureCelsius">Tread temperatures and the simulator's window, FL/FR/RL/RR.</param>
 public sealed record FocusFrameMessage(
     string RoomId,
     string DriverKey,
@@ -354,12 +354,47 @@ public sealed record FocusFrameMessage(
     float FuelLeftLiters,
     IReadOnlyList<float?> TyrePressureKpa,
     IReadOnlyList<float?> TyreWear,
-    IReadOnlyList<float?> TyreTemperatureCelsius,
+    IReadOnlyList<TreadTemperatures> TyreTemperatureCelsius,
     int? AbsSetting = null,
     bool? AbsActive = null,
     int? TractionControlSetting = null,
     bool? TractionControlActive = null,
     float? BrakeBias = null) : LiveViewMessage;
+
+/// <summary>
+/// One tyre's tread temperatures and the operating window the simulator says they belong in, °C.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The viewer-facing mirror of <see cref="Publish.LiveTreadTemperatures"/>; see that type for why a
+/// tyre's temperature is three readings and a band rather than one number.
+/// </para>
+/// <para>
+/// <b>A null is not a reading and must never be drawn as one.</b> An unreported shoulder leaves a
+/// hole in the chart; an unreported window means the simulator named no band, and the dashboard
+/// draws none rather than inventing one from a nominal value. The same rule the rest of this
+/// contract states for throttle, pressure and wear.
+/// </para>
+/// <para>
+/// <paramref name="Optimal"/>, <paramref name="Cold"/> and <paramref name="Hot"/> are the three
+/// members a brake temperature carries too, under the same names in the extras document. That is
+/// deliberate: an operating window is one idea, and a reader who has learned it here should not have
+/// to learn it again for brakes.
+/// </para>
+/// </remarks>
+/// <param name="Inner">Inner tread temperature. Null when not reported.</param>
+/// <param name="Middle">Middle tread temperature. Null when not reported.</param>
+/// <param name="Outer">Outer tread temperature. Null when not reported.</param>
+/// <param name="Optimal">Where the simulator says this compound wants to be. Null when not reported.</param>
+/// <param name="Cold">Below this, the simulator considers the tyre cold. Null when not reported.</param>
+/// <param name="Hot">Above this, the simulator considers the tyre overheating. Null when not reported.</param>
+public sealed record TreadTemperatures(
+    float? Inner,
+    float? Middle,
+    float? Outer,
+    float? Optimal,
+    float? Cold,
+    float? Hot);
 
 /// <summary>
 /// The simulator-specific channels for the focused driver, at roughly 1 Hz.

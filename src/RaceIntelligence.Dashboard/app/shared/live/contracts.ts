@@ -170,6 +170,42 @@ export interface SessionStateMessage {
   pitWindow?: PitWindowState | null;
 }
 
+/**
+ * The band a simulator says a temperature belongs in.
+ *
+ * Its own type because two different readings carry it — tyre tread and brake discs — and an
+ * operating window is one idea. A reader who has learned it in one place should not have to learn
+ * it again in the other, and a chart that draws the band can take either.
+ *
+ * **Every bound is optional and absent means the simulator named no band.** Draw nothing in that
+ * case. A window invented from a nominal value is worse than no window: it tells an engineer their
+ * tyres are cold with the same confidence the simulator would have used to tell them the truth.
+ */
+export interface OperatingWindow {
+  /** Where the simulator says this compound or pad wants to be. */
+  optimal?: number | null;
+  /** Below this, the simulator considers it cold. */
+  cold?: number | null;
+  /** Above this, the simulator considers it overheating. */
+  hot?: number | null;
+}
+
+/**
+ * One tyre's temperatures across the tread, plus the window they belong in. Celsius.
+ *
+ * Three readings rather than one because the spread across the tread is the question a temperature
+ * is usually being asked: **inner against outer is the camber and pressure story**, and a front left
+ * twenty degrees hotter on its inner shoulder is a setup that is wrong in a nameable way. The middle
+ * reading alone — which is all this wire used to carry — says only "warm".
+ *
+ * A null shoulder is a hole in the chart, never a zero.
+ */
+export interface TreadTemperatures extends OperatingWindow {
+  inner?: number | null;
+  middle?: number | null;
+  outer?: number | null;
+}
+
 /** The rich channels, for a driver whose own machine is publishing. Per-wheel arrays are FL, FR, RL, RR. */
 export interface FocusFrameMessage {
   type: 'focusFrame';
@@ -199,7 +235,7 @@ export interface FocusFrameMessage {
   fuelLeftLiters: number;
   tyrePressureKpa: (number | null)[];
   tyreWear: (number | null)[];
-  tyreTemperatureCelsius: (number | null)[];
+  tyreTemperatureCelsius: TreadTemperatures[];
 }
 
 /** One completed lap, as the hub's accumulator recorded it. */
