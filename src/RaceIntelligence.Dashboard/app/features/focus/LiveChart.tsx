@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import type { LiveStore, TraceBuffer } from '../../shared/live/store';
+import type { LiveStore } from '../../shared/live/store';
 import { TRACE_COLOURS } from './traceColours';
 
 /**
@@ -14,7 +14,28 @@ function NOOP(): void {
   // Stands in until a chart exists to repaint. See `repaintRef`.
 }
 
-/** One line on the chart, and the ring it is drawn from. */
+/**
+ * Where one line's numbers come from.
+ *
+ * Structural rather than `TraceBuffer` itself, and deliberately the smallest surface that satisfies
+ * the paint loop: a version to compare, a length to size the x axis, and a way to read the values
+ * into a reused array. `TraceBuffer` already answers all three, so every existing chart satisfies
+ * this without changing.
+ *
+ * The reason to name it at all is the delta chart, whose numbers are not a ring: they are a lap
+ * measured against another lap, recomputed bin by bin rather than pushed sample by sample. That is a
+ * different shape of data behind an identical chart, and the alternative — a second copy of the
+ * uPlot lifecycle for it — is exactly what this component exists to prevent.
+ */
+export interface LiveChartSource {
+  /** Changes when the numbers change. The paint loop skips a repaint while it has not. */
+  readonly version: number;
+  readonly length: number;
+  /** Reads the values out, into the caller's array where it is the right size. */
+  toNullableArray(into?: (number | null)[]): (number | null)[];
+}
+
+/** One line on the chart, and the source it is drawn from. */
 export interface LiveChartSeries {
   /**
    * The channel id this line draws, where the caller lets the user turn channels off.
@@ -50,7 +71,7 @@ export interface LiveChartSeries {
    * driver is unfollowed and followed again, and a spec holding the old object would go quietly
    * flat. Called once per chart build, never per frame — see the remarks on the component.
    */
-  buffer: () => TraceBuffer;
+  buffer: () => LiveChartSource;
 }
 
 /**

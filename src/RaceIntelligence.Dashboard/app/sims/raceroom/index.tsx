@@ -5,6 +5,8 @@ import { AssistSettings } from '../../features/focus/AssistSettings';
 import { CarMetrics } from '../../features/focus/CarMetrics';
 import { PedalInputs } from '../../features/focus/PedalInputs';
 import { INPUT_CHANNELS, InputsTrace } from '../../features/focus/InputsTrace';
+import { LapDelta } from '../../features/focus/LapDelta';
+import { LapTrend } from '../../features/laps/LapTrend';
 import { WHEEL_CHANNELS, WheelTrace } from '../../features/focus/WheelTrace';
 import {
   registerDefaultWall,
@@ -191,6 +193,29 @@ registerSimPanels('raceroom', [
     // this is the tile somebody arranges a wall around.
     defaultSize: { w: 8, h: 6 },
     minSize: { w: 4, h: 4 },
+  },
+  {
+    // No capability, for the same reason the inputs trace declares none: lap timing and normalised
+    // lap progress are core channels, and a delta gated on a flag would be a flag every future
+    // simulator had to remember to set for a chart that needs nothing special.
+    id: 'lap-delta',
+    title: 'Lap delta',
+    scope: 'driver',
+    requires: [],
+    component: LapDelta,
+    // Wide and short. A delta is read left to right across a lap, and height beyond a certain point
+    // adds nothing but amplitude to a line whose shape is the message.
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    id: 'lap-trend',
+    title: 'Lap times',
+    scope: 'driver',
+    requires: [],
+    component: LapTrend,
+    defaultSize: { w: 4, h: 4 },
+    minSize: { w: 3, h: 3 },
   },
   {
     id: 'tyre-pressure',

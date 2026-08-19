@@ -77,6 +77,8 @@ describe('sim panel registry', () => {
       'pedals',
       'assists',
       'inputs-trace',
+      'lap-delta',
+      'lap-trend',
       'tyre-pressure',
       'tyre-wear',
       'tyre-temperature',
@@ -94,7 +96,15 @@ describe('sim panel registry', () => {
 
     const ids = panelsFor('raceroom', ['TyreWear']).map((p) => p.id);
 
-    expect(ids).toEqual(['car-metrics', 'pedals', 'assists', 'inputs-trace', 'tyre-wear']);
+    expect(ids).toEqual([
+      'car-metrics',
+      'pedals',
+      'assists',
+      'inputs-trace',
+      'lap-delta',
+      'lap-trend',
+      'tyre-wear',
+    ]);
   });
 
   /**
@@ -112,6 +122,8 @@ describe('sim panel registry', () => {
       'pedals',
       'assists',
       'inputs-trace',
+      'lap-delta',
+      'lap-trend',
     ]);
   });
 

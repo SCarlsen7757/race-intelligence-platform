@@ -1311,6 +1311,74 @@ th.tower__state {
   color: var(--text-muted);
 }
 
+/*
+ * A line of context under a chart — what it is measured against, which way is which.
+ *
+ * Quiet on purpose. A delta chart is unreadable without knowing its sign convention and which lap
+ * it is comparing to, and equally unreadable if that sentence competes with the line itself.
+ */
+.chart-caption {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/*
+ * The lap-time trend: a spread band, a mean through it, and a dot per lap.
+ *
+ * `preserveAspectRatio: none` on the SVG, so the plot stretches to whatever cell the widget was
+ * dragged to rather than letterboxing inside it. That distorts the shape, which for this chart is
+ * fine — nothing is being read off an angle here, only whether the band narrows and where the dots
+ * sit relative to it.
+ */
+.lap-trend {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.lap-trend__plot {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+}
+
+.lap-trend__band {
+  opacity: 0.16;
+}
+
+.lap-trend__mean {
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.lap-trend__lap {
+  fill: var(--text);
+  vector-effect: non-scaling-stroke;
+}
+
+/* Hollow rather than merely recoloured, for the reason a deleted lap is struck through in the
+   tower: the state matters too much to be carried by hue alone. */
+.lap-trend__lap--invalid {
+  fill: none;
+  stroke: var(--invalid);
+  stroke-width: 1.5;
+}
+
+.lap-trend__scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.lap-trend__scale-label {
+  text-align: center;
+}
+
 /* The grid's own placeholder, shown under a tile being dragged. Its default is a translucent red
    that reads as an error here; the accent says "this is where it lands". */
 .react-grid-item.react-grid-placeholder {
