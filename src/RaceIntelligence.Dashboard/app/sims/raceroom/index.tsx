@@ -9,6 +9,7 @@ import { LapDelta } from '../../features/focus/LapDelta';
 import { FuelPanel } from '../../features/focus/FuelPanel';
 import { EventTimeline } from '../../features/focus/EventTimeline';
 import { SystemsTrend, SYSTEM_WIDGET_CHANNELS } from '../../features/focus/SystemsTrend';
+import { RaceTimeline } from '../../features/wall/RaceTimeline';
 import { LapTrend } from '../../features/laps/LapTrend';
 import { WHEEL_CHANNELS, WheelTrace } from '../../features/focus/WheelTrace';
 import { ExtrasWheelTrace, type ExtrasWheelChannel } from '../../features/focus/ExtrasWheelTrace';
@@ -303,6 +304,19 @@ registerSimPanels('raceroom', [
     // Narrow and tall. It is a list, and the useful dimension is how many rows fit.
     defaultSize: { w: 3, h: 6 },
     minSize: { w: 2, h: 3 },
+  },
+  {
+    // Takes a driver key despite describing the room, because it has to know which line is yours —
+    // see the remarks on the component, and #70 for the room-scoped arm it did not fit.
+    id: 'race-timeline',
+    title: 'Race',
+    scope: 'driver',
+    requires: [],
+    component: RaceTimeline,
+    // The widest default on the wall, and the only widget that earns it: this is the one tile that
+    // works for every car in the session rather than for the one with a collector.
+    defaultSize: { w: 8, h: 7 },
+    minSize: { w: 4, h: 5 },
   },
   {
     id: 'tyre-pressure',

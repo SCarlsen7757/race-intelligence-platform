@@ -82,6 +82,7 @@ describe('sim panel registry', () => {
       'fuel',
       'systems',
       'events',
+      'race-timeline',
       'tyre-pressure',
       'tyre-wear',
       'tyre-temperature',
@@ -112,6 +113,7 @@ describe('sim panel registry', () => {
       'fuel',
       'systems',
       'events',
+      'race-timeline',
       'tyre-wear',
       'tyre-grip',
       'brake-pressure',
@@ -144,6 +146,7 @@ describe('sim panel registry', () => {
       'fuel',
       'systems',
       'events',
+      'race-timeline',
       'tyre-grip',
       'brake-pressure',
     ]);

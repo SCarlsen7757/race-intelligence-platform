@@ -1536,3 +1536,75 @@ th.tower__state {
   opacity: 0.18;
   border-radius: 6px;
 }
+
+/*
+ * The race timeline: the plot above, and the field below as a row of switches.
+ *
+ * The car list is the widget's own control rather than the wall's channel toggles, because the
+ * things being switched are drivers and a driver is not a channel — a channel id has to survive
+ * being saved to a wall and reopened next session, and `id:4242` names a different car every time.
+ * Which cars are shown is therefore live state and deliberately not persisted.
+ */
+.race-timeline {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 8px;
+}
+
+.race-timeline__plot {
+  width: 100%;
+}
+
+.race-timeline__cars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.race-timeline__car {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 6px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* On is carried by border and text weight as well as colour, for the reason every other state in
+   this stylesheet is: hue alone is not a signal everybody receives. */
+.race-timeline__car--on {
+  border-color: var(--edge);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.race-timeline__pos {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.race-timeline__name {
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.race-timeline__pit {
+  color: var(--flag-pit);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.race-timeline__stops {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
