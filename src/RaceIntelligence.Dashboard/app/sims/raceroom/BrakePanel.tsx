@@ -49,6 +49,22 @@ export function BrakeTemperaturePanel(props: ChannelPanelProps) {
  * No fixed range. Force has no natural ceiling to scale against — it depends on the car and on how
  * hard this driver brakes — so the axis fits what arrived, and the shape of the stint is the
  * message rather than the absolute height.
+ *
+ * ### The pedal is deliberately not on this chart
+ *
+ * Putting brake input beside corner pressure would show what the driver asked for against what
+ * arrived, which is where bias and locking live — and it cannot be done honestly from this wire.
+ * The pedal is a focus channel at sixty samples a second; pressure rides in the extras document at
+ * roughly one. A brake application lasts about a second, so at the extras cadence a whole braking
+ * event is one or two samples, and the two series share no index at all — the store keeps them in
+ * separate rings for exactly that reason.
+ *
+ * Drawn together anyway, it would look like a comparison while sampling far too coarsely to be one:
+ * a chart that appears to show locking and cannot is worse than no chart. It wants brake pressure
+ * on the focus frame, which is a wire change rather than a widget.
+ *
+ * The narrower question it was reaching for is already answered elsewhere — `brakeBias` is on the
+ * focus frame and reads out in the assists widget, straight from the simulator rather than inferred.
  */
 export function BrakePressurePanel(props: ChannelPanelProps) {
   return <ExtrasWheelTrace {...props} channel={PRESSURE} unit="kN" format={formatPressure} />;

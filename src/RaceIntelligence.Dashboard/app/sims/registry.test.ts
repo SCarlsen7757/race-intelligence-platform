@@ -85,6 +85,7 @@ describe('sim panel registry', () => {
       'tyre-tread',
       'tyre-grip',
       'brake-temperature',
+      'brake-pressure',
       'damage',
     ]);
   });
@@ -107,6 +108,7 @@ describe('sim panel registry', () => {
       'lap-trend',
       'tyre-wear',
       'tyre-grip',
+      'brake-pressure',
     ]);
   });
 
@@ -134,6 +136,7 @@ describe('sim panel registry', () => {
       'lap-delta',
       'lap-trend',
       'tyre-grip',
+      'brake-pressure',
     ]);
   });
 

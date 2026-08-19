@@ -19,7 +19,7 @@ import {
 } from '../registry';
 import { DamagePanel } from './DamagePanel';
 import { IncidentsPanel, incidentsPanelIsEmpty } from './IncidentsPanel';
-import { BrakeTemperaturePanel } from './BrakePanel';
+import { BrakePressurePanel, BrakeTemperaturePanel } from './BrakePanel';
 
 /*
  * Every function below is declared at module scope rather than inline in the JSX, and that is load
@@ -338,6 +338,21 @@ registerSimPanels('raceroom', [
     group: { id: 'brakes', title: 'Brakes', itemTitle: 'Temperature' },
     channels: WHEEL_WIDGET_CHANNELS,
     component: BrakeTemperaturePanel,
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
+  },
+  {
+    // No capability, for the same reason tyre grip has none: brake pressure rides in the extras
+    // document rather than the typed wire and has no `SimCapabilities` flag. Borrowing
+    // `BrakeTemperature` would gate one channel on another simulator's willingness to report a
+    // different one.
+    id: 'brake-pressure',
+    title: 'Brake pressure',
+    scope: 'driver',
+    requires: [],
+    group: { id: 'brakes', title: 'Brakes', itemTitle: 'Pressure' },
+    channels: WHEEL_WIDGET_CHANNELS,
+    component: BrakePressurePanel,
     defaultSize: { w: 4, h: 6 },
     minSize: { w: 3, h: 4 },
   },
