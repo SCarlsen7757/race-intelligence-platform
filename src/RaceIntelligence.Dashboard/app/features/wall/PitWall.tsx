@@ -2,11 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Responsive, useContainerWidth, type Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import { useAllExtras, useLive } from '../../shared/live/useLive';
-import {
-  FIRST_SLOT,
-  resolveBinding,
-  type WallDriverBinding,
-} from '../../shared/view/driverBinding';
 import { downloadViewFile, readViewFile } from '../../shared/view/viewFile';
 import {
   loadWallView,
@@ -14,17 +9,27 @@ import {
   WALL_VIEW_VERSION,
   type WallWidget,
 } from '../../shared/view/wallView';
-import { findPanel, isDriverWidget, panelsFor, WIDGET_GRID_COLUMNS } from '../../sims/registry';
+import {
+  defaultWallFor,
+  findPanel,
+  isDriverWidget,
+  panelsFor,
+  WIDGET_GRID_COLUMNS,
+} from '../../sims/registry';
 import '../../sims/raceroom';
 
 interface PitWallProps {
   gameKey: string;
   capabilities: readonly string[];
-  /** The cars in the comparison, in slot order. A widget's `{ slot }` binding indexes this. */
-  comparedDriverKeys: readonly string[];
-  /** The car a `'selected'` widget is about, or null when no car is being watched. */
-  selectedDriverKey: string | null;
-  /** How a driver is named in a widget's header. */
+  /**
+   * The car every widget on this wall is about.
+   *
+   * One car, and required rather than nullable: the wall is only mounted once something is
+   * selected, because a wall with nobody to draw is not a wall with empty tiles — it is a page that
+   * should be showing the timing tower instead. See `SessionView` for the two states.
+   */
+  driverKey: string;
+  /** How the car is named in the wall's heading. */
   displayName: (driverKey: string) => string;
 }
 
@@ -100,43 +105,50 @@ interface ImportNotice {
 /**
  * The pit wall: the widgets the user has placed, where they placed them.
  *
- * **Nothing here renders per focus frame.** The widgets are the same components the compare column
- * mounted, and they still paint themselves from `requestAnimationFrame` against the store's ring
- * buffers. This component re-renders when the layout changes — a drag, a resize, an add, a remove —
- * and at no other time, which is why dragging a tile does not compete with sixty frames a second of
- * telemetry.
+ * **Nothing here renders per focus frame.** Every widget paints itself from a
+ * `requestAnimationFrame` loop against the store's ring buffers. This component re-renders when the
+ * layout changes — a drag, a resize, an add, a remove — and at no other time, which is why dragging
+ * a tile does not compete with sixty frames a second of telemetry.
  *
- * The layout is stored per simulator rather than per room; see `wallView.ts` for why that is the
- * right grain and what it costs.
+ * **No widget is bound to a car.** Every tile is about whichever driver is selected, which is what
+ * makes the saved arrangement portable: a wall names widgets and positions and nothing else, so the
+ * same document opens against any session without a position ever resolving to the wrong car. The
+ * layout is stored per simulator; see `wallView.ts` for why that is the right grain.
  */
-export function PitWall({
-  gameKey,
-  capabilities,
-  comparedDriverKeys,
-  selectedDriverKey,
-  displayName,
-}: PitWallProps) {
+export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWallProps) {
   const { store } = useLive();
   const { width, containerRef } = useContainerWidth();
 
   // A widget can report that it has nothing to say for a car — incident points on a sim that
-  // reports none, for instance. Honoured here for the same reason #46 made the strip honour it: a
-  // frame around four dashes is worse than no frame, and worse still on a wall, where the user put
-  // the tile there on purpose and deserves to know it is waiting rather than broken.
+  // reports none, for instance. Honoured here for the same reason #46 made the old strip honour it:
+  // a frame around four dashes is worse than no frame, and worse still on a wall, where the user
+  // put the tile there on purpose and deserves to know it is waiting rather than broken.
   const extras = useAllExtras();
 
-  const [widgets, setWidgets] = useState<WallWidget[]>(() => loadWallView(gameKey).widgets);
+  // Sorted and deduplicated: with two collectors in a room the same capability arrives twice, and
+  // an unstable list would rebuild the picker on every room-list message.
+  const stableCapabilities = useMemo(() => [...new Set(capabilities)].sort(), [capabilities]);
+
+  // A wall nobody has arranged gets the simulator's suggested one; a wall somebody has emptied
+  // stays empty. `loadWallView` returns null only for the first, which is the whole reason it
+  // distinguishes them — see the remark there.
+  const startingWidgets = useCallback(
+    () => loadWallView(gameKey)?.widgets ?? defaultWallFor(gameKey, stableCapabilities),
+    [gameKey, stableCapabilities],
+  );
+
+  const [widgets, setWidgets] = useState<WallWidget[]>(startingWidgets);
   const [picking, setPicking] = useState(false);
   const [notice, setNotice] = useState<ImportNotice | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Reloaded during render rather than from an effect, which is React's advice for state derived
   // from a prop: an effect would paint one frame of the previous simulator's wall against this
-  // session before correcting itself. The same shape `SessionView` uses for its expanded rows.
+  // session before correcting itself.
   const [loadedGameKey, setLoadedGameKey] = useState(gameKey);
   if (loadedGameKey !== gameKey) {
     setLoadedGameKey(gameKey);
-    setWidgets(loadWallView(gameKey).widgets);
+    setWidgets(startingWidgets);
     setPicking(false);
     // A complaint about a file imported into the previous simulator's wall says nothing about this
     // one, and leaving it up would attach it to a session it was never about.
@@ -147,11 +159,6 @@ export function PitWall({
     saveWallView(gameKey, { version: WALL_VIEW_VERSION, widgets });
   }, [gameKey, widgets]);
 
-  // Sorted and deduplicated for the reason `FocusPanel` does it: with two collectors in a room the
-  // same capability arrives twice, and an unstable list would rebuild the picker on every
-  // room-list message.
-  const stableCapabilities = useMemo(() => [...new Set(capabilities)].sort(), [capabilities]);
-
   /** What the picker offers: everything this room can actually feed. */
   const addable = useMemo(
     () => panelsFor(gameKey, stableCapabilities).filter(isDriverWidget),
@@ -161,7 +168,7 @@ export function PitWall({
   const available = useMemo(() => new Set(addable.map((panel) => panel.id)), [addable]);
 
   const addWidget = useCallback(
-    (widgetId: string, driver: WallDriverBinding) => {
+    (widgetId: string) => {
       const entry = findPanel(gameKey, widgetId);
       if (entry === null) {
         return;
@@ -172,7 +179,6 @@ export function PitWall({
         {
           instanceId: newInstanceId(),
           widgetId,
-          driver,
           // Dropped at the bottom of the wall, where there is always room. Placing it in the first
           // gap would be cleverer and worse: a widget appearing somewhere in the middle of an
           // arrangement the user built is a widget they then have to go and find.
@@ -247,8 +253,7 @@ export function PitWall({
    * Writes a drag or a resize back.
    *
    * Merged into the existing widgets rather than rebuilt from the layout, because the layout only
-   * carries geometry — the widget id and the driver it is bound to live here and would be lost by
-   * a rebuild.
+   * carries geometry — the widget id lives here and would be lost by a rebuild.
    */
   const onLayoutChange = useCallback((layout: Layout) => {
     const geometry = new Map(layout.map((item) => [item.i, item]));
@@ -292,7 +297,13 @@ export function PitWall({
   return (
     <section className="wall" aria-label="Pit wall">
       <header className="wall__header">
-        <h2 className="wall__title">Pit wall</h2>
+        {/*
+          The car is named once, here, rather than on every tile. Every widget on the wall is about
+          the same driver, so repeating it twelve times would be twelve pieces of furniture saying
+          something the heading already said.
+        */}
+        <h2 className="wall__title">{displayName(driverKey)}</h2>
+
         <button
           type="button"
           className="link-button"
@@ -349,51 +360,21 @@ export function PitWall({
 
       {picking && (
         <div className="wall__picker">
-          {addable.length === 0 && (
+          {addable.length === 0 ? (
             <p className="wall__note">
               This session reports no channels that can be put on the wall.
             </p>
-          )}
-
-          {/*
-            Two ways to place a tile, and the difference is worth the extra button. "Selected"
-            follows whichever car you click in the tower, so one set of tiles serves a whole field;
-            a named car pins the tile to that slot, which is what a side-by-side comparison is made
-            of. The pinned buttons are labelled with the driver rather than "slot 2", because the
-            car is what the user is thinking about — the slot is only how it is written down.
-          */}
-          {addable.map((panel) => (
-            <div key={panel.id} className="wall__picker-row">
-              <span className="wall__picker-name">{panel.title}</span>
-
-              {comparedDriverKeys.length > 0 && (
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => addWidget(panel.id, 'selected')}
-                >
-                  Selected car
-                </button>
-              )}
-
-              {comparedDriverKeys.map((driverKey, index) => (
-                <button
-                  key={driverKey}
-                  type="button"
-                  className="link-button"
-                  onClick={() => addWidget(panel.id, { slot: index + FIRST_SLOT })}
-                >
-                  {displayName(driverKey)}
-                </button>
-              ))}
-            </div>
-          ))}
-
-          {addable.length > 0 && comparedDriverKeys.length === 0 && (
-            <p className="wall__note">
-              Open a driver&apos;s telemetry from the tower first — every widget here is about one
-              car.
-            </p>
+          ) : (
+            addable.map((panel) => (
+              <button
+                key={panel.id}
+                type="button"
+                className="link-button wall__picker-item"
+                onClick={() => addWidget(panel.id)}
+              >
+                {panel.title}
+              </button>
+            ))
           )}
         </div>
       )}
@@ -401,8 +382,8 @@ export function PitWall({
       <div ref={containerRef} className="wall__grid">
         {widgets.length === 0 && (
           <p className="wall__note">
-            Nothing on the wall yet. Add the charts you want in front of you and they will be here
-            next time.
+            Nothing on the wall. Add the charts you want in front of you and they will be here next
+            time.
           </p>
         )}
 
@@ -417,7 +398,6 @@ export function PitWall({
         >
           {widgets.map((widget) => {
             const entry = findPanel(gameKey, widget.widgetId);
-            const driverKey = resolveBinding(widget.driver, comparedDriverKeys, selectedDriverKey);
 
             return (
               <div key={widget.instanceId} className="wall__widget">
@@ -425,12 +405,7 @@ export function PitWall({
                   <span className="wall__widget-grip" aria-hidden="true">
                     ⠿
                   </span>
-                  <h3 className="wall__widget-title">
-                    {entry?.title ?? widget.widgetId}
-                    {driverKey !== undefined && (
-                      <span className="wall__widget-driver"> · {displayName(driverKey)}</span>
-                    )}
-                  </h3>
+                  <h3 className="wall__widget-title">{entry?.title ?? widget.widgetId}</h3>
                   <button
                     type="button"
                     className="link-button"
@@ -452,20 +427,6 @@ export function PitWall({
                     />
                   ) : !isDriverWidget(entry) ? (
                     <entry.component store={store} />
-                  ) : driverKey === undefined ? (
-                    <UnavailableWidget
-                      reason={
-                        widget.driver === undefined
-                          ? // A driver widget with no binding at all, which a document written by
-                            // an earlier build produces. Saying so beats the slot message, which
-                            // would send someone looking for a car to put in a slot that is not
-                            // there; removing it and be done would silently edit their wall.
-                            'This tile was saved without a car. Remove it and add it again.'
-                          : widget.driver === 'selected'
-                            ? 'No car is selected. Open one from the tower.'
-                            : 'No car in this slot yet.'
-                      }
-                    />
                   ) : entry.isEmpty?.(extras[driverKey] ?? null) === true ? (
                     <UnavailableWidget reason="Nothing reported for this car yet." />
                   ) : (

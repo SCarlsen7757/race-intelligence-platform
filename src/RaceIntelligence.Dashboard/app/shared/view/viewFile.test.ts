@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readViewFile, serialiseViewFile, viewFileName } from './viewFile';
+import { readViewFile, serialiseViewFile, viewFileName, type ViewFile } from './viewFile';
 import { WALL_VIEW_VERSION, type WallView } from './wallView';
 
 const KNOWN = 'tyre-temperature';
@@ -11,16 +11,8 @@ function wall(widgets: WallView['widgets']): WallView {
   return { version: WALL_VIEW_VERSION, widgets };
 }
 
-function widget(widgetId: string, driver?: WallView['widgets'][number]['driver']) {
-  return {
-    instanceId: `i-${widgetId}`,
-    widgetId,
-    ...(driver === undefined ? {} : { driver }),
-    x: 0,
-    y: 0,
-    w: 4,
-    h: 6,
-  };
+function widget(widgetId: string) {
+  return { instanceId: `i-${widgetId}`, widgetId, x: 0, y: 0, w: 4, h: 6 };
 }
 
 describe('serialiseViewFile', () => {
@@ -28,18 +20,35 @@ describe('serialiseViewFile', () => {
     expect(viewFileName('raceroom')).toBe('pitwall-raceroom.json');
   });
 
-  it('writes no driver key, whatever the tiles are bound to', () => {
+  it('names no car in any form', () => {
+    // A wall is opened against every session of a simulator, so anything here that pointed at a car
+    // would point at a stranger in the next race. Asserted against the raw text rather than the
+    // parsed object, because the text is what leaves the machine.
+    const text = serialiseViewFile('raceroom', wall([widget(KNOWN), widget('tyre-wear')]));
+
+    expect(text).not.toMatch(/driver|slot|selected|id:/);
+
+    const written = JSON.parse(text) as ViewFile;
+    expect(Object.keys(written.widgets[0] ?? {})).toEqual([
+      'instanceId',
+      'widgetId',
+      'x',
+      'y',
+      'w',
+      'h',
+    ]);
+  });
+
+  it('strips a binding written by an older build rather than passing it through', () => {
+    // The tile is kept — it is a perfectly good placement — but the dead field must not survive
+    // into a document that outlives this build, or exported walls would carry a reference to a car
+    // forever.
     const text = serialiseViewFile(
       'raceroom',
-      wall([widget(KNOWN, 'selected'), widget('tyre-wear', { slot: 2 })]),
+      wall([{ ...widget(KNOWN), driver: 'selected' } as WallView['widgets'][number]]),
     );
 
-    // The promise the whole binding model exists to keep: a wall is opened against every session of
-    // a simulator, so a key written here would name a stranger in the next race. Asserted against
-    // the raw text rather than the parsed object, because that is what leaves the machine.
-    expect(text).not.toMatch(/id:|slot:\s*"/);
-    expect(text).toContain('"selected"');
-    expect(text).toContain('"slot": 2');
+    expect(text).not.toContain('selected');
   });
 
   it('omits the name entirely when there is not one', () => {
@@ -50,7 +59,7 @@ describe('serialiseViewFile', () => {
 
 describe('readViewFile', () => {
   it('round-trips a wall', () => {
-    const original = wall([widget(KNOWN, 'selected'), widget('tyre-wear', { slot: 2 })]);
+    const original = wall([widget(KNOWN), widget('tyre-wear')]);
     const result = readViewFile(serialiseViewFile('raceroom', original), knowsWidget);
 
     expect(result.ok).toBe(true);
@@ -92,19 +101,25 @@ describe('readViewFile', () => {
     expect(result.ok && result.gameKey).toBe('iracing');
   });
 
-  it('keeps a tile saved without a car rather than refusing the wall', () => {
-    // A document from before bindings existed. Dropping it or attaching it to whichever car sits at
-    // its old index would both silently edit an arrangement somebody made on purpose.
+  it.each([
+    ['an ordinal', { driverOrdinal: 0 }],
+    ['a selected binding', { driver: 'selected' }],
+    ['a slot binding', { driver: { slot: 2 } }],
+  ])('keeps a tile bound by %s, and drops the binding', (_label, binding) => {
+    // Every shape a binding has ever had. The placement is somebody's arrangement and is kept;
+    // the field is dead and must not be carried back out on the next export.
     const text = JSON.stringify({
       version: WALL_VIEW_VERSION,
       gameKey: 'raceroom',
-      widgets: [{ instanceId: 'i', widgetId: KNOWN, driverOrdinal: 0, x: 0, y: 0, w: 4, h: 6 }],
+      widgets: [{ instanceId: 'i', widgetId: KNOWN, ...binding, x: 0, y: 0, w: 4, h: 6 }],
     });
 
     const result = readViewFile(text, knowsWidget);
 
     expect(result.ok).toBe(true);
-    expect(result.ok && result.view.widgets[0]?.driver).toBeUndefined();
+    expect(result.ok && result.view.widgets).toHaveLength(1);
+    expect(result.ok && Object.keys(result.view.widgets[0] ?? {})).not.toContain('driver');
+    expect(result.ok && Object.keys(result.view.widgets[0] ?? {})).not.toContain('driverOrdinal');
   });
 
   it('refuses what is not JSON', () => {

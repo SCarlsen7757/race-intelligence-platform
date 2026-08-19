@@ -132,6 +132,22 @@ body {
   padding: 16px 20px;
 }
 
+/*
+ * The cap comes off once the page has split.
+ *
+ * The 1600px above is there for the tower's sake, and the argument is sound: eleven timing columns
+ * spread across three thousand pixels, joined by a deliberately near-invisible row hairline, cannot
+ * be read across. But once a car is open the tower is confined to its own 560px column, so the
+ * thing the cap protects is already protected — and the cap is then only starving the wall, which
+ * is the one region that can always use more glass. It was capping it below the 2000px breakpoint
+ * the wall defines, so on an ultrawide the widest column count was unreachable.
+ *
+ * A browser without `:has()` keeps the cap, which is the safe way to be wrong.
+ */
+.app__main:has(.session--split) {
+  max-width: none;
+}
+
 .status {
   margin-left: auto;
   display: inline-flex;
@@ -394,8 +410,16 @@ body {
   align-items: start;
 }
 
+/*
+ * The split happens only when a car is open, and only when there is room for it.
+ *
+ * Two conditions, not one, and the modifier is what carries the first. A 4K screen showing nobody's
+ * telemetry should be a full-width timing tower, not a tower squeezed into 560 pixels beside an
+ * empty half — the viewport says whether a second region *fits*, and only the selection says
+ * whether there is anything to put in it.
+ */
 @media (min-width: 1400px) {
-  .session {
+  .session--split {
     grid-template-columns: minmax(min(420px, 100%), 560px) minmax(0, 1fr);
   }
 }
@@ -437,16 +461,14 @@ body {
 
    Desaturation as well as opacity because the flag colours are the point: a purple sector that has
    stopped updating must stop looking like a purple sector that just happened. */
-.session__tower--stale,
-.focus--stale {
+.session__tower--stale {
   opacity: 0.55;
   filter: saturate(0.35);
 }
 
 /* Deliberately outside the dimming above: the one line that explains why everything else is dim
    has to stay legible while it is dim. */
-.session__tower--stale .tower__stamp,
-.focus--stale .focus__stale {
+.session__tower--stale .tower__stamp {
   opacity: 1;
   filter: none;
 }
@@ -462,12 +484,6 @@ body {
 }
 
 .session__tower--stale .tower__stamp {
-  color: var(--flag-invalid);
-}
-
-.focus__stale {
-  margin: 0;
-  font-size: 11px;
   color: var(--flag-invalid);
 }
 
@@ -835,171 +851,38 @@ th.tower__state {
   opacity: 0.7;
 }
 
-/* Focus panel */
-
-.focus {
-  width: 100%;
-  background: var(--bg-raised);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  padding: 12px 16px;
-}
-
-.focus__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.focus__drivers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
-  align-items: baseline;
-}
-
-.focus__driver {
-  display: inline-flex;
-  gap: 10px;
-  align-items: baseline;
-}
+/* Car, pedal and assist widgets */
 
 /*
- * The car's name, which is also the control that selects it.
+ * What the car is doing, in five numbers.
  *
- * A button rather than a heading with a control beside it. Clicking the car you are already reading
- * is what someone tries first, and a separate radio would be one more thing on screen to explain.
- * Styled as the text it replaced so the column still reads as a heading — the affordance is the
- * pointer and the selected mark, not a button frame.
+ * Three columns with speed spanning two of them, so the five fill the grid exactly rather than
+ * wrapping four and one and leaving three-quarters of a row empty under the lap number. It fills
+ * whatever tile it is given, because the widget's own minimum size is what stops it being made too
+ * small to read — that judgement belongs to the catalogue entry, not here.
  */
-.focus__driver-name {
-  margin: 0;
-  padding: 0;
-  font: inherit;
-  font-size: 15px;
-  color: var(--text);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-}
-
-/*
- * Which car the wall's "selected" tiles are about.
- *
- * An underline in the accent rather than a colour change on the name: the driver names in this
- * column sit beside session-best purple and flag colours, and another meaning loaded onto text
- * colour here would be one more thing to tell apart at a glance.
- */
-.focus__driver-name--selected {
-  border-bottom-color: var(--accent);
-  font-weight: 600;
-}
-
-/*
- * The comparison column's body.
- *
- * One shape now, where there used to be four. The strip once held traces, tyre stacks and damage
- * meters and needed a rule per shape to stop it being mostly air; those all moved to the pit wall,
- * and what is left is a single block of readouts per car. A section that is always the same size
- * does not need to negotiate for width.
- */
-.focus__body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px 24px;
-  align-items: flex-start;
-}
-
-.focus__body > .focus__section {
-  margin-top: 0;
-  flex: 1 1 260px;
-  min-width: min(260px, 100%);
-}
-
-.focus__stack {
-  display: grid;
-  gap: 12px;
-}
-
-.focus__stack-item {
-  min-width: 0;
-}
-
-.focus__stack-title {
-  margin: 0 0 4px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-/*
- * Several drivers: one grid, not several strips.
- *
- * Every section is a row spanning every column, so the same channel sits at the same height for
- * every car — a comparison whose readouts are at different heights on each side is not a
- * comparison. Independently wrapping strips would produce exactly that the moment one driver's
- * collector reported a channel another's did not.
- *
- * The column count comes from the component as `--compare-columns`, not from a `repeat(2, ...)`
- * baked in here. How many cars may be watched at once is the hub's decision, and now that this
- * column carries only readouts, several of them fit where two charts used to.
- *
- * It scrolls rather than crushing: past four or five cars the columns reach a width where the
- * numbers stop being glanceable, and a sideways scroll inside this box is a better answer than a
- * comparison nobody can read. The floor is on the columns, so the scroll only appears once it has
- * to.
- */
-.focus__compare {
-  display: grid;
-  grid-template-columns: repeat(var(--compare-columns, 2), minmax(150px, 1fr));
-  gap: 12px 24px;
-  align-items: start;
-  overflow-x: auto;
-}
-
-.focus__compare > .focus__section {
-  margin-top: 0;
-  min-width: 0;
-}
-
-.focus__column-name {
-  margin: 0 0 2px;
-  font-size: 13px;
-  font-weight: 600;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--rule);
-}
-
-.focus__primary {
+.car-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  align-content: start;
 }
 
-.motec {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(210px, 240px);
-  gap: 12px 20px;
-  align-items: start;
-}
-
-.motec__trace {
-  grid-column: 1 / -1;
+/* Bars above, percentages below, both filling the tile. */
+.pedal-inputs {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
 }
 
-.motec-assists {
+.assists {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 10px;
 }
 
-.motec-assist {
+.assist {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -1010,14 +893,14 @@ th.tower__state {
   background: var(--bg);
 }
 
-.motec-assist__label {
+.assist__label {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.05em;
 }
 
-.motec-assist__value {
+.assist__value {
   font-size: 15px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1033,20 +916,10 @@ th.tower__state {
   }
 }
 
-.motec-assist--active {
+.assist--active {
   border-color: var(--trace-clutch);
   color: var(--trace-clutch);
   animation: assist-intervention 300ms steps(2, jump-none) infinite;
-}
-
-@media (max-width: 560px) {
-  .motec {
-    grid-template-columns: 1fr;
-  }
-
-  .motec__trace {
-    grid-column: 1;
-  }
 }
 
 /* Speed across two columns, so five metrics fill three columns exactly rather than wrapping 4 + 1
@@ -1082,24 +955,6 @@ th.tower__state {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-}
-
-.focus__section {
-  margin-top: 16px;
-}
-
-.focus__section-title {
-  margin: 0 0 6px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.focus__note {
-  color: var(--text-muted);
-  font-size: 12px;
 }
 
 .trace {
@@ -1315,9 +1170,13 @@ th.tower__state {
 
 /* Sits above the grid rather than floating over it: a menu that covered the wall would hide the
    arrangement the user is deciding where to add to. */
+/* Every widget this session can feed, as one flat list of names. It used to be a row per widget
+   with a button per car, because a tile had to be told which car it was about; a widget is about
+   whoever is selected now, so adding one is a single click on its name. */
 .wall__picker {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
   margin-bottom: 12px;
   padding: 12px;
   background: var(--bg-raised);
@@ -1325,18 +1184,7 @@ th.tower__state {
   border-radius: 6px;
 }
 
-/* One row per widget, with a button per car. Naming the car on the button rather than asking twice
-   — pick a widget, then pick a driver — keeps adding a chart to one click. */
-.wall__picker-row {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.wall__picker-name {
-  flex: 1 1 160px;
-  min-width: min(160px, 100%);
+.wall__picker-item {
   font-size: 13px;
 }
 

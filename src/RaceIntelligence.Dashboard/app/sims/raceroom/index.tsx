@@ -1,9 +1,12 @@
 import { formatNumber, formatPercent } from '../../shared/format/format';
 import type { FocusFrameMessage } from '../../shared/live/contracts';
 import type { TyreTraces } from '../../shared/live/store';
+import { AssistSettings } from '../../features/focus/AssistSettings';
+import { CarMetrics } from '../../features/focus/CarMetrics';
+import { PedalInputs } from '../../features/focus/PedalInputs';
 import { PedalTrace } from '../../features/focus/PedalTrace';
 import { WheelTrace } from '../../features/focus/WheelTrace';
-import { registerSimPanels, type SimPanelProps } from '../registry';
+import { registerDefaultWall, registerSimPanels, type SimPanelProps } from '../registry';
 import { DamagePanel } from './DamagePanel';
 import { IncidentsPanel, incidentsPanelIsEmpty } from './IncidentsPanel';
 import { BrakeTemperaturePanel, BrakeWearPanel } from './BrakePanel';
@@ -106,6 +109,33 @@ function TyreTemperaturePanel({ store, driverKey }: SimPanelProps) {
  */
 registerSimPanels('raceroom', [
   {
+    id: 'car-metrics',
+    title: 'Car',
+    scope: 'driver',
+    requires: [],
+    component: CarMetrics,
+    defaultSize: { w: 3, h: 4 },
+    minSize: { w: 2, h: 3 },
+  },
+  {
+    id: 'pedals',
+    title: 'Pedals',
+    scope: 'driver',
+    requires: [],
+    component: PedalInputs,
+    defaultSize: { w: 3, h: 5 },
+    minSize: { w: 2, h: 4 },
+  },
+  {
+    id: 'assists',
+    title: 'Assists',
+    scope: 'driver',
+    requires: [],
+    component: AssistSettings,
+    defaultSize: { w: 2, h: 3 },
+    minSize: { w: 2, h: 2 },
+  },
+  {
     id: 'pedal-trace',
     title: 'Pedal trace',
     scope: 'driver',
@@ -184,3 +214,18 @@ registerSimPanels('raceroom', [
     minSize: { w: 2, h: 2 },
   },
 ]);
+
+/**
+ * What a wall holds before anyone has arranged one.
+ *
+ * The four that need no capability at all, which is not a coincidence: they are the channels every
+ * simulator reports, so this arrangement is the one that cannot greet somebody with a tile
+ * explaining why it is empty. What the car is doing, what the driver is doing, what the car is set
+ * to, and the trace that shows the last thirty seconds of it.
+ *
+ * The tyre and brake stacks are deliberately not here despite being the most useful things on the
+ * wall. They are four-wheel stint charts, and four of them opened unasked would fill a 1440p wall
+ * before the user had chosen anything — a default should be a starting point, not an opinion that
+ * takes a minute to undo.
+ */
+registerDefaultWall('raceroom', ['car-metrics', 'pedals', 'assists', 'pedal-trace']);

@@ -10,7 +10,12 @@ import {
   WALL_VIEW_VERSION,
   type WallWidget,
 } from '../../shared/view/wallView';
-import { registerSimPanels, type SimPanel, type SimPanelProps } from '../../sims/registry';
+import {
+  registerDefaultWall,
+  registerSimPanels,
+  type SimPanel,
+  type SimPanelProps,
+} from '../../sims/registry';
 import { PitWall } from './PitWall';
 
 const GAME = 'wall-test';
@@ -41,22 +46,17 @@ function gatedPanel(): SimPanel {
   };
 }
 
-function renderWall(
-  capabilities: readonly string[] = ['Reading'],
-  comparedDriverKeys: readonly string[] = [DRIVER],
-  selectedDriverKey: string | null = comparedDriverKeys[0] ?? null,
-) {
+function renderWall(capabilities: readonly string[] = ['Reading'], driverKey: string = DRIVER) {
   const store = new LiveStore();
-  store.setFollowedDrivers(comparedDriverKeys);
+  store.setFollowedDrivers([driverKey]);
 
   return render(
     <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
       <PitWall
         gameKey={GAME}
         capabilities={capabilities}
-        comparedDriverKeys={comparedDriverKeys}
-        selectedDriverKey={selectedDriverKey}
-        displayName={(driverKey) => driverKey}
+        driverKey={driverKey}
+        displayName={(key) => key}
       />
     </LiveContext.Provider>,
   );
@@ -74,7 +74,7 @@ function viewFile(gameKey: string, widgets: WallWidget[]): File {
 }
 
 function savedWidget(widgetId: string): WallWidget {
-  return { instanceId: `i-${widgetId}`, widgetId, driver: { slot: 1 }, x: 0, y: 0, w: 4, h: 6 };
+  return { instanceId: `i-${widgetId}`, widgetId, x: 0, y: 0, w: 4, h: 6 };
 }
 
 /**
@@ -92,13 +92,13 @@ async function importFile(file: File) {
   });
 }
 
-/** Opens the picker and places the offered widget, pinned to a car or bound to the selection. */
-async function addWidget(binding: string) {
+/** Opens the picker and places a widget by name. One click, because a tile is about the open car. */
+async function addWidget(title: string) {
   await act(async () => {
     screen.getByRole('button', { name: '+ Add widget' }).click();
   });
   await act(async () => {
-    screen.getByRole('button', { name: binding }).click();
+    screen.getByRole('button', { name: title }).click();
   });
 }
 
@@ -106,18 +106,19 @@ describe('PitWall', () => {
   beforeEach(() => {
     window.localStorage.clear();
     registerSimPanels(GAME, [readingPanel(), gatedPanel()]);
+    registerDefaultWall(GAME, []);
   });
 
-  it('starts empty and says so', () => {
+  it('starts empty and says so when the simulator suggests nothing', () => {
     renderWall();
 
-    expect(screen.getByText(/Nothing on the wall yet/)).toBeTruthy();
+    expect(screen.getByText(/Nothing on the wall/)).toBeTruthy();
   });
 
-  it('adds a widget for the chosen car, and removes it again', async () => {
+  it('adds a widget for the open car, and removes it again', async () => {
     renderWall();
 
-    await addWidget(DRIVER);
+    await addWidget('Reading');
 
     expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
 
@@ -134,11 +135,11 @@ describe('PitWall', () => {
   it('persists the wall and reads it back', async () => {
     const first = renderWall();
 
-    await addWidget(DRIVER);
+    await addWidget('Reading');
 
     const saved = loadWallView(GAME);
-    expect(saved.widgets).toHaveLength(1);
-    expect(saved.widgets[0]?.widgetId).toBe('reading');
+    expect(saved?.widgets).toHaveLength(1);
+    expect(saved?.widgets[0]?.widgetId).toBe('reading');
 
     first.unmount();
     renderWall();
@@ -147,17 +148,81 @@ describe('PitWall', () => {
   });
 
   /**
-   * No driver key is ever written to storage — see `wallView.ts`. A key names one car in one
-   * session and nobody in the next, and the same wall is opened against every session of that sim.
+   * The promise the whole document shape exists to keep. A wall names widgets and positions and
+   * nothing else, so it can be opened against any session without a saved reference resolving to
+   * the wrong car — the one mistake a race engineer cannot catch from the screen.
    */
-  it('never persists a driver key', async () => {
-    renderWall(['Reading'], [DRIVER, OTHER_DRIVER]);
+  it('never persists a reference to a car, in any form', async () => {
+    renderWall();
 
-    await addWidget(OTHER_DRIVER);
+    await addWidget('Reading');
 
     const raw = window.localStorage.getItem(`pitwall:view:${GAME}`) ?? '';
-    expect(raw).not.toContain(OTHER_DRIVER);
-    expect(loadWallView(GAME).widgets[0]?.driver).toEqual({ slot: 2 });
+    expect(raw).not.toContain(DRIVER);
+    expect(raw).not.toMatch(/driver|slot|selected/);
+    expect(Object.keys(loadWallView(GAME)?.widgets[0] ?? {})).toEqual([
+      'instanceId',
+      'widgetId',
+      'x',
+      'y',
+      'w',
+      'h',
+    ]);
+  });
+
+  /**
+   * Every tile is about whoever is open, so switching cars swings the whole wall at once — there is
+   * no per-tile binding that could be left pointing at the previous driver.
+   */
+  it('shows whichever car is open', async () => {
+    const first = renderWall(['Reading'], DRIVER);
+    await addWidget('Reading');
+    first.unmount();
+
+    renderWall(['Reading'], OTHER_DRIVER);
+
+    expect(screen.getByTestId('reading').textContent).toBe(OTHER_DRIVER);
+  });
+
+  /**
+   * A wall nobody has arranged gets the simulator's suggestion, because an empty grid and a menu is
+   * a puzzle rather than a dashboard.
+   */
+  it('seeds the simulator’s default arrangement on a wall nobody has saved', () => {
+    registerDefaultWall(GAME, ['reading']);
+
+    renderWall();
+
+    expect(screen.getByTestId('reading')).toBeTruthy();
+    expect(loadWallView(GAME)?.widgets).toHaveLength(1);
+  });
+
+  /**
+   * And a wall somebody has emptied stays empty. Seeding over the top of that would be the
+   * dashboard arguing with a choice the user made.
+   */
+  it('does not seed a wall the user has cleared', async () => {
+    registerDefaultWall(GAME, ['reading']);
+
+    const first = renderWall();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Remove Reading' }).click();
+    });
+    first.unmount();
+
+    renderWall();
+
+    expect(screen.queryByTestId('reading')).toBeNull();
+  });
+
+  /** A suggestion this session cannot feed is not worth making. */
+  it('leaves an unfeedable widget out of the default arrangement', () => {
+    registerDefaultWall(GAME, ['reading', 'gated']);
+
+    renderWall(['Reading']);
+
+    expect(screen.getByTestId('reading')).toBeTruthy();
+    expect(screen.queryByText(/No collector in this session reports/)).toBeNull();
   });
 
   /**
@@ -165,12 +230,7 @@ describe('PitWall', () => {
    * than vanishing and leaving the user to wonder where their chart went.
    */
   it('keeps a widget this session cannot feed, and says why', () => {
-    saveWallView(GAME, {
-      version: WALL_VIEW_VERSION,
-      widgets: [
-        { instanceId: 'a', widgetId: 'gated', driver: { slot: 1 }, x: 0, y: 0, w: 4, h: 6 },
-      ],
-    });
+    saveWallView(GAME, { version: WALL_VIEW_VERSION, widgets: [savedWidget('gated')] });
 
     renderWall(['Reading']);
 
@@ -180,20 +240,7 @@ describe('PitWall', () => {
   });
 
   it('says so when a saved widget is not in this build at all', () => {
-    saveWallView(GAME, {
-      version: WALL_VIEW_VERSION,
-      widgets: [
-        {
-          instanceId: 'a',
-          widgetId: 'retired-widget',
-          driver: { slot: 1 },
-          x: 0,
-          y: 0,
-          w: 4,
-          h: 6,
-        },
-      ],
-    });
+    saveWallView(GAME, { version: WALL_VIEW_VERSION, widgets: [savedWidget('retired-widget')] });
 
     renderWall();
 
@@ -201,93 +248,33 @@ describe('PitWall', () => {
   });
 
   /**
-   * The floor below which a widget stops being worth reading is the widget's judgement, and the
-   * grid is what enforces it — so it has to reach the grid.
+   * A document from a build that stored a binding. The placement is somebody's arrangement and is
+   * kept; the dead field is dropped rather than being written back out for ever.
    */
-  /**
-   * The binding that makes a compact wall work across a whole field: one set of tiles that swings
-   * to whichever car is being looked at, rather than one set per car.
-   */
-  it('follows the selection when bound to it', async () => {
-    const first = renderWall(['Reading'], [DRIVER, OTHER_DRIVER], DRIVER);
-
-    await addWidget('Selected car');
-
-    expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
-    expect(loadWallView(GAME).widgets[0]?.driver).toBe('selected');
-
-    // The same wall, the same tile, a different car selected.
-    first.unmount();
-    renderWall(['Reading'], [DRIVER, OTHER_DRIVER], OTHER_DRIVER);
-
-    expect(screen.getByTestId('reading').textContent).toBe(OTHER_DRIVER);
-  });
-
-  /**
-   * A pinned tile stays on its car while the selection moves, which is what makes two of them a
-   * comparison rather than two views of the same thing.
-   */
-  it('stays on its slot while the selection moves', async () => {
-    const first = renderWall(['Reading'], [DRIVER, OTHER_DRIVER], DRIVER);
-
-    await addWidget(OTHER_DRIVER);
-    first.unmount();
-
-    renderWall(['Reading'], [DRIVER, OTHER_DRIVER], DRIVER);
-
-    expect(screen.getByTestId('reading').textContent).toBe(OTHER_DRIVER);
-  });
-
-  /**
-   * A wall saved with two cars, opened against a session where one is being watched. Saying the
-   * slot is empty is the only honest answer; sliding the tile onto the remaining car would put one
-   * driver's numbers under another driver's heading.
-   */
-  it('says a slot is empty rather than showing the wrong car', () => {
-    saveWallView(GAME, {
-      version: WALL_VIEW_VERSION,
-      widgets: [
-        { instanceId: 'a', widgetId: 'reading', driver: { slot: 2 }, x: 0, y: 0, w: 4, h: 6 },
-      ],
-    });
-
-    renderWall(['Reading'], [DRIVER], DRIVER);
-
-    expect(screen.getByText(/No car in this slot yet/)).toBeTruthy();
-    expect(screen.queryByTestId('reading')).toBeNull();
-  });
-
-  /**
-   * A document from the build that stored an ordinal instead of a binding.
-   *
-   * The tile keeps its place and says it has no car, rather than being dropped or bound to
-   * whichever car happens to sit at that index. Both alternatives are worse in the same way: they
-   * change an arrangement someone made, without telling them.
-   */
-  it('says a tile has no car when its binding predates this build', () => {
+  it('keeps a tile saved with a binding, and forgets the binding', () => {
     window.localStorage.setItem(
       `pitwall:view:${GAME}`,
       JSON.stringify({
         version: WALL_VIEW_VERSION,
         widgets: [
-          { instanceId: 'a', widgetId: 'reading', driverOrdinal: 0, x: 0, y: 0, w: 4, h: 6 },
+          { instanceId: 'a', widgetId: 'reading', driver: { slot: 2 }, x: 0, y: 0, w: 4, h: 6 },
         ],
       }),
     );
 
-    renderWall(['Reading'], [DRIVER], DRIVER);
+    renderWall(['Reading'], DRIVER);
 
-    expect(screen.getByText(/saved without a car/)).toBeTruthy();
-    expect(screen.queryByTestId('reading')).toBeNull();
+    expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
+    expect(Object.keys(loadWallView(GAME)?.widgets[0] ?? {})).not.toContain('driver');
   });
 
   it('opens a widget at the size its catalogue entry asked for', async () => {
     const { container } = renderWall();
 
-    await addWidget(DRIVER);
+    await addWidget('Reading');
 
     expect(container.querySelector('.react-grid-item')).not.toBeNull();
-    expect(loadWallView(GAME).widgets[0]?.w).toBe(4);
+    expect(loadWallView(GAME)?.widgets[0]?.w).toBe(4);
   });
 
   /**
@@ -315,7 +302,7 @@ describe('PitWall', () => {
 
       try {
         renderWall();
-        await addWidget(DRIVER);
+        await addWidget('Reading');
 
         await act(async () => {
           screen.getByRole('button', { name: 'Export' }).click();
@@ -335,7 +322,7 @@ describe('PitWall', () => {
       await importFile(viewFile(GAME, [savedWidget('reading')]));
 
       expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
-      expect(loadWallView(GAME).widgets).toHaveLength(1);
+      expect(loadWallView(GAME)?.widgets).toHaveLength(1);
     });
 
     it('drops a widget this build does not have, and names it', async () => {
@@ -344,7 +331,7 @@ describe('PitWall', () => {
       await importFile(viewFile(GAME, [savedWidget('reading'), savedWidget('from-the-future')]));
 
       expect(screen.getByRole('status').textContent).toContain('from-the-future');
-      expect(loadWallView(GAME).widgets.map((w) => w.widgetId)).toEqual(['reading']);
+      expect(loadWallView(GAME)?.widgets.map((w) => w.widgetId)).toEqual(['reading']);
     });
 
     /**
@@ -358,7 +345,7 @@ describe('PitWall', () => {
       await importFile(viewFile(GAME, [savedWidget('gated')]));
 
       expect(screen.getByText(/No collector in this session reports/)).toBeTruthy();
-      expect(loadWallView(GAME).widgets.map((w) => w.widgetId)).toEqual(['gated']);
+      expect(loadWallView(GAME)?.widgets.map((w) => w.widgetId)).toEqual(['gated']);
     });
 
     it('offers a wall saved for another simulator rather than refusing it', async () => {
@@ -373,7 +360,7 @@ describe('PitWall', () => {
 
     it('refuses a file that is not a wall, and leaves the wall alone', async () => {
       renderWall();
-      await addWidget(DRIVER);
+      await addWidget('Reading');
 
       await importFile(new File(['{ not json'], 'wall.json', { type: 'application/json' }));
 
@@ -381,22 +368,22 @@ describe('PitWall', () => {
       // The contract of the control: choosing the wrong file must never cost you the arrangement
       // you already had, because there is no undo.
       expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
-      expect(loadWallView(GAME).widgets).toHaveLength(1);
+      expect(loadWallView(GAME)?.widgets).toHaveLength(1);
     });
 
     it('round-trips the wall it exported', async () => {
-      const first = renderWall(['Reading'], [DRIVER, OTHER_DRIVER]);
-      await addWidget(OTHER_DRIVER);
+      const first = renderWall();
+      await addWidget('Reading');
 
-      const exported = serialiseViewFile(GAME, loadWallView(GAME));
+      const exported = serialiseViewFile(GAME, loadWallView(GAME) ?? { version: 1, widgets: [] });
       first.unmount();
       window.localStorage.clear();
 
-      renderWall(['Reading'], [DRIVER, OTHER_DRIVER]);
+      renderWall();
       await importFile(new File([exported], 'wall.json', { type: 'application/json' }));
 
-      expect(screen.getByTestId('reading').textContent).toBe(OTHER_DRIVER);
-      expect(loadWallView(GAME).widgets[0]?.driver).toEqual({ slot: 2 });
+      expect(screen.getByTestId('reading').textContent).toBe(DRIVER);
+      expect(loadWallView(GAME)?.widgets).toHaveLength(1);
     });
   });
 });

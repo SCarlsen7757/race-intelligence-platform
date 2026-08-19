@@ -1,8 +1,6 @@
 import { Link, useParams } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TowerRow } from '../../shared/live/contracts';
-import { FocusPanel } from '../focus/FocusPanel';
-import { MAX_FOCUSED_DRIVERS, toggleDriverKey } from '../focus/focusDriverKeys';
 import { LapHistoryPanel } from '../laps/LapHistoryPanel';
 import { formatSessionType, isRaceSession } from '../../shared/format/format';
 import { useAge } from '../../shared/format/useAge';
@@ -20,6 +18,7 @@ import { TimingTower } from './TimingTower';
 import { TrackMap } from './TrackMap';
 
 const EMPTY_ROWS: TowerRow[] = [];
+const NO_DRIVERS: readonly string[] = [];
 
 /**
  * A leaf, so the one-second tick that keeps this honest does not re-render twenty tower rows.
@@ -31,15 +30,22 @@ function LastUpdated({ atUtc }: { atUtc: string }) {
 }
 
 /**
- * One session: the timing tower, the cars being compared, and the wall of widgets beside them.
+ * One session, in one of two states.
  *
- * The room id comes from the path, and now nothing else does. A refresh or a pasted link lands
- * back on the same session; which cars are being watched is state belonging to this room, and the
- * arrangement of the wall is a document belonging to the simulator.
+ * **Nothing selected**: the timing tower is the whole interface and fills the screen. That is not a
+ * degraded version of the page — it is what someone wants on joining a session, before they have
+ * decided which car to look at, and for a strategist watching a whole field it may be the only
+ * state they ever use.
+ *
+ * **A car selected**: the tower moves to the left column and the pit wall appears beside it. The
+ * wall's widgets are all about that car; selecting a different one swings every tile at once.
+ *
+ * The room id comes from the path, and nothing else does. Which car is selected is state belonging
+ * to this room; the arrangement of the wall is a document belonging to the simulator.
  *
  * **This is the only place the follow set is stated**, and it is derived rather than tracked: the
- * cars in the comparison are the cars followed, so there is no separate act of focusing that could
- * disagree with what is on screen.
+ * selected car is the followed car, so there is no separate act of focusing that could disagree
+ * with what is on screen.
  */
 export function SessionView() {
   const { roomId } = useParams({ strict: false });
@@ -57,27 +63,29 @@ export function SessionView() {
   );
 
   /**
-   * The cars in the comparison, in the order they were opened, and which of them is current.
+   * The car being looked at, or none.
    *
-   * Per room, and deliberately not persisted with the wall: a driver key names one car in one
-   * session, whereas a wall is opened against every session of that simulator. The wall stores
-   * positions; this is what those positions point at, and it lives and dies with the room.
+   * One car. Several at once, overlaid on a chart and told apart by colour, is the eventual shape
+   * and the widgets are built to take it — but there is one collector publishing today, and a
+   * comparison of one car against nobody is a feature nothing can exercise.
    *
-   * The selection is always one of the compared cars, never a third. That is what keeps the follow
-   * set inside the hub's cap without any arithmetic: a `'selected'` widget can only ever be showing
-   * a car that is already being watched, so selecting never opens a stream.
+   * Per room, and deliberately never persisted with the wall: a driver key names one car in one
+   * session and nobody in the next, whereas a wall is opened against every session of that
+   * simulator. Keeping it here is what lets the saved document name no car at all.
+   *
+   * One selection also means the follow set is at most one stream, which is comfortably inside the
+   * hub's cap on how many cars a viewer may follow at full rate — see `LiveViewer.MaxFocusDrivers`
+   * for why that cap exists and why the client should never construct a request that trips it.
    */
-  const [comparedDriverKeys, setComparedDriverKeys] = useState<readonly string[]>([]);
   const [selectedDriverKey, setSelectedDriverKey] = useState<string | null>(null);
 
   // Reset during render rather than from an effect, which is React's own advice for state derived
-  // from a prop: an effect would paint one frame of the previous session's cars against the new
+  // from a prop: an effect would paint one frame of the previous session's car against the new
   // session's tower before correcting itself.
   const [expansionRoomId, setExpansionRoomId] = useState(roomId);
   if (expansionRoomId !== roomId) {
     setExpansionRoomId(roomId);
     setExpandedDriverKeys(new Set());
-    setComparedDriverKeys([]);
     setSelectedDriverKey(null);
   }
 
@@ -87,11 +95,17 @@ export function SessionView() {
     }
   }, [connection, roomId]);
 
+  // The follow set, derived. A list of none or one, which is the whole model.
+  const followedDriverKeys = useMemo(
+    () => (selectedDriverKey === null ? NO_DRIVERS : [selectedDriverKey]),
+    [selectedDriverKey],
+  );
+
   // Subscribed but not yet streaming. Derived rather than tracked, so it cannot drift from either
-  // half: the comparison says who was asked for, and the store says who has answered.
+  // half: the selection says who was asked for, and the store says who has answered.
   const pendingDriverKeys = useMemo(
-    () => new Set(comparedDriverKeys.filter((key) => !focusReady.has(key))),
-    [comparedDriverKeys, focusReady],
+    () => new Set(followedDriverKeys.filter((key) => !focusReady.has(key))),
+    [followedDriverKeys, focusReady],
   );
 
   // Both subscriptions are stated here, in this order, and the order still matters even though the
@@ -99,13 +113,12 @@ export function SessionView() {
   // `watchRoom` necessarily clears the focus on both sides of the socket; a follow set stated
   // before it would be sent and then wiped.
   //
-  // Stated as the whole set rather than one driver at a time, because `focusDrivers` diffs it. That
-  // is what makes rearranging the wall free: nothing here calls `resetFocus`, so dropping one car
-  // of a comparison sends a single `unfocusDriver` and leaves the other car's rings — and the stint
-  // being read out of them — completely untouched.
+  // Stated as the whole set rather than one driver at a time, because `focusDrivers` diffs it.
+  // Nothing here calls `resetFocus`, so rearranging the wall — which does not touch this at all —
+  // and switching cars both leave every ring the store holds exactly where it was.
   useEffect(() => {
-    connection.focusDrivers(comparedDriverKeys);
-  }, [connection, roomId, comparedDriverKeys]);
+    connection.focusDrivers(followedDriverKeys);
+  }, [connection, roomId, followedDriverKeys]);
 
   const toggleExpand = useCallback((driverKey: string) => {
     setExpandedDriverKeys((current) => {
@@ -119,45 +132,14 @@ export function SessionView() {
   }, []);
 
   /**
-   * Adds the driver to the comparison, or removes them if they are already on screen.
+   * Opens a car's telemetry, or closes it if it is the one already open.
    *
-   * The selection follows, because opening a car is the clearest possible statement that it is the
-   * one you want to look at — and every `'selected'` widget on the wall swings to it in the same
-   * click. Closing the current car hands the selection to whoever is left rather than leaving those
-   * widgets pointing at nobody.
+   * Selecting a second car replaces the first rather than joining it. That is the single-car model
+   * stated in one line, and it is why there is no cap arithmetic anywhere in this file.
    */
-  const toggleFocus = useCallback(
-    (clicked: string) => {
-      const next = toggleDriverKey(comparedDriverKeys, clicked);
-
-      // Computed from the current values rather than inside the setters' updaters: an updater must
-      // be a pure function of the previous state, and React is free to run it twice.
-      setComparedDriverKeys(next);
-      setSelectedDriverKey(
-        next.includes(clicked)
-          ? clicked
-          : selectedDriverKey !== null && next.includes(selectedDriverKey)
-            ? selectedDriverKey
-            : (next[0] ?? null),
-      );
-    },
-    [comparedDriverKeys, selectedDriverKey],
-  );
-
-  /**
-   * Picks which of the watched cars the `'selected'` widgets are about.
-   *
-   * Refuses a car that is not being watched, which is what confines the selection to the compared
-   * set — and therefore what stops it from ever being a stream the hub has not been asked for.
-   */
-  const selectDriver = useCallback(
-    (driverKey: string) => {
-      if (comparedDriverKeys.includes(driverKey)) {
-        setSelectedDriverKey(driverKey);
-      }
-    },
-    [comparedDriverKeys],
-  );
+  const toggleFocus = useCallback((clicked: string) => {
+    setSelectedDriverKey((current) => (current === clicked ? null : clicked));
+  }, []);
 
   const room = rooms.find((candidate) => candidate.roomId === roomId) ?? null;
 
@@ -178,17 +160,13 @@ export function SessionView() {
   const session = sessionState !== null && sessionState.roomId === roomId ? sessionState : null;
   const layoutLengthMeters = session?.layoutLengthMeters ?? null;
 
-  // How a car is named, on a wall tile and in the comparison column. Falls back to the key with its
-  // scheme stripped: a car can be opened before the tower has named it, and `id:4242` reads better
-  // than an empty heading while that resolves.
+  // How a car is named on the wall's heading. Falls back to the key with its scheme stripped: a car
+  // can be opened before the tower has named it, and `id:4242` reads better than an empty heading
+  // while that resolves.
   const displayName = useMemo(() => {
     const names = new Map(rows.map((row) => [row.driverKey, row.displayName]));
     return (key: string) => names.get(key) ?? key.replace(/^(id|slot|name):/, '');
   }, [rows]);
-
-  // Only a driver whose own machine is publishing has full-rate channels at all, so they are the
-  // only ones a comparison can be built from.
-  const comparable = useMemo(() => rows.filter((row) => row.tier === 'Self').length, [rows]);
 
   return (
     <>
@@ -212,11 +190,13 @@ export function SessionView() {
       <PitWindowBanner window={session?.pitWindow ?? null} />
 
       {/*
-        Two regions: timing and the driver comparison on the left, the pit wall on the right. One
-        column until there is enough glass for both — see `.session` for where that line is drawn
-        and why it is the only breakpoint here.
+        Two states, one class apart. With no car open the tower has the whole page and the grid is a
+        single column; open one and the layout splits, on a wide enough monitor. The modifier is
+        what carries that, because the split is not a function of the viewport alone — a 4K screen
+        showing nobody's telemetry should still be a full-width tower rather than a tower squeezed
+        into 560 pixels beside an empty half.
       */}
-      <div className="session">
+      <div className={`session ${selectedDriverKey === null ? '' : 'session--split'}`}>
         <div className="session__left">
           {/*
             Tower and map side by side, wrapping to a stack when the window cannot hold both. The map
@@ -242,7 +222,7 @@ export function SessionView() {
 
               <TimingTower
                 rows={rows}
-                focusedDriverKeys={comparedDriverKeys}
+                focusedDriverKeys={followedDriverKeys}
                 onFocus={toggleFocus}
                 pendingDriverKeys={pendingDriverKeys}
                 expandedDriverKeys={expandedDriverKeys}
@@ -262,7 +242,7 @@ export function SessionView() {
 
             <TrackMap
               rows={rows}
-              focusedDriverKeys={comparedDriverKeys}
+              focusedDriverKeys={followedDriverKeys}
               expandedDriverKeys={expandedDriverKeys}
               // The same thing clicking the row's driver button does. Every car on the map has that
               // available — lap history comes from standings, so it works for the whole field — where
@@ -270,41 +250,25 @@ export function SessionView() {
               onSelect={toggleExpand}
             />
           </div>
-
-          {comparedDriverKeys.length > 0 && (
-            <FocusPanel
-              driverKeys={comparedDriverKeys}
-              selectedDriverKey={selectedDriverKey}
-              onSelect={selectDriver}
-              displayName={displayName}
-              onClose={toggleFocus}
-              // Said rather than shown as an empty second column. In a session where one person
-              // runs a collector there is genuinely nobody to compare against, and a viewer looking
-              // for the second "Show" button deserves to be told why there isn't one.
-              note={
-                comparedDriverKeys.length < MAX_FOCUSED_DRIVERS && comparable < 2
-                  ? 'Nobody else in this session is running a collector, so there is no second car to compare against.'
-                  : undefined
-              }
-            />
-          )}
         </div>
 
         {/*
-          The wall takes the rest of the glass. Timing and the comparison column are what a race
-          engineer must always be able to see, so they hold the left; everything the engineer chose
-          to have in front of them goes right, and on a wide monitor that is most of the screen.
+          The wall takes the rest of the glass, and only exists once there is a car for it to be
+          about. Mounted rather than emptied, because a wall with no driver is not a wall of empty
+          tiles — it is a page that should be showing the tower, which is exactly what the state
+          above it does.
 
           Given the room's whole capability set, flattened across publishers: with two collectors
           feeding one session a widget is offerable if any of them can produce what it needs.
         */}
-        <PitWall
-          gameKey={room?.gameKey ?? ''}
-          capabilities={room?.publishers.flatMap((publisher) => publisher.capabilities) ?? []}
-          comparedDriverKeys={comparedDriverKeys}
-          selectedDriverKey={selectedDriverKey}
-          displayName={displayName}
-        />
+        {selectedDriverKey !== null && (
+          <PitWall
+            gameKey={room?.gameKey ?? ''}
+            capabilities={room?.publishers.flatMap((publisher) => publisher.capabilities) ?? []}
+            driverKey={selectedDriverKey}
+            displayName={displayName}
+          />
+        )}
       </div>
     </>
   );

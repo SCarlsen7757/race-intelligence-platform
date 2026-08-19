@@ -73,6 +73,9 @@ describe('sim panel registry', () => {
     ]).map((p) => p.id);
 
     expect(ids).toEqual([
+      'car-metrics',
+      'pedals',
+      'assists',
       'pedal-trace',
       'tyre-pressure',
       'tyre-wear',
@@ -91,18 +94,25 @@ describe('sim panel registry', () => {
 
     const ids = panelsFor('raceroom', ['TyreWear']).map((p) => p.id);
 
-    expect(ids).toEqual(['pedal-trace', 'tyre-wear']);
+    expect(ids).toEqual(['car-metrics', 'pedals', 'assists', 'pedal-trace', 'tyre-wear']);
   });
 
   /**
-   * The pedal trace needs no capability, so it is the one widget every collector can feed. That is
-   * the point of it having an empty `requires` and not a placeholder one: a channel every simulator
-   * reports should not be gated on a flag that would then have to be remembered for each new sim.
+   * Four widgets need no capability at all, and that is deliberate rather than an oversight: what
+   * the car is doing, what the driver is doing, what the car is set to, and the trace of the last
+   * thirty seconds are built from channels every simulator reports. Gating them on a flag would
+   * mean remembering to set that flag for every new simulator, to describe data none of them can
+   * fail to send. They are also exactly the default wall, for the same reason — see `raceroom`.
    */
-  it('offers the pedal trace to a collector that reports nothing at all', async () => {
+  it('offers the core widgets to a collector that reports nothing at all', async () => {
     await import('./raceroom');
 
-    expect(panelsFor('raceroom', []).map((p) => p.id)).toEqual(['pedal-trace']);
+    expect(panelsFor('raceroom', []).map((p) => p.id)).toEqual([
+      'car-metrics',
+      'pedals',
+      'assists',
+      'pedal-trace',
+    ]);
   });
 
   it('carries a scope, a default size and a minimum size on every RaceRoom widget', async () => {

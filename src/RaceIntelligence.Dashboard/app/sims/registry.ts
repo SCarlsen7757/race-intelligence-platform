@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { ExtrasFrameMessage } from '../shared/live/contracts';
 import type { LiveStore } from '../shared/live/store';
+import type { WallWidget } from '../shared/view/wallView';
 
 /**
  * Props a widget describing the session itself receives.
@@ -15,9 +16,11 @@ export interface RoomPanelProps {
 /**
  * Props every widget describing one car receives.
  *
- * The driver key is explicit rather than implied by the store because several drivers can be
- * compared side by side: the same widget type is mounted once per car, against one store, and
- * nothing about it may assume there is only one being watched.
+ * The driver key is explicit rather than implied by the store because a widget must not assume
+ * there is only ever one car. Today the wall shows the selected driver and there is exactly one of
+ * those; the eventual shape is several cars overlaid on one chart, coloured per car, and a widget
+ * that reached into the store for "the" driver would have to be rewritten to get there. Taking the
+ * key as a prop keeps that additive.
  */
 export interface SimPanelProps extends RoomPanelProps {
   driverKey: string;
@@ -153,4 +156,69 @@ export function findPanel(gameKey: string, id: string): SimPanel | null {
  */
 export function isDriverWidget(panel: SimPanel): panel is DriverWidget {
   return panel.scope === 'driver';
+}
+
+const defaultWalls = new Map<string, readonly string[]>();
+
+/**
+ * What one simulator's wall holds before the user has arranged anything.
+ *
+ * A wall the user composes has an obvious first-run problem: an empty grid and a menu is a puzzle,
+ * not a dashboard, and the person who has just opened their first session wants to see their car
+ * rather than be asked what they would like to see. So a sim names a few widgets worth starting
+ * from, and the user rearranges from there.
+ *
+ * Ids rather than placements, because where they land depends on how wide they asked to be — which
+ * the catalogue already knows. A sim naming pixel positions would be a second opinion about layout
+ * that could disagree with the first.
+ */
+export function registerDefaultWall(gameKey: string, widgetIds: readonly string[]): void {
+  defaultWalls.set(gameKey, widgetIds);
+}
+
+/**
+ * The starting wall for a simulator, packed left to right and filtered to what this room can feed.
+ *
+ * Filtered, unlike a wall loaded from storage — and the difference is deliberate. A saved widget
+ * this session cannot feed stays and says so, because the user put it there and it is theirs. A
+ * *suggestion* this session cannot feed is just a tile explaining itself to somebody who has not
+ * asked for anything yet, which is a poor first impression and teaches nothing.
+ *
+ * Packed by running along the row and wrapping when the next widget will not fit. The grid will
+ * compact it vertically afterwards; this only has to avoid asking for a widget to start half off
+ * the edge.
+ */
+export function defaultWallFor(gameKey: string, capabilities: readonly string[]): WallWidget[] {
+  const available = new Map(panelsFor(gameKey, capabilities).map((panel) => [panel.id, panel]));
+  const widgets: WallWidget[] = [];
+  let x = 0;
+  let y = 0;
+  let rowHeight = 0;
+
+  for (const widgetId of defaultWalls.get(gameKey) ?? []) {
+    const entry = available.get(widgetId);
+    if (entry === undefined) {
+      continue;
+    }
+
+    if (x + entry.defaultSize.w > WIDGET_GRID_COLUMNS) {
+      x = 0;
+      y += rowHeight;
+      rowHeight = 0;
+    }
+
+    widgets.push({
+      instanceId: `default-${widgetId}`,
+      widgetId,
+      x,
+      y,
+      w: entry.defaultSize.w,
+      h: entry.defaultSize.h,
+    });
+
+    x += entry.defaultSize.w;
+    rowHeight = Math.max(rowHeight, entry.defaultSize.h);
+  }
+
+  return widgets;
 }

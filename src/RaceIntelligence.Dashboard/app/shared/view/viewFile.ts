@@ -9,7 +9,13 @@
  * see how you read a stint. So the wall is also a document.
  */
 
-import { isWallWidget, WALL_VIEW_VERSION, type WallView, type WallWidget } from './wallView';
+import {
+  isWallWidget,
+  normaliseWidget,
+  WALL_VIEW_VERSION,
+  type WallView,
+  type WallWidget,
+} from './wallView';
 
 /**
  * A wall, written down.
@@ -54,7 +60,11 @@ export function serialiseViewFile(gameKey: string, view: WallView, name?: string
     // from one present and undefined, and an unnamed wall should have no key rather than a null one.
     ...(name === undefined || name === '' ? {} : { name }),
     gameKey,
-    widgets: view.widgets,
+    // Normalised on the way out as well as on the way in. A wall held in memory came from somewhere
+    // — storage, an import, a default — and this is the last point at which a field nobody reads any
+    // more could be written into a document that outlives the build. A file leaving here names
+    // widgets and positions, and nothing else.
+    widgets: view.widgets.map(normaliseWidget),
   };
 
   return `${JSON.stringify(file, null, 2)}\n`;
@@ -167,7 +177,7 @@ export function readViewFile(
   }
 
   const widgets: WallWidget[] = candidate.widgets;
-  const kept = widgets.filter((widget) => knowsWidget(widget.widgetId));
+  const kept = widgets.filter((widget) => knowsWidget(widget.widgetId)).map(normaliseWidget);
 
   // Deduplicated, because a wall with the same unknown widget placed four times is one thing the
   // user needs to be told, not four.
