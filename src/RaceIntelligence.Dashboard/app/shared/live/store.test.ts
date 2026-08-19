@@ -641,7 +641,12 @@ describe('LiveStore', () => {
     store.apply(
       extrasFrame({
         extras: JSON.stringify({
-          brakeTemperatureCelsius: [320, -1, 300, 300],
+          brakeTemperatureCelsius: [
+            { current: 320, optimal: 400, cold: 200, hot: 800 },
+            { current: -1, optimal: 400, cold: 200, hot: 800 },
+            { current: 300, optimal: 400, cold: 200, hot: 800 },
+            { current: 300, optimal: 400, cold: 200, hot: 800 },
+          ],
           turboPressureBar: -1,
           engineOilTempCelsius: 104,
         }),
@@ -650,11 +655,36 @@ describe('LiveStore', () => {
 
     const { extras } = store.tracesFor('id:2');
 
+    // The ring holds the reading. A brake temperature is an object now, carrying its window
+    // alongside, and the trace plots the one member that moves.
     expect(extras.brakeTemperatureCelsius[0].last()).toBe(320);
     // A brake at -1 °C is not a cold brake. It is a reading that was never taken.
     expect(extras.brakeTemperatureCelsius[1].last()).toBeNaN();
     expect(extras.turboPressureBar.last()).toBeNaN();
     expect(extras.engineOilTempCelsius.last()).toBe(104);
+  });
+
+  /**
+   * The window the simulator names for these pads. It stays on the document rather than going into
+   * a ring, for the reason a tyre's does: a band does not move, so a rolling history of it would be
+   * fifteen minutes of the same four numbers.
+   */
+  it('keeps the brake operating window on the parsed document', () => {
+    const store = following(['id:2']);
+
+    store.apply(
+      extrasFrame({
+        extras: JSON.stringify({
+          brakeTemperatureCelsius: [{ current: 320, optimal: 400, cold: 200, hot: 800 }],
+        }),
+      }),
+    );
+
+    const frontLeft = store.getExtras()['id:2']?.document?.brakeTemperatureCelsius?.[0];
+
+    expect(frontLeft?.optimal).toBe(400);
+    expect(frontLeft?.cold).toBe(200);
+    expect(frontLeft?.hot).toBe(800);
   });
 
   it('advances the extras rings once per document, not once per delivery', () => {

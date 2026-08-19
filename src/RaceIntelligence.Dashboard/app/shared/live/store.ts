@@ -394,14 +394,24 @@ function newTraces(): FocusTraces {
   };
 }
 
-/** Every per-wheel extras channel, paired with where it is read from the document. */
+/**
+ * Every per-wheel extras channel, paired with how one wheel's value is read out of the document.
+ *
+ * A reader rather than a field name, because the channels no longer share a shape: a brake
+ * temperature is an object carrying its operating window beside the reading, where the rest are
+ * bare numbers. Keeping the difference here means the push loop stays one loop, and the knowledge
+ * of what the document looks like stays in one table rather than spreading into it.
+ */
 const EXTRAS_WHEEL_CHANNELS = [
-  ['brakeTemperatureCelsius', 'brakeTemperatureCelsius'],
-  ['brakePressureKiloNewtons', 'brakePressureKiloNewtons'],
-  ['brakeWear', 'brakeWear'],
-  ['tyreGrip', 'tyreGrip'],
-  ['tyreLoadNewtons', 'tyreLoadNewtons'],
-] as const satisfies readonly (readonly [keyof ExtrasTraces, keyof RaceRoomExtras])[];
+  ['brakeTemperatureCelsius', (extras, wheel) => extras.brakeTemperatureCelsius?.[wheel]?.current],
+  ['brakePressureKiloNewtons', (extras, wheel) => extras.brakePressureKiloNewtons?.[wheel]],
+  ['brakeWear', (extras, wheel) => extras.brakeWear?.[wheel]],
+  ['tyreGrip', (extras, wheel) => extras.tyreGrip?.[wheel]],
+  ['tyreLoadNewtons', (extras, wheel) => extras.tyreLoadNewtons?.[wheel]],
+] as const satisfies readonly (readonly [
+  keyof ExtrasTraces,
+  (extras: RaceRoomExtras, wheel: number) => number | undefined,
+])[];
 
 /** Every scalar extras channel, paired with where it is read from the document. */
 const EXTRAS_SCALAR_CHANNELS = [
@@ -1175,11 +1185,11 @@ export class LiveStore {
 
     entry.lastExtrasCapturedAtUtc = message.capturedAtUtc;
 
-    for (const [ring, field] of EXTRAS_WHEEL_CHANNELS) {
-      const values = document?.[field];
-
+    for (const [ring, read] of EXTRAS_WHEEL_CHANNELS) {
       for (let wheel = 0; wheel < 4; wheel++) {
-        entry.traces.extras[ring][wheel]!.push(reportedOrNaN(values?.[wheel]));
+        entry.traces.extras[ring][wheel]!.push(
+          reportedOrNaN(document === null ? undefined : read(document, wheel)),
+        );
       }
     }
 

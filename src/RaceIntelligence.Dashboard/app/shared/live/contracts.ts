@@ -427,6 +427,23 @@ export interface RaceRoomPit {
 }
 
 /**
+ * One brake's temperature and the window the simulator says it belongs in.
+ *
+ * The same {@link OperatingWindow} a tyre carries, for the same reason and under the same names —
+ * 380 °C is cold on one car and cooking on another, and the simulator will say which. The
+ * difference is only that a brake has one reading where a tyre has three across its tread.
+ *
+ * **Raw, like everything in this document.** These are the simulator's own numbers, so `-1` is "not
+ * available" and not a reading; run them through {@link reportedNumber}.
+ */
+export interface BrakeTemperature {
+  current?: number;
+  optimal?: number;
+  cold?: number;
+  hot?: number;
+}
+
+/**
  * The shape this dashboard reads out of RaceRoom's extras document.
  *
  * **Every field is optional and every value is raw.** Nothing upstream translates the simulator's
@@ -445,7 +462,7 @@ export interface RaceRoomExtras {
   maxIncidentPoints?: number;
 
   // Per-wheel channels, in the platform's FL, FR, RL, RR order.
-  brakeTemperatureCelsius?: number[];
+  brakeTemperatureCelsius?: BrakeTemperature[];
   brakePressureKiloNewtons?: number[];
   /**
    * Grip loss measured directly rather than inferred from lap time.

@@ -14,7 +14,7 @@ import {
 } from '../registry';
 import { DamagePanel } from './DamagePanel';
 import { IncidentsPanel, incidentsPanelIsEmpty } from './IncidentsPanel';
-import { BrakeTemperaturePanel, BrakeWearPanel } from './BrakePanel';
+import { BrakeTemperaturePanel } from './BrakePanel';
 
 /*
  * Every function below is declared at module scope rather than inline in the JSX, and that is load
@@ -220,6 +220,12 @@ registerSimPanels('raceroom', [
     minSize: { w: 3, h: 4 },
   },
   {
+    // Brake *wear* is deliberately not registered beside this. `SimCapabilities.BrakeWear` exists
+    // and nothing sets it, because RaceRoom's shared memory has no pad-wear member to set it from —
+    // so the widget could be picked off the catalogue and would then do nothing but explain that no
+    // collector reports it. The flag, the `brakeWear` field and `BrakeWearPanel` all stay: they are
+    // waiting on a connector that reports the channel, and re-registering is one entry. Advertising
+    // it before then is the part that was wrong.
     id: 'brake-temperature',
     title: 'Brake temperature',
     scope: 'driver',
@@ -227,17 +233,6 @@ registerSimPanels('raceroom', [
     group: { id: 'brakes', title: 'Brakes', itemTitle: 'Temperature' },
     channels: WHEEL_WIDGET_CHANNELS,
     component: BrakeTemperaturePanel,
-    defaultSize: { w: 4, h: 6 },
-    minSize: { w: 3, h: 4 },
-  },
-  {
-    id: 'brake-wear',
-    title: 'Brake wear',
-    scope: 'driver',
-    requires: ['BrakeWear'],
-    group: { id: 'brakes', title: 'Brakes', itemTitle: 'Wear' },
-    channels: WHEEL_WIDGET_CHANNELS,
-    component: BrakeWearPanel,
     defaultSize: { w: 4, h: 6 },
     minSize: { w: 3, h: 4 },
   },

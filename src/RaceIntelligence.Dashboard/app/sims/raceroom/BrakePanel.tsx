@@ -16,7 +16,7 @@ import type { ChannelPanelProps } from '../registry';
  */
 interface BrakeChannel {
   ring: (extras: ExtrasTraces) => ExtrasTraces['brakeTemperatureCelsius'];
-  read: (extras: ReturnType<typeof useExtras>) => readonly number[] | undefined;
+  read: (extras: ReturnType<typeof useExtras>, wheel: number) => number | undefined;
 }
 
 function BrakeTrace({
@@ -35,7 +35,6 @@ function BrakeTrace({
   range?: readonly [number, number];
 }) {
   const extras = useExtras(driverKey);
-  const values = channel.read(extras);
 
   /*
    * Resolved out of the store like every other chart on the wall.
@@ -73,7 +72,7 @@ function BrakeTrace({
         onToggle={onToggleChannel}
         unit={unit}
         renderValue={(_, index) => {
-          const value = reportedNumber(values?.[index]);
+          const value = reportedNumber(channel.read(extras, index));
 
           return (
             <span className="wheel-chart__number">
@@ -88,12 +87,14 @@ function BrakeTrace({
 
 const TEMPERATURE: BrakeChannel = {
   ring: (extras) => extras.brakeTemperatureCelsius,
-  read: (extras) => extras?.document?.brakeTemperatureCelsius,
+  // The reading, not the window. `optimal`, `cold` and `hot` ride alongside it on the same object
+  // and are what a band behind this trace will read; the line and its readout stay the temperature.
+  read: (extras, wheel) => extras?.document?.brakeTemperatureCelsius?.[wheel]?.current,
 };
 
 const WEAR: BrakeChannel = {
   ring: (extras) => extras.brakeWear,
-  read: (extras) => extras?.document?.brakeWear,
+  read: (extras, wheel) => extras?.document?.brakeWear?.[wheel],
 };
 
 const formatTemperature = (value: number | null | undefined) => formatNumber(value, 0);

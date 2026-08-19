@@ -566,10 +566,25 @@ internal static class R3ETelemetryMapper
         writer.WriteNumber("suspension", raw.CarDamage.Suspension);
         writer.WriteEndObject();
 
+        // An object per corner rather than a bare number, because `r3e_brake_temp` carries the
+        // operating window beside the reading and writing only the reading threw four fifths of it
+        // away. A brake at 380 °C is cold on one car and cooking on another, and the simulator is
+        // willing to say which — leaving an engineer to know it from memory was never the intent,
+        // it was just what fell out of writing the first member and moving on.
+        //
+        // `optimal`, `cold` and `hot` deliberately match the names a tyre temperature carries on
+        // the typed wire. An operating window is one idea and should read the same wherever it
+        // turns up. Sentinels are untranslated here as everywhere in this document: -1 is "not
+        // available" and a consumer must run these through its own sentinel rule.
         writer.WriteStartArray("brakeTemperatureCelsius");
         for (int i = 0; i < 4; i++)
         {
-            writer.WriteNumberValue(raw.BrakeTemp[i].CurrentTemp);
+            writer.WriteStartObject();
+            writer.WriteNumber("current", raw.BrakeTemp[i].CurrentTemp);
+            writer.WriteNumber("optimal", raw.BrakeTemp[i].OptimalTemp);
+            writer.WriteNumber("cold", raw.BrakeTemp[i].ColdTemp);
+            writer.WriteNumber("hot", raw.BrakeTemp[i].HotTemp);
+            writer.WriteEndObject();
         }
         writer.WriteEndArray();
 
