@@ -1,7 +1,11 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
 import type { LapHistoryMessage } from './contracts';
 import type { LiveConnection } from './connection';
-import type { ExtrasSnapshot, LiveStore } from './store';
+import type { ExtrasSnapshot, LapSummary, LiveStore } from './store';
+
+// A stable empty reference: useSyncExternalStore compares snapshots by identity, and a fresh [] per
+// read would look like a change on every emit and loop.
+const EMPTY_LAP_SUMMARIES: readonly LapSummary[] = [];
 
 export interface LiveContextValue {
   store: LiveStore;
@@ -103,6 +107,22 @@ export function useLapHistory(driverKey: string): LapHistoryMessage | null {
 export function useExtras(driverKey: string): ExtrasSnapshot | null {
   const { store } = useLive();
   const read = useCallback(() => store.getExtras()[driverKey] ?? null, [store, driverKey]);
+
+  return useStoreSlice(store, read);
+}
+
+/**
+ * One driver's per-lap derived numbers — fuel used, lap time, validity.
+ *
+ * React state rather than a ring, and that is the line this whole store draws: these change once a
+ * lap, which is exactly what React is cheap for.
+ */
+export function useLapSummaries(driverKey: string): readonly LapSummary[] {
+  const { store } = useLive();
+  const read = useCallback(
+    () => store.getLapSummaries()[driverKey] ?? EMPTY_LAP_SUMMARIES,
+    [store, driverKey],
+  );
 
   return useStoreSlice(store, read);
 }

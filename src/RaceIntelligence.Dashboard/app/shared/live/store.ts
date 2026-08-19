@@ -117,6 +117,100 @@ export class TraceBuffer {
 }
 
 /**
+ * One lap, sampled across lap progress rather than across time.
+ *
+ * Each bin holds the elapsed time at which the car reached that point of the lap. A delta between
+ * two laps is then a subtraction bin by bin, and the answer is in seconds gained or lost at every
+ * point of the circuit — which is the chart a driver actually wants, and the one the handover this
+ * milestone came from rates highest.
+ *
+ * Bins never visited stay NaN, so a lap joined halfway through has holes rather than a fabricated
+ * first sector. That is also what makes {@link isComplete} answerable, and a lap that cannot answer
+ * it must never become a reference.
+ */
+export class LapTrace {
+  /** Elapsed lap time at each bin, NaN where the car was never observed. */
+  private readonly elapsed = new Float32Array(LAP_BINS).fill(Number.NaN);
+  private filled = 0;
+
+  /** The lap this is recording. */
+  constructor(readonly lapNumber: number) {}
+
+  /**
+   * The furthest bin written so far, used to refuse a fraction that has gone backwards.
+   *
+   * A lap that wrapped without the lap counter incrementing yet — which happens, because the two
+   * arrive in the same frame only by luck — would otherwise write its first metres over the last
+   * ones and leave a lap that is a blend of two. Refusing anything behind the high-water mark is
+   * cheaper and more certain than trying to detect the wrap.
+   */
+  private highWaterBin = -1;
+
+  /** How many bins hold a reading. */
+  get sampleCount(): number {
+    return this.filled;
+  }
+
+  /**
+   * Whether this lap was observed from the line to the line.
+   *
+   * Not every bin — a 60 Hz sample of a fast straight genuinely skips bins, and demanding all
+   * thousand would disqualify every lap ever driven. What matters is that the lap was being watched
+   * for its whole length, which the first and last bins answer.
+   */
+  isComplete(): boolean {
+    return !Number.isNaN(this.elapsed[0]!) && !Number.isNaN(this.elapsed[LAP_BINS - 1]!);
+  }
+
+  /**
+   * Records where the car was, and how long the lap had taken to get there.
+   *
+   * Silently ignores a fraction outside 0..1 or behind the high-water mark — see
+   * {@link highWaterBin}.
+   */
+  push(fraction: number, elapsedSeconds: number): void {
+    if (!Number.isFinite(fraction) || fraction < 0 || fraction > 1) {
+      return;
+    }
+
+    const bin = Math.min(LAP_BINS - 1, Math.floor(fraction * LAP_BINS));
+    if (bin < this.highWaterBin) {
+      return;
+    }
+
+    this.highWaterBin = bin;
+
+    if (Number.isNaN(this.elapsed[bin]!)) {
+      this.filled++;
+    }
+
+    this.elapsed[bin] = elapsedSeconds;
+  }
+
+  /** Elapsed time at one bin, or NaN where the car was never seen. */
+  elapsedAt(bin: number): number {
+    return this.elapsed[bin] ?? Number.NaN;
+  }
+
+  /**
+   * This lap's time against a reference, bin by bin, as seconds gained (negative) or lost.
+   *
+   * NaN wherever either lap has no reading, so the chart draws a hole rather than a delta computed
+   * against a time nobody set. Written into a caller-supplied array for the usual reason: this is
+   * read from a paint loop.
+   */
+  deltaTo(reference: LapTrace, into?: Float64Array<ArrayBuffer>): Float64Array<ArrayBuffer> {
+    const out = into && into.length === LAP_BINS ? into : new Float64Array(LAP_BINS);
+
+    for (let bin = 0; bin < LAP_BINS; bin++) {
+      out[bin] = this.elapsed[bin]! - reference.elapsed[bin]!;
+    }
+
+    return out;
+  }
+}
+
+/**
  * How many decimated samples the tyre traces keep, and how far apart they are taken.
  *
  * A tyre asks a different question from a pedal. Throttle and brake are read a corner at a time, so
@@ -133,6 +227,20 @@ export const TYRE_SAMPLE_INTERVAL_MS = 1000;
 
 /** One per-wheel channel over time, in the wire's wheel order — FL, FR, RL, RR. */
 export type WheelTraces = readonly [TraceBuffer, TraceBuffer, TraceBuffer, TraceBuffer];
+
+/**
+ * How many bins one lap is divided into, across normalised lap progress.
+ *
+ * **This is what makes a lap comparison possible without a track map.** The wire carries
+ * `trackPositionFraction`, 0 at the line and 1 back at it, so a lap can be indexed by *where the car
+ * is* rather than by when a sample happened to arrive. Two laps then line up bin for bin, however
+ * differently they were driven — no circuit geometry, no corner definitions, nothing for anyone to
+ * maintain per track. That constraint is the whole reason this milestone's charts are buildable.
+ *
+ * A thousand bins is about ten metres on a five-kilometre lap, which is finer than the difference
+ * any driver can act on and coarse enough that a lap is a few tens of kilobytes.
+ */
+export const LAP_BINS = 1000;
 
 /**
  * The extras channels this dashboard plots, kept on the tyre rings' slower sample index.
@@ -162,6 +270,42 @@ export interface ExtrasTraces {
   turboPressureBar: TraceBuffer;
   batteryStateOfChargePercent: TraceBuffer;
   virtualEnergyLeftMj: TraceBuffer;
+}
+
+/**
+ * How much of the race the gap and position rings keep, and how far apart their samples are.
+ *
+ * A tower snapshot arrives about ten times a second and a race lasts hours, so a timeline needs
+ * decimating far harder than a tyre chart does. One sample a second over two hours is 7,200 slots,
+ * which is a few tens of kilobytes per driver and enough resolution to see an undercut land.
+ */
+export const RACE_TRACE_CAPACITY = 7200;
+export const RACE_SAMPLE_INTERVAL_MS = 1000;
+
+/** One driver's race, as the timeline widget reads it. */
+export interface RaceTraces {
+  /** Running position. Whole numbers, but a ring holds floats and a position is never absent. */
+  position: TraceBuffer;
+  /**
+   * Seconds behind the leader.
+   *
+   * Derived rather than read: the wire carries only the gap to the car ahead, so the leader's own
+   * gap is a running sum down the order. Computed once per snapshot here rather than once per
+   * widget, because two widgets deriving it independently is two chances to derive it differently.
+   */
+  gapToLeaderSeconds: TraceBuffer;
+}
+
+/** One completed lap's derived numbers, as the fuel and pace widgets read them. */
+export interface LapSummary {
+  lapNumber: number;
+  /** Fuel in the tank as the lap ended, or null where the frame never reported it. */
+  fuelLeftLiters: number | null;
+  /** Litres burned over this lap, or null on the first lap seen — there is nothing to subtract. */
+  fuelUsedLiters: number | null;
+  lapTimeMs: number | null;
+  /** Whether the simulator refused the lap. Undefined is unknown, never invalid. */
+  valid?: boolean;
 }
 
 /** One extras frame, decoded once. */
@@ -198,6 +342,8 @@ export interface FocusTraces {
   clutch: TraceBuffer;
   steering: TraceBuffer;
   speed: TraceBuffer;
+  gear: TraceBuffer;
+  engineRpm: TraceBuffer;
   /** Tyre channels, on their own slower sample index. */
   tyres: TyreTraces;
   /** Extras channels, sharing the tyre rings' cadence — see {@link ExtrasTraces}. */
@@ -237,6 +383,8 @@ function newTraces(): FocusTraces {
     clutch: new TraceBuffer(),
     steering: new TraceBuffer(),
     speed: new TraceBuffer(),
+    gear: new TraceBuffer(),
+    engineRpm: new TraceBuffer(),
     tyres: {
       pressureKpa: wheelTraces(),
       wear: wheelTraces(),
@@ -282,6 +430,25 @@ interface DriverFocus {
    * happened to behave.
    */
   lastExtrasCapturedAtUtc: string | null;
+
+  /** The lap being recorded, or null before the first frame names one. */
+  currentLap: LapTrace | null;
+  /**
+   * Fuel on the last frame seen, so a lap can be closed with the reading it ended on.
+   *
+   * The frame that reports the new lap number is already into the next lap, so its fuel belongs to
+   * that lap and not the one just finished. This holds the previous one.
+   */
+  lastFuelLeftLiters: number;
+  /**
+   * `simulationTime` when the current lap started, so elapsed time is a subtraction.
+   *
+   * Taken from the frame rather than the wall clock: the simulator's own clock is the only one that
+   * stops when the game is paused and does not drift against the samples it stamps.
+   */
+  currentLapStartedAt: number;
+  /** Complete laps observed this session, keyed by lap number. */
+  readonly completedLaps: Map<number, LapTrace>;
 }
 
 /**
@@ -347,6 +514,36 @@ export class LiveStore {
   // per panel per frame.
   private extras: Readonly<Record<string, ExtrasSnapshot>> = {};
 
+  /**
+   * The race timeline, per driver, held outside React.
+   *
+   * The whole field, not only the followed car: a gap chart is about where everyone is, and
+   * standings cover every driver in the session rather than only those running a collector. That is
+   * also why this is keyed off tower snapshots rather than focus frames.
+   */
+  private readonly raceTraces = new Map<string, RaceTraces>();
+
+  /** When the race rings last sampled, so the decimation is by elapsed time not by snapshot count. */
+  private lastRaceSampleAtMs = Number.NEGATIVE_INFINITY;
+
+  /**
+   * Fuel in the tank as each lap ended, per driver, per lap number.
+   *
+   * Captured off the focus stream, which is the only place fuel is reported, but consumed by a
+   * lap-rate summary — so it lives here as a plain field rather than in React, and only the summary
+   * it feeds is state.
+   */
+  private readonly fuelByLap = new Map<string, Map<number, number>>();
+
+  /**
+   * Per-lap derived numbers, per driver.
+   *
+   * React state, and the one part of this that is: tens of values changing once a lap is exactly
+   * what React is cheap for, and a fuel chart wanting a re-render per lap is a re-render per lap.
+   * Replaced rather than mutated, because `useSyncExternalStore` compares by identity.
+   */
+  private lapSummaries: Readonly<Record<string, readonly LapSummary[]>> = {};
+
   private readonly listeners = new Set<() => void>();
 
   /**
@@ -373,6 +570,27 @@ export class LiveStore {
   getExtras = (): Readonly<Record<string, ExtrasSnapshot>> => this.extras;
   isConnected = (): boolean => this.connected;
   getFocusReadyKeys = (): ReadonlySet<string> => this.focusReadyKeys;
+  getLapSummaries = (): Readonly<Record<string, readonly LapSummary[]>> => this.lapSummaries;
+
+  /**
+   * One driver's race timeline, created on demand.
+   *
+   * Created rather than returned-or-null for the same reason `tracesFor` is: a widget mounts before
+   * the first snapshot names its driver and holds the reference for its lifetime.
+   */
+  raceTracesFor(driverKey: string): RaceTraces {
+    let traces = this.raceTraces.get(driverKey);
+    if (traces === undefined) {
+      traces = {
+        position: new TraceBuffer(RACE_TRACE_CAPACITY),
+        gapToLeaderSeconds: new TraceBuffer(RACE_TRACE_CAPACITY),
+      };
+
+      this.raceTraces.set(driverKey, traces);
+    }
+
+    return traces;
+  }
 
   /**
    * One driver's latest focus frame, or null before the first has arrived.
@@ -464,6 +682,7 @@ export class LiveStore {
 
       case 'towerSnapshot':
         this.tower = message;
+        this.pushRaceSample(message);
         this.emit();
         break;
 
@@ -473,6 +692,7 @@ export class LiveStore {
 
       case 'lapHistory':
         this.lapHistories = { ...this.lapHistories, [message.driverKey]: message };
+        this.summariseLaps(message);
         this.emit();
         break;
 
@@ -523,6 +743,8 @@ export class LiveStore {
       entry.traces.clutch.push(Number.NaN);
       entry.traces.steering.push(Number.NaN);
       entry.traces.speed.push(Number.NaN);
+      entry.traces.gear.push(Number.NaN);
+      entry.traces.engineRpm.push(Number.NaN);
 
       for (let wheel = 0; wheel < 4; wheel++) {
         entry.traces.tyres.pressureKpa[wheel]!.push(Number.NaN);
@@ -563,6 +785,14 @@ export class LiveStore {
   resetFocus(): void {
     this.focus.clear();
     this.followedDriverKeys = new Set();
+    this.fuelByLap.clear();
+
+    // The race timeline goes with them. It is keyed by driver, and on a room switch the keys stop
+    // naming anyone — a gap chart carrying the previous race's order into this one would be worse
+    // than an empty chart, because nothing on it would look wrong.
+    this.raceTraces.clear();
+    this.lastRaceSampleAtMs = Number.NEGATIVE_INFINITY;
+
     this.dropVisibleFocusState();
   }
 
@@ -597,16 +827,25 @@ export class LiveStore {
     const next = { ...this.lapHistories };
     delete next[driverKey];
     this.lapHistories = next;
+
+    const summaries = { ...this.lapSummaries };
+    delete summaries[driverKey];
+    this.lapSummaries = summaries;
+
     this.emit();
   }
 
   /** Forgets every driver's history — on leaving a room, where the keys stop meaning anything. */
   resetLapHistory(): void {
-    if (Object.keys(this.lapHistories).length === 0) {
+    if (
+      Object.keys(this.lapHistories).length === 0 &&
+      Object.keys(this.lapSummaries).length === 0
+    ) {
       return;
     }
 
     this.lapHistories = {};
+    this.lapSummaries = {};
     this.emit();
   }
 
@@ -629,6 +868,10 @@ export class LiveStore {
         // being swallowed by an interval that has not elapsed yet.
         lastTyreSampleAtMs: Number.NEGATIVE_INFINITY,
         lastExtrasCapturedAtUtc: null,
+        currentLap: null,
+        currentLapStartedAt: 0,
+        lastFuelLeftLiters: Number.NaN,
+        completedLaps: new Map(),
       };
 
       this.focus.set(driverKey, entry);
@@ -671,7 +914,13 @@ export class LiveStore {
     entry.traces.steering.push(frame.steering);
     entry.traces.speed.push(frame.speedMetersPerSecond);
 
+    // Gear is nullable on the wire and neutral is a real gear, so an unreported gearbox has to be a
+    // hole rather than a zero — the same discipline the pedals follow.
+    entry.traces.gear.push(frame.gear ?? Number.NaN);
+    entry.traces.engineRpm.push(frame.engineRpm);
+
     this.pushTyreSample(entry, frame);
+    this.pushLapSample(entry, frame);
   }
 
   /**
@@ -696,6 +945,187 @@ export class LiveStore {
         frame.tyreTemperatureCelsius[wheel] ?? Number.NaN,
       );
     }
+  }
+
+  /**
+   * Adds one sample to every driver's race rings, at most once per {@link RACE_SAMPLE_INTERVAL_MS}.
+   *
+   * Gap to leader is derived here, once, from the only gap the wire carries — the one to the car
+   * ahead. Summed down the running order, so the leader is at zero and everyone else is however far
+   * back the chain of gaps puts them. Deriving it in each widget instead would be the same sum
+   * computed several times and, worse, several chances to disagree about it.
+   *
+   * A driver whose gap ahead is unreported breaks the chain: everyone behind them is then an unknown
+   * distance back, so the sum goes NaN and stays NaN for the rest of the order. That is the honest
+   * answer — a gap built on a missing link is a guess — and it draws as a hole.
+   */
+  private pushRaceSample(snapshot: TowerSnapshotMessage): void {
+    const now = this.now();
+    if (now - this.lastRaceSampleAtMs < RACE_SAMPLE_INTERVAL_MS) {
+      return;
+    }
+
+    this.lastRaceSampleAtMs = now;
+
+    // By position, because the running order is what the sum walks down. A row without a position
+    // cannot be placed in that chain at all.
+    const ordered = [...snapshot.drivers]
+      .filter((row) => row.position !== null && row.position !== undefined)
+      .sort((a, b) => a.position! - b.position!);
+
+    let gapToLeader = 0;
+
+    for (let index = 0; index < ordered.length; index++) {
+      const row = ordered[index]!;
+      const traces = this.raceTracesFor(row.driverKey);
+
+      if (index > 0) {
+        const gapAheadMs = row.gapToCarAheadMs;
+        gapToLeader +=
+          gapAheadMs === null || gapAheadMs === undefined ? Number.NaN : gapAheadMs / 1000;
+      }
+
+      traces.position.push(row.position!);
+      traces.gapToLeaderSeconds.push(gapToLeader);
+    }
+  }
+
+  /**
+   * Turns one driver's lap history into the per-lap numbers the fuel and pace widgets read.
+   *
+   * Fuel per lap is a subtraction between consecutive lap-end readings, which is why it is derived
+   * here rather than sampled: the wire reports what is in the tank, and what a race engineer asks is
+   * what went out of it. The first lap seen has nothing to subtract from and reports null rather
+   * than a full tank's worth of consumption.
+   *
+   * Lap history is a full snapshot per driver rather than a delta — `contracts.ts` is explicit — so
+   * this recomputes from it rather than accumulating, and cannot drift out of step with it.
+   */
+  private summariseLaps(message: LapHistoryMessage): void {
+    const fuelAtLapEnd = this.fuelByLap.get(message.driverKey);
+
+    const summaries: LapSummary[] = message.laps.map((record) => {
+      const fuelLeftLiters = fuelAtLapEnd?.get(record.lapNumber) ?? null;
+      const previous = fuelAtLapEnd?.get(record.lapNumber - 1) ?? null;
+
+      return {
+        lapNumber: record.lapNumber,
+        fuelLeftLiters,
+        // Only where both ends are known. A refuelling stop makes this negative, which is correct:
+        // the tank did gain fuel, and hiding it would leave a stint's consumption looking wrong.
+        fuelUsedLiters:
+          fuelLeftLiters !== null && previous !== null ? previous - fuelLeftLiters : null,
+        lapTimeMs: record.lapTimeMs ?? null,
+        ...(record.valid === null || record.valid === undefined ? {} : { valid: record.valid }),
+      };
+    });
+
+    this.lapSummaries = { ...this.lapSummaries, [message.driverKey]: summaries };
+  }
+
+  /**
+   * Records where the car is on its lap, closing the previous lap when the counter moves.
+   *
+   * The lap counter and the wrap of `trackPositionFraction` arrive in the same frame only by luck,
+   * which is what `LapTrace.push` refuses a backwards fraction for. Here the counter is trusted
+   * over the fraction: a lap ends when the simulator says it did.
+   */
+  private pushLapSample(entry: DriverFocus, frame: FocusFrameMessage): void {
+    const fraction = frame.trackPositionFraction;
+
+    if (entry.currentLap === null || entry.currentLap.lapNumber !== frame.lapNumber) {
+      // Kept only if it was watched end to end. A partial lap is useless as a reference and
+      // misleading as a comparison, and this is the one place that can tell.
+      if (entry.currentLap !== null && entry.currentLap.isComplete()) {
+        entry.completedLaps.set(entry.currentLap.lapNumber, entry.currentLap);
+      }
+
+      if (entry.currentLap !== null && Number.isFinite(entry.lastFuelLeftLiters)) {
+        this.recordLapFuel(frame.driverKey, entry.currentLap.lapNumber, entry.lastFuelLeftLiters);
+      }
+
+      entry.currentLap = new LapTrace(frame.lapNumber);
+      entry.currentLapStartedAt = frame.simulationTime;
+    }
+
+    entry.lastFuelLeftLiters = frame.fuelLeftLiters;
+
+    if (fraction === null || fraction === undefined) {
+      return;
+    }
+
+    entry.currentLap.push(fraction, frame.simulationTime - entry.currentLapStartedAt);
+  }
+
+  /**
+   * Records what was left in the tank as one lap ended, and refreshes that driver's summaries.
+   *
+   * The refresh matters: lap history and focus frames arrive on different channels, so a lap's time
+   * and its fuel almost never land together. Without re-summarising here, a lap's consumption would
+   * stay null until the next history snapshot happened along.
+   */
+  private recordLapFuel(driverKey: string, lapNumber: number, fuelLeftLiters: number): void {
+    let byLap = this.fuelByLap.get(driverKey);
+    if (byLap === undefined) {
+      byLap = new Map();
+      this.fuelByLap.set(driverKey, byLap);
+    }
+
+    byLap.set(lapNumber, fuelLeftLiters);
+
+    const history = this.lapHistories[driverKey];
+    if (history !== undefined) {
+      this.summariseLaps(history);
+      this.emit();
+    }
+  }
+
+  /** The lap being driven, for a delta chart to compare against the reference. */
+  currentLapFor(driverKey: string): LapTrace | null {
+    return this.focus.get(driverKey)?.currentLap ?? null;
+  }
+
+  /**
+   * The lap a delta is measured against: this session's fastest clean, completely observed lap.
+   *
+   * Three rules, and the middle one is the one worth stating plainly. A lap is eligible when:
+   *
+   * - it was observed from the line to the line, so there are no holes to compare against;
+   * - the simulator did not explicitly refuse it. **`valid === undefined` is unknown, not
+   *   invalid** — `contracts.ts` says as much about personal bests, and the same holds here.
+   *   Disqualifying every lap a simulator declined to comment on would leave most sessions with no
+   *   reference at all, which is worse than measuring against a lap that might have had a wheel
+   *   over a kerb;
+   * - it has a recorded time to be fastest by.
+   *
+   * Pit laps and out laps need no special case. They are slow, so they never win.
+   */
+  referenceLapFor(driverKey: string): LapTrace | null {
+    const entry = this.focus.get(driverKey);
+    if (entry === undefined) {
+      return null;
+    }
+
+    const laps = this.lapHistories[driverKey]?.laps ?? [];
+
+    let best: LapTrace | null = null;
+    let bestMs = Number.POSITIVE_INFINITY;
+
+    for (const record of laps) {
+      if (record.valid === false || record.lapTimeMs === null || record.lapTimeMs === undefined) {
+        continue;
+      }
+
+      const trace = entry.completedLaps.get(record.lapNumber);
+      if (trace === undefined || record.lapTimeMs >= bestMs) {
+        continue;
+      }
+
+      best = trace;
+      bestMs = record.lapTimeMs;
+    }
+
+    return best;
   }
 
   /**

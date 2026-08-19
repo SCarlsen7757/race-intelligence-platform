@@ -3,9 +3,16 @@ import type {
   ExtrasFrameMessage,
   FocusFrameMessage,
   LapHistoryMessage,
+  TowerRow,
   TowerSnapshotMessage,
 } from './contracts';
-import { LiveStore, TraceBuffer, TYRE_SAMPLE_INTERVAL_MS, TYRE_TRACE_CAPACITY } from './store';
+import {
+  LAP_BINS,
+  LiveStore,
+  TraceBuffer,
+  TYRE_SAMPLE_INTERVAL_MS,
+  TYRE_TRACE_CAPACITY,
+} from './store';
 
 /**
  * A store already following the drivers a test is about to push frames for.
@@ -677,5 +684,256 @@ describe('LiveStore', () => {
 
     store.resetLapHistory();
     expect(store.getLapHistories()).toEqual({});
+  });
+});
+
+/** One driver's lap history, as the hub sends it: always a full snapshot, never a delta. */
+function lapHistoryFor(laps: { lapNumber: number; lapTimeMs: number; valid?: boolean }[]) {
+  return {
+    type: 'lapHistory' as const,
+    roomId: 'room',
+    driverKey: 'id:2',
+    truncated: false,
+    laps: laps.map(({ lapNumber, lapTimeMs, valid }) => ({
+      lapNumber,
+      lapTimeMs,
+      sectorMs: [],
+      ...(valid === undefined ? {} : { valid }),
+    })),
+  };
+}
+
+function towerRow(driverKey: string, overrides: Partial<TowerRow> = {}): TowerRow {
+  return {
+    driverKey,
+    displayName: driverKey,
+    currentSectorMs: [],
+    previousSectorMs: [],
+    bestSectorMs: [],
+    pitLaneState: -1,
+    pitStopStatus: -1,
+    finishStatus: 0,
+    tier: 'Self',
+    ...overrides,
+  };
+}
+
+/**
+ * Lap-indexed traces, the reference lap, and the derived series.
+ *
+ * These are what make a delta possible without a track map — the constraint the whole chart backlog
+ * was written under — so most of what is pinned here is the ways a lap can be disqualified from
+ * being a reference. That is where a wrong answer would be invisible rather than obvious: a delta
+ * measured against a bad lap still draws a confident line.
+ */
+describe('LiveStore lap traces', () => {
+  /** Drives one whole lap through the store, a hundred samples of it, at the given lap time. */
+  function driveLap(store: LiveStore, lapNumber: number, lapSeconds: number, startedAt: number) {
+    for (let step = 0; step <= 100; step++) {
+      store.apply(
+        focusFrame({
+          lapNumber,
+          trackPositionFraction: step / 100,
+          simulationTime: startedAt + (step / 100) * lapSeconds,
+        }),
+      );
+    }
+
+    return startedAt + lapSeconds;
+  }
+
+  it('bins a lap by track position and closes it when the lap counter moves', () => {
+    const store = following(['id:2']);
+
+    const ended = driveLap(store, 1, 90, 0);
+    expect(store.currentLapFor('id:2')?.lapNumber).toBe(1);
+
+    store.apply(focusFrame({ lapNumber: 2, trackPositionFraction: 0, simulationTime: ended }));
+
+    expect(store.currentLapFor('id:2')?.lapNumber).toBe(2);
+  });
+
+  it('ignores a fraction that has gone backwards inside a lap', () => {
+    const store = following(['id:2']);
+
+    store.apply(focusFrame({ lapNumber: 1, trackPositionFraction: 0.99, simulationTime: 89 }));
+    // The wrap arriving before the lap counter does. Writing it would leave a lap that is a blend
+    // of two — the last metres of one and the first of the next.
+    store.apply(focusFrame({ lapNumber: 1, trackPositionFraction: 0.01, simulationTime: 90 }));
+
+    expect(store.currentLapFor('id:2')?.elapsedAt(10)).toBeNaN();
+  });
+
+  it('measures against the fastest lap the simulator did not refuse', () => {
+    const store = following(['id:2']);
+
+    let at = driveLap(store, 1, 92, 0);
+    at = driveLap(store, 2, 90, at);
+    driveLap(store, 3, 91, at);
+
+    store.apply(
+      lapHistoryFor([
+        { lapNumber: 1, lapTimeMs: 92_000, valid: true },
+        { lapNumber: 2, lapTimeMs: 90_000, valid: true },
+      ]),
+    );
+
+    expect(store.referenceLapFor('id:2')?.lapNumber).toBe(2);
+  });
+
+  it('refuses a lap the simulator invalidated, but not one it said nothing about', () => {
+    const store = following(['id:2']);
+
+    let at = driveLap(store, 1, 92, 0);
+    at = driveLap(store, 2, 88, at);
+    // A third lap, only so the second one closes. A lap still being driven is not a reference no
+    // matter how fast it is, which is what the completeness rule is for.
+    driveLap(store, 3, 95, at);
+
+    store.apply(
+      lapHistoryFor([
+        { lapNumber: 1, lapTimeMs: 92_000, valid: true },
+        { lapNumber: 2, lapTimeMs: 88_000, valid: false },
+      ]),
+    );
+    expect(store.referenceLapFor('id:2')?.lapNumber).toBe(1);
+
+    // Unknown is not invalid. Refusing every lap a simulator declined to comment on would leave
+    // most sessions with no reference at all, which is worse than the risk it avoids.
+    store.apply(
+      lapHistoryFor([
+        { lapNumber: 1, lapTimeMs: 92_000, valid: true },
+        { lapNumber: 2, lapTimeMs: 88_000 },
+      ]),
+    );
+    expect(store.referenceLapFor('id:2')?.lapNumber).toBe(2);
+  });
+
+  it('never uses a lap that was joined halfway through', () => {
+    const store = following(['id:2']);
+
+    // Watched from a third of the way round — a lap with a hole where its first sector should be.
+    for (let step = 33; step <= 100; step++) {
+      store.apply(
+        focusFrame({ lapNumber: 1, trackPositionFraction: step / 100, simulationTime: step }),
+      );
+    }
+    store.apply(focusFrame({ lapNumber: 2, trackPositionFraction: 0, simulationTime: 101 }));
+
+    store.apply(lapHistoryFor([{ lapNumber: 1, lapTimeMs: 70_000, valid: true }]));
+
+    // Fastest on the timing sheet, and still not a reference: there is nothing to compare the first
+    // third of a lap against.
+    expect(store.referenceLapFor('id:2')).toBeNull();
+  });
+
+  it('reports a delta in seconds gained and lost', () => {
+    const store = following(['id:2']);
+
+    const at = driveLap(store, 1, 90, 0);
+    driveLap(store, 2, 92, at);
+
+    store.apply(lapHistoryFor([{ lapNumber: 1, lapTimeMs: 90_000, valid: true }]));
+
+    const reference = store.referenceLapFor('id:2');
+    const delta = store.currentLapFor('id:2')!.deltaTo(reference!);
+
+    // Two seconds slower over a lap driven evenly slower everywhere, and level at the line.
+    expect(delta[LAP_BINS - 1]).toBeCloseTo(2, 1);
+    expect(delta[0]).toBeCloseTo(0, 5);
+  });
+
+  it('keeps gear and rpm as traces, with an unreported gear as a hole', () => {
+    const store = following(['id:2']);
+
+    store.apply(focusFrame({ gear: 4, engineRpm: 7200 }));
+    store.apply(focusFrame({ gear: null, engineRpm: 7300 }));
+
+    const traces = store.tracesFor('id:2');
+    expect(traces.engineRpm.last()).toBe(7300);
+    // Neutral is a real gear, so an unreported gearbox cannot be drawn as one.
+    expect(traces.gear.last()).toBeNaN();
+  });
+});
+
+describe('LiveStore race timeline and per-lap series', () => {
+  it('derives gap to leader by summing the gaps ahead down the order', () => {
+    const store = new LiveStore(() => 0);
+
+    store.apply({
+      ...tower,
+      drivers: [
+        towerRow('id:1', { position: 1, gapToCarAheadMs: null }),
+        towerRow('id:2', { position: 2, gapToCarAheadMs: 1_500 }),
+        towerRow('id:3', { position: 3, gapToCarAheadMs: 2_500 }),
+      ],
+    });
+
+    expect(store.raceTracesFor('id:1').gapToLeaderSeconds.last()).toBe(0);
+    expect(store.raceTracesFor('id:2').gapToLeaderSeconds.last()).toBeCloseTo(1.5, 5);
+    // Four seconds back, not two and a half: the sum walks down the order.
+    expect(store.raceTracesFor('id:3').gapToLeaderSeconds.last()).toBeCloseTo(4, 5);
+  });
+
+  it('breaks the gap chain rather than guessing past a missing link', () => {
+    const store = new LiveStore(() => 0);
+
+    store.apply({
+      ...tower,
+      drivers: [
+        towerRow('id:1', { position: 1, gapToCarAheadMs: null }),
+        towerRow('id:2', { position: 2, gapToCarAheadMs: null }),
+        towerRow('id:3', { position: 3, gapToCarAheadMs: 2_000 }),
+      ],
+    });
+
+    // Everyone behind an unreported gap is an unknown distance back, and a hole is the honest
+    // drawing of that.
+    expect(store.raceTracesFor('id:2').gapToLeaderSeconds.last()).toBeNaN();
+    expect(store.raceTracesFor('id:3').gapToLeaderSeconds.last()).toBeNaN();
+  });
+
+  it('decimates the race rings by elapsed time, not by snapshot count', () => {
+    const clock = { now: 0 };
+    const store = new LiveStore(() => clock.now);
+    const snapshot = { ...tower, drivers: [towerRow('id:1', { position: 1 })] };
+
+    store.apply(snapshot);
+    for (let i = 0; i < 9; i++) {
+      clock.now += 100;
+      store.apply(snapshot);
+    }
+
+    // Ten snapshots inside one second is one sample. A race lasts hours and the tower arrives ten
+    // times a second; without this the ring would hold four minutes of it.
+    expect(store.raceTracesFor('id:1').position.length).toBe(1);
+  });
+
+  it('derives fuel used per lap, and replaces the summaries rather than mutating them', () => {
+    const store = following(['id:2']);
+
+    store.apply(focusFrame({ lapNumber: 1, trackPositionFraction: 0.9, fuelLeftLiters: 40 }));
+    store.apply(focusFrame({ lapNumber: 2, trackPositionFraction: 0.1, fuelLeftLiters: 37.5 }));
+    store.apply(focusFrame({ lapNumber: 3, trackPositionFraction: 0.1, fuelLeftLiters: 35 }));
+
+    store.apply(
+      lapHistoryFor([
+        { lapNumber: 1, lapTimeMs: 90_000, valid: true },
+        { lapNumber: 2, lapTimeMs: 90_500, valid: true },
+      ]),
+    );
+
+    const before = store.getLapSummaries()['id:2'];
+    expect(before?.[0]?.fuelLeftLiters).toBe(40);
+    // The first lap seen has nothing to subtract from, so its consumption is unknown rather than a
+    // full tank's worth.
+    expect(before?.[0]?.fuelUsedLiters).toBeNull();
+    expect(before?.[1]?.fuelUsedLiters).toBeCloseTo(2.5, 5);
+
+    store.apply(focusFrame({ lapNumber: 4, trackPositionFraction: 0.1, fuelLeftLiters: 32.5 }));
+
+    // Replaced, never mutated: useSyncExternalStore compares by identity, and a mutated array would
+    // never look changed.
+    expect(store.getLapSummaries()['id:2']).not.toBe(before);
   });
 });
