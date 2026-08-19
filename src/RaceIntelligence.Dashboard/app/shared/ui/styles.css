@@ -888,6 +888,50 @@ th.tower__state {
   color: var(--text-muted);
 }
 
+/*
+ * The event timeline: a clock column and a label column, newest at the top.
+ *
+ * Scrolls inside the tile rather than growing it. A race produces a few dozen entries and the tile
+ * is whatever height the user dragged it to — a list that pushed the tile taller would rearrange
+ * somebody's wall every time a flag came out.
+ */
+.event-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  min-height: 0;
+  font-size: 12px;
+}
+
+.event-timeline__row {
+  display: grid;
+  grid-template-columns: minmax(0, 3.5em) minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.event-timeline__at {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Flags and penalties borrow the colours the tower already uses for them, so the same event does
+   not have two identities depending on which tile you read it in. */
+.event-timeline__row--flag .event-timeline__label {
+  color: var(--flag-invalid);
+}
+
+.event-timeline__row--incident .event-timeline__label {
+  color: var(--flag-penalty);
+}
+
+.event-timeline__row--drs .event-timeline__label,
+.event-timeline__row--pushToPass .event-timeline__label {
+  color: var(--flag-pit);
+}
+
 /* Bars above, percentages below, both filling the tile. */
 .pedal-inputs {
   display: flex;

@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
 import type { LapHistoryMessage } from './contracts';
 import type { LiveConnection } from './connection';
-import type { ExtrasSnapshot, LapSummary, LiveStore } from './store';
+import type { ExtrasSnapshot, LapSummary, LiveStore, RaceEvent } from './store';
 
 // A stable empty reference: useSyncExternalStore compares snapshots by identity, and a fresh [] per
 // read would look like a change on every emit and loop.
 const EMPTY_LAP_SUMMARIES: readonly LapSummary[] = [];
+const EMPTY_EVENTS: readonly RaceEvent[] = [];
 
 export interface LiveContextValue {
   store: LiveStore;
@@ -123,6 +124,19 @@ export function useLapSummaries(driverKey: string): readonly LapSummary[] {
     () => store.getLapSummaries()[driverKey] ?? EMPTY_LAP_SUMMARIES,
     [store, driverKey],
   );
+
+  return useStoreSlice(store, read);
+}
+
+/**
+ * One driver's flags, activations and incidents, oldest first.
+ *
+ * React state for the same reason the lap summaries are: a race produces a few dozen of these,
+ * minutes apart.
+ */
+export function useRaceEvents(driverKey: string): readonly RaceEvent[] {
+  const { store } = useLive();
+  const read = useCallback(() => store.getEvents()[driverKey] ?? EMPTY_EVENTS, [store, driverKey]);
 
   return useStoreSlice(store, read);
 }

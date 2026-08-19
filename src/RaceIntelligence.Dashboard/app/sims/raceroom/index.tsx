@@ -7,6 +7,8 @@ import { PedalInputs } from '../../features/focus/PedalInputs';
 import { INPUT_CHANNELS, InputsTrace } from '../../features/focus/InputsTrace';
 import { LapDelta } from '../../features/focus/LapDelta';
 import { FuelPanel } from '../../features/focus/FuelPanel';
+import { EventTimeline } from '../../features/focus/EventTimeline';
+import { SystemsTrend, SYSTEM_WIDGET_CHANNELS } from '../../features/focus/SystemsTrend';
 import { LapTrend } from '../../features/laps/LapTrend';
 import { WHEEL_CHANNELS, WheelTrace } from '../../features/focus/WheelTrace';
 import { ExtrasWheelTrace, type ExtrasWheelChannel } from '../../features/focus/ExtrasWheelTrace';
@@ -180,9 +182,10 @@ function TyreGripPanel(props: ChannelPanelProps) {
  * The three tyre panels plot a stint rather than reading out an instant. The number is still there,
  * as the line's current value — see `WheelTrace` for why the two belong in one panel.
  *
- * The remaining RaceRoom-specific extras the dashboard will eventually want — push-to-pass, DRS,
- * virtual energy, cut-track warnings, tyre subtype, pit menu state — are deliberately absent: none
- * of them is on the live wire yet.
+ * Push-to-pass, DRS and the flags reach the wall as *events* rather than as readouts — see
+ * `EventTimeline` for why a light that blinks and goes out is the wrong shape for all three. What
+ * is still absent is what the live wire genuinely does not carry: cut-track warnings, tyre subtype
+ * and pit menu state.
  *
  * **The pedal trace is registered here despite needing no capability at all.** Throttle, brake and
  * steering are core channels every simulator reports, so it is not RaceRoom's in the way a
@@ -274,6 +277,32 @@ registerSimPanels('raceroom', [
     // room to be a sentence rather than four wrapped fragments.
     defaultSize: { w: 4, h: 4 },
     minSize: { w: 3, h: 3 },
+  },
+  {
+    // No capability. These ride in the extras document rather than the typed wire, like tyre grip
+    // and brake pressure, and there is no `SimCapabilities` flag naming engine health. A car that
+    // reports none of them draws six gaps and six dashes, which is the widget saying so.
+    id: 'systems',
+    title: 'Engine and systems',
+    scope: 'driver',
+    requires: [],
+    channels: SYSTEM_WIDGET_CHANNELS,
+    component: SystemsTrend,
+    defaultSize: { w: 4, h: 6 },
+    minSize: { w: 3, h: 4 },
+  },
+  {
+    // No capability for the same reason, and one more: flags are a property of the session rather
+    // than of the car, so there is nothing a connector could declare that would make them
+    // unavailable while still publishing at all.
+    id: 'events',
+    title: 'Events',
+    scope: 'driver',
+    requires: [],
+    component: EventTimeline,
+    // Narrow and tall. It is a list, and the useful dimension is how many rows fit.
+    defaultSize: { w: 3, h: 6 },
+    minSize: { w: 2, h: 3 },
   },
   {
     id: 'tyre-pressure',

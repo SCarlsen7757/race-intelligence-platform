@@ -6,10 +6,11 @@ import type {
   LiveRoomSummary,
   LiveViewMessage,
   RaceRoomExtras,
+  RaceRoomFlags,
   SessionStateMessage,
   TowerSnapshotMessage,
 } from './contracts';
-import { parseExtras, reportedOrNaN } from './extras';
+import { parseExtras, reportedNumber, reportedOrNaN } from './extras';
 
 /**
  * How many focus frames the trace buffers keep.
@@ -319,6 +320,41 @@ export interface LapSummary {
   valid?: boolean;
 }
 
+/**
+ * How many events one driver's timeline keeps.
+ *
+ * A race generates a few dozen: a handful of flag periods, the push-to-pass activations, the
+ * incidents. Two hundred is far more than any session produces and small enough that the array can
+ * live in React state, which is what a list that changes a few times an hour wants.
+ */
+export const EVENT_LOG_CAPACITY = 200;
+
+/** What happened, as the timeline reads it. */
+export interface RaceEvent {
+  /** Distinct per event, so React has a key that does not shift when the log is trimmed. */
+  id: number;
+  /** When it was noticed, from the extras frame that carried it. */
+  atUtc: string;
+  kind: 'flag' | 'drs' | 'pushToPass' | 'incident';
+  label: string;
+}
+
+/**
+ * The extras fields the timeline watches, and what to call each when it starts.
+ *
+ * Flags are counts rather than booleans in RaceRoom's document, so "raised" means the count went
+ * up — a second yellow while the first is still out is a second event and should read as one.
+ */
+const FLAG_EVENTS = [
+  ['yellow', 'Yellow flag'],
+  ['blue', 'Blue flag'],
+  ['black', 'Black flag'],
+  ['white', 'White flag'],
+  ['checkered', 'Chequered flag'],
+  ['blackAndWhite', 'Black and white flag'],
+  ['green', 'Green flag'],
+] as const satisfies readonly (readonly [keyof RaceRoomFlags, string])[];
+
 /** One extras frame, decoded once. */
 export interface ExtrasSnapshot {
   /** The message as it arrived, still carrying its capture time. */
@@ -577,6 +613,21 @@ export class LiveStore {
    */
   private lapSummaries: Readonly<Record<string, readonly LapSummary[]>> = {};
 
+  /**
+   * What has happened to each driver, in the order it happened.
+   *
+   * React state rather than a ring, for the reason the lap summaries are: a race produces a few
+   * dozen of these and they arrive minutes apart. A flag or an activation is also the one kind of
+   * telemetry that is worthless as an instant — a light that blinks and goes out tells you nothing
+   * about the lap you were watching when it happened.
+   */
+  private events: Readonly<Record<string, readonly RaceEvent[]>> = {};
+
+  /** The counts a transition is measured against, so a standing flag is not raised every second. */
+  private readonly lastEventState = new Map<string, Map<string, number>>();
+
+  private nextEventId = 1;
+
   private readonly listeners = new Set<() => void>();
 
   /**
@@ -604,6 +655,7 @@ export class LiveStore {
   isConnected = (): boolean => this.connected;
   getFocusReadyKeys = (): ReadonlySet<string> => this.focusReadyKeys;
   getLapSummaries = (): Readonly<Record<string, readonly LapSummary[]>> => this.lapSummaries;
+  getEvents = (): Readonly<Record<string, readonly RaceEvent[]>> => this.events;
 
   /**
    * One driver's race timeline, created on demand.
@@ -1194,7 +1246,75 @@ export class LiveStore {
     this.extras = { ...this.extras, [message.driverKey]: { message, document } };
 
     this.pushExtrasSample(this.ensureFocus(message.driverKey), message, document);
+    this.recordEvents(message, document);
     this.emit();
+  }
+
+  /**
+   * Notices what has started since the last document, and writes it to the timeline.
+   *
+   * **Transitions, never states.** Extras arrive about once a second, so recording "a yellow is
+   * out" would write sixty entries a minute for one flag period and bury the two events that
+   * mattered. Every channel here is therefore a counter compared against its previous value, and
+   * only an increase is an event — which also means a second yellow raised while the first still
+   * stands reads as a second event, because the count went up again.
+   *
+   * The counters are held per driver and seeded on the first document rather than from zero. A
+   * viewer joining a session under a yellow should not be told the flag has just come out; the
+   * first document says what is already true, and only what changes afterwards is news.
+   */
+  private recordEvents(message: ExtrasFrameMessage, document: RaceRoomExtras | null): void {
+    if (document === null) {
+      return;
+    }
+
+    let previous = this.lastEventState.get(message.driverKey);
+    const seeding = previous === undefined;
+    if (previous === undefined) {
+      previous = new Map();
+      this.lastEventState.set(message.driverKey, previous);
+    }
+
+    const raised: RaceEvent[] = [];
+
+    const note = (key: string, value: number | null, kind: RaceEvent['kind'], label: string) => {
+      if (value === null) {
+        return;
+      }
+
+      const before = previous.get(key);
+      previous.set(key, value);
+
+      // Seeding is the join-mid-session case: the first document establishes the baseline and
+      // announces nothing, however much of the race it has already missed.
+      if (seeding || before === undefined || value <= before) {
+        return;
+      }
+
+      raised.push({ id: this.nextEventId++, atUtc: message.capturedAtUtc, kind, label });
+    };
+
+    for (const [flag, label] of FLAG_EVENTS) {
+      note(`flag:${flag}`, reportedNumber(document.flags?.[flag]), 'flag', label);
+    }
+
+    // DRS and push-to-pass report engagement as 0 or 1 rather than as a tally, and the same
+    // increase test reads them correctly: 0 → 1 is an activation, and a later 0 → 1 is the next
+    // one. `amountLeft` would have been the obvious counter and is the wrong one — it counts
+    // activations *remaining*, so it falls as they are spent and would never register at all.
+    note('drs', reportedNumber(document.drs?.engaged), 'drs', 'DRS engaged');
+    note('p2p', reportedNumber(document.pushToPass?.engaged), 'pushToPass', 'Push to pass');
+    note('incidents', reportedNumber(document.incidentPoints), 'incident', 'Incident points');
+
+    if (raised.length === 0) {
+      return;
+    }
+
+    const existing = this.events[message.driverKey] ?? [];
+    this.events = {
+      ...this.events,
+      [message.driverKey]: [...existing, ...raised].slice(-EVENT_LOG_CAPACITY),
+    };
   }
 
   /**
