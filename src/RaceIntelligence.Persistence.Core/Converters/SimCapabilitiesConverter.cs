@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RaceIntelligence.Core.Capabilities;
 
-namespace RaceIntelligence.Persistence.Converters;
+namespace RaceIntelligence.Persistence.Core.Converters;
 
 /// <summary>
 /// EF Core value conversion for <see cref="SimCapabilities"/>, a <c>[Flags] ulong</c>, to/from a

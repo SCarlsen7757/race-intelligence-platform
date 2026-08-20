@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using RaceIntelligence.Persistence;
+using RaceIntelligence.Persistence.Core;
 using Testcontainers.PostgreSql;
 
 namespace RaceIntelligence.Persistence.RaceRoom.Tests.Support;

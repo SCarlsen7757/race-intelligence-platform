@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RaceIntelligence.Core.Sessions;
 
-namespace RaceIntelligence.Persistence.Converters;
+namespace RaceIntelligence.Persistence.Core.Converters;
 
 /// <summary>
 /// EF Core value conversions narrowing a Core <see cref="int"/> to the <c>smallint</c> columns that

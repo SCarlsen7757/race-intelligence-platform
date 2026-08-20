@@ -1,4 +1,4 @@
-namespace RaceIntelligence.Persistence.Entities;
+namespace RaceIntelligence.Persistence.Core.Entities;
 
 /// <summary>
 /// A distinct combination of simulator build, telemetry API version, and connector version — the

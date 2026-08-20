@@ -2,7 +2,7 @@ using System.Text.Json;
 using RaceIntelligence.Core.Capabilities;
 using RaceIntelligence.Core.Sessions;
 
-namespace RaceIntelligence.Persistence.Entities;
+namespace RaceIntelligence.Persistence.Core.Entities;
 
 /// <summary>
 /// A single telemetry-collection session: the car, track, simulator build, and capabilities that

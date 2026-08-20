@@ -1,4 +1,4 @@
-namespace RaceIntelligence.Persistence.Entities;
+namespace RaceIntelligence.Persistence.Core.Entities;
 
 /// <summary>A track, scoped to the game it belongs to (track names are only unique per game).</summary>
 public sealed class Track

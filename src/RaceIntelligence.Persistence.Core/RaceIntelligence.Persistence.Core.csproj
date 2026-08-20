@@ -1,18 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <!--
-      The namespace stays `RaceIntelligence.Persistence` while the assembly is `.Core`.
-
-      These are the canonical model's storage types, and they were `RaceIntelligence.Persistence`
-      before the per-simulator split; renaming the namespace would have put a mechanical rename
-      through every consumer in the same commit as the split itself, which is the surest way to
-      make neither reviewable. The `.Core` in the assembly name is what says "this half declares no
-      schema".
-    -->
-    <RootNamespace>RaceIntelligence.Persistence</RootNamespace>
-  </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
   </ItemGroup>

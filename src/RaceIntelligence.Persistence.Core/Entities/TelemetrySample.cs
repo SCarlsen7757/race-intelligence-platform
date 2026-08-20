@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace RaceIntelligence.Persistence.Entities;
+namespace RaceIntelligence.Persistence.Core.Entities;
 
 /// <summary>
 /// A single high-frequency telemetry snapshot. Persisted form of

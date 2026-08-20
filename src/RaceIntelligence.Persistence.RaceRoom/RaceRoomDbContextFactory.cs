@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RaceIntelligence.Persistence.Core;
 using Microsoft.EntityFrameworkCore.Design;
 
 namespace RaceIntelligence.Persistence.RaceRoom;

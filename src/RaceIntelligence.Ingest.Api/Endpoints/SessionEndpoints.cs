@@ -3,10 +3,10 @@ using Microsoft.EntityFrameworkCore;
 using RaceIntelligence.Ingest.Api.Auth;
 using RaceIntelligence.Ingest.Contracts;
 using RaceIntelligence.Ingest.Contracts.Mapping;
-using RaceIntelligence.Persistence;
-using RaceIntelligence.Persistence.Converters;
-using RaceIntelligence.Persistence.Mapping;
-using RaceIntelligence.Persistence.Repositories;
+using RaceIntelligence.Persistence.Core;
+using RaceIntelligence.Persistence.Core.Converters;
+using RaceIntelligence.Persistence.Core.Mapping;
+using RaceIntelligence.Persistence.Core.Repositories;
 using CoreSessions = RaceIntelligence.Core.Sessions;
 
 namespace RaceIntelligence.Ingest.Api.Endpoints;

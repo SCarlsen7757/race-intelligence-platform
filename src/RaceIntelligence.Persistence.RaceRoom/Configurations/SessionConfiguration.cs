@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using RaceIntelligence.Persistence.Converters;
-using RaceIntelligence.Persistence.Entities;
+using RaceIntelligence.Persistence.Core.Converters;
+using RaceIntelligence.Persistence.Core.Entities;
 
 namespace RaceIntelligence.Persistence.RaceRoom.Configurations;
 

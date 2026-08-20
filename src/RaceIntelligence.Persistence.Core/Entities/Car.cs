@@ -1,4 +1,4 @@
-namespace RaceIntelligence.Persistence.Entities;
+namespace RaceIntelligence.Persistence.Core.Entities;
 
 /// <summary>A car, as this simulator identifies it.</summary>
 /// <remarks>

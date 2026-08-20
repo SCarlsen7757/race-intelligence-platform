@@ -25,7 +25,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Car", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Car", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -61,7 +61,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("cars", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.CarClass", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.CarClass", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -80,7 +80,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("car_classes", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Driver", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Driver", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -111,7 +111,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("drivers", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.GameVersion", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.GameVersion", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -146,7 +146,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("game_versions", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Lap", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Lap", b =>
                 {
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid")
@@ -185,7 +185,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("laps", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Manufacturer", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Manufacturer", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -204,7 +204,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("manufacturers", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Session", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Session", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -298,7 +298,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("sessions", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.TelemetrySample", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.TelemetrySample", b =>
                 {
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid")
@@ -405,7 +405,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("telemetry_samples", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Track", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Track", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -424,7 +424,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("tracks", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.TrackLayout", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.TrackLayout", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -451,14 +451,14 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.ToTable("track_layouts", (string)null);
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Car", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Car", b =>
                 {
-                    b.HasOne("RaceIntelligence.Persistence.Entities.CarClass", "CarClass")
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.CarClass", "CarClass")
                         .WithMany("Cars")
                         .HasForeignKey("CarClassId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Manufacturer", "Manufacturer")
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.Manufacturer", "Manufacturer")
                         .WithMany("Cars")
                         .HasForeignKey("ManufacturerId")
                         .OnDelete(DeleteBehavior.Restrict);
@@ -468,9 +468,9 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.Navigation("Manufacturer");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Lap", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Lap", b =>
                 {
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Session", "Session")
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.Session", "Session")
                         .WithMany("Laps")
                         .HasForeignKey("SessionId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -479,25 +479,25 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.Navigation("Session");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Session", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Session", b =>
                 {
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Car", "Car")
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.Car", "Car")
                         .WithMany("Sessions")
                         .HasForeignKey("CarId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Driver", "Driver")
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.Driver", "Driver")
                         .WithMany("Sessions")
                         .HasForeignKey("DriverId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("RaceIntelligence.Persistence.Entities.GameVersion", "GameVersion")
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.GameVersion", "GameVersion")
                         .WithMany("Sessions")
                         .HasForeignKey("GameVersionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("RaceIntelligence.Persistence.Entities.TrackLayout", "TrackLayout")
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.TrackLayout", "TrackLayout")
                         .WithMany("Sessions")
                         .HasForeignKey("TrackLayoutId")
                         .OnDelete(DeleteBehavior.Restrict);
@@ -511,9 +511,9 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.Navigation("TrackLayout");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.TelemetrySample", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.TelemetrySample", b =>
                 {
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Session", "Session")
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.Session", "Session")
                         .WithMany("TelemetrySamples")
                         .HasForeignKey("SessionId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -522,9 +522,9 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.Navigation("Session");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.TrackLayout", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.TrackLayout", b =>
                 {
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Track", "Track")
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.Track", "Track")
                         .WithMany("Layouts")
                         .HasForeignKey("TrackId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -533,44 +533,44 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.Navigation("Track");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Car", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Car", b =>
                 {
                     b.Navigation("Sessions");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.CarClass", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.CarClass", b =>
                 {
                     b.Navigation("Cars");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Driver", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Driver", b =>
                 {
                     b.Navigation("Sessions");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.GameVersion", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.GameVersion", b =>
                 {
                     b.Navigation("Sessions");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Manufacturer", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Manufacturer", b =>
                 {
                     b.Navigation("Cars");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Session", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Session", b =>
                 {
                     b.Navigation("Laps");
 
                     b.Navigation("TelemetrySamples");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Track", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Track", b =>
                 {
                     b.Navigation("Layouts");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.TrackLayout", b =>
+            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.TrackLayout", b =>
                 {
                     b.Navigation("Sessions");
                 });

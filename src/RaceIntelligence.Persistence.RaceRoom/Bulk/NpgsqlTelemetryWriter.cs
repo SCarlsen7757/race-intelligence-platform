@@ -1,8 +1,8 @@
 using Npgsql;
-using RaceIntelligence.Persistence.Bulk;
+using RaceIntelligence.Persistence.Core.Bulk;
 using NpgsqlTypes;
-using RaceIntelligence.Persistence.Converters;
-using RaceIntelligence.Persistence.Mapping;
+using RaceIntelligence.Persistence.Core.Converters;
+using RaceIntelligence.Persistence.Core.Mapping;
 using CoreTelemetry = RaceIntelligence.Core.Telemetry;
 
 namespace RaceIntelligence.Persistence.RaceRoom.Bulk;

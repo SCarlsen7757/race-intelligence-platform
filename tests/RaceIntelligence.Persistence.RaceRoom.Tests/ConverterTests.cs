@@ -1,6 +1,6 @@
 using System.Text.Json;
 using RaceIntelligence.Core.Capabilities;
-using RaceIntelligence.Persistence.Converters;
+using RaceIntelligence.Persistence.Core.Converters;
 using Shouldly;
 
 namespace RaceIntelligence.Persistence.RaceRoom.Tests;

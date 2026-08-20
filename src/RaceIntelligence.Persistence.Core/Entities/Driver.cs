@@ -1,4 +1,4 @@
-namespace RaceIntelligence.Persistence.Entities;
+namespace RaceIntelligence.Persistence.Core.Entities;
 
 /// <summary>A driver a session can be attributed to.</summary>
 /// <remarks>

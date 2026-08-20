@@ -1,4 +1,4 @@
-namespace RaceIntelligence.Persistence.Entities;
+namespace RaceIntelligence.Persistence.Core.Entities;
 
 /// <summary>A specific layout/configuration of a <see cref="Track"/> (e.g. "Grand Prix", "National").</summary>
 public sealed class TrackLayout

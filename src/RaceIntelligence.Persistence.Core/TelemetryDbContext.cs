@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using RaceIntelligence.Persistence.Entities;
+using RaceIntelligence.Persistence.Core.Entities;
 
-namespace RaceIntelligence.Persistence;
+namespace RaceIntelligence.Persistence.Core;
 
 /// <summary>
 /// The canonical telemetry model's shape, with no schema attached.

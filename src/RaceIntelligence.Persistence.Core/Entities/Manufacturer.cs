@@ -1,4 +1,4 @@
-namespace RaceIntelligence.Persistence.Entities;
+namespace RaceIntelligence.Persistence.Core.Entities;
 
 /// <summary>A car manufacturer, shared reference data across all games.</summary>
 public sealed class Manufacturer

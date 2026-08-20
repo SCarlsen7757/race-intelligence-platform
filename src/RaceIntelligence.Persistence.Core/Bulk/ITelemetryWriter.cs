@@ -1,6 +1,6 @@
 using RaceIntelligence.Core.Telemetry;
 
-namespace RaceIntelligence.Persistence.Bulk;
+namespace RaceIntelligence.Persistence.Core.Bulk;
 
 /// <summary>
 /// Writes raw telemetry into one simulator's store.

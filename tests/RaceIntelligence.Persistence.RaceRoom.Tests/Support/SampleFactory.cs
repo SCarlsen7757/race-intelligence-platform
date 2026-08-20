@@ -3,7 +3,7 @@ using RaceIntelligence.Core.Capabilities;
 using RaceIntelligence.Core.Games;
 using RaceIntelligence.Core.Sessions;
 using RaceIntelligence.Core.Telemetry;
-using RaceIntelligence.Persistence.Repositories;
+using RaceIntelligence.Persistence.Core.Repositories;
 
 namespace RaceIntelligence.Persistence.RaceRoom.Tests.Support;
 
@@ -46,7 +46,7 @@ internal static class SampleFactory
         var repo = new GameVersionRepository(db);
         var version = await repo.ResolveOrCreateAsync(UniqueGameVersion()).ConfigureAwait(false);
 
-        var session = new RaceIntelligence.Persistence.Entities.Session
+        var session = new RaceIntelligence.Persistence.Core.Entities.Session
         {
             Id = Guid.CreateVersion7(),
             GameVersionId = version.Id,

@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using RaceIntelligence.Core.Games;
-using RaceIntelligence.Persistence.Entities;
+using RaceIntelligence.Persistence.Core.Entities;
 
-namespace RaceIntelligence.Persistence.Repositories;
+namespace RaceIntelligence.Persistence.Core.Repositories;
 
 /// <summary>
 /// Idempotent resolve-or-create access to <c>game_versions</c> from a Core

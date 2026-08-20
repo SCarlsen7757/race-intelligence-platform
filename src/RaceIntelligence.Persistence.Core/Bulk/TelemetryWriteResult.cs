@@ -1,4 +1,4 @@
-namespace RaceIntelligence.Persistence.Bulk;
+namespace RaceIntelligence.Persistence.Core.Bulk;
 
 /// <summary>The outcome of a bulk telemetry write. See <see cref="ITelemetryWriter.WriteAsync"/>.</summary>
 /// <param name="Inserted">Number of samples actually inserted as new rows.</param>

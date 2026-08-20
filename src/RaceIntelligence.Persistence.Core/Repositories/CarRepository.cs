@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using RaceIntelligence.Persistence.Entities;
+using RaceIntelligence.Persistence.Core.Entities;
 
-namespace RaceIntelligence.Persistence.Repositories;
+namespace RaceIntelligence.Persistence.Core.Repositories;
 
 /// <summary>Idempotent resolve-or-create access to <c>manufacturers</c>, <c>car_classes</c>, and <c>cars</c>. See <see cref="ResolveOrCreate"/>.</summary>
 /// <param name="db">The context to resolve/create through.</param>

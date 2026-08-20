@@ -1,11 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using RaceIntelligence.Ingest.Api.Endpoints;
-using RaceIntelligence.Persistence;
-using RaceIntelligence.Persistence.Bulk;
+using RaceIntelligence.Persistence.Core;
+using RaceIntelligence.Persistence.Core.Bulk;
 using RaceIntelligence.Persistence.RaceRoom;
 using RaceIntelligence.Persistence.RaceRoom.Bulk;
-using RaceIntelligence.Persistence.Repositories;
+using RaceIntelligence.Persistence.Core.Repositories;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);

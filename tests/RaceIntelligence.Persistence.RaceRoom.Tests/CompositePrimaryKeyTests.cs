@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using RaceIntelligence.Persistence.Entities;
-using RaceIntelligence.Persistence.Mapping;
+using RaceIntelligence.Persistence.Core.Entities;
+using RaceIntelligence.Persistence.Core.Mapping;
 using RaceIntelligence.Persistence.RaceRoom.Tests.Support;
 using Shouldly;
 

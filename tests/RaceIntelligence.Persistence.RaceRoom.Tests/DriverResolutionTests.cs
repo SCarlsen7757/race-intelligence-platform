@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using RaceIntelligence.Persistence.Repositories;
+using RaceIntelligence.Persistence.Core.Repositories;
 using RaceIntelligence.Persistence.RaceRoom.Tests.Support;
 using Shouldly;
 

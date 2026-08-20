@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
-namespace RaceIntelligence.Persistence.Repositories;
+namespace RaceIntelligence.Persistence.Core.Repositories;
 
 /// <summary>
 /// Shared helper for the resolve-or-create pattern: attempt an insert, and if a concurrent caller

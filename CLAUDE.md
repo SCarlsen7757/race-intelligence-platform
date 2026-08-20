@@ -53,6 +53,10 @@ Rules:
   its own because it must outlive any one simulator's store (ADR 0002).
   `tools/update-graph.py` knows about both — see `STORES` there — so a second simulator means
   adding its project and dump to that list rather than teaching the script a special case.
+- **Every project's namespace matches its assembly name**, with no `RootNamespace` overrides. A
+  `using` should say which assembly a type came from; the split briefly had `Persistence.Core`
+  shipping code that called itself `RaceIntelligence.Persistence`, which named a project that no
+  longer exists.
 - **`src/RaceIntelligence.Persistence.Core` declares no schema, and must not start.** It owns the
   entity types, converters, mappers and repositories; a simulator owns the `ToTable` calls and the
   migrations. `SchemaOwnershipTests` asserts this rather than trusting it, because a configuration

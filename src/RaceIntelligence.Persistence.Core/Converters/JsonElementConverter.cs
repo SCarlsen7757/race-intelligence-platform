@@ -2,7 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
-namespace RaceIntelligence.Persistence.Converters;
+namespace RaceIntelligence.Persistence.Core.Converters;
 
 /// <summary>
 /// Shared EF Core value conversion for <see cref="JsonElement"/>-shaped columns (jsonb).

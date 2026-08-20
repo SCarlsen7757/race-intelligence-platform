@@ -1,4 +1,4 @@
-﻿using RaceIntelligence.Persistence.Mapping;
+﻿using RaceIntelligence.Persistence.Core.Mapping;
 using RaceIntelligence.Persistence.RaceRoom.Tests.Support;
 using Shouldly;
 
@@ -6,7 +6,7 @@ namespace RaceIntelligence.Persistence.RaceRoom.Tests;
 
 /// <summary>
 /// Regression coverage for the explicit <c>ValueComparer&lt;JsonElement&gt;</c> documented on
-/// <see cref="RaceIntelligence.Persistence.Converters.JsonElementConverter"/>: without it, every
+/// <see cref="RaceIntelligence.Persistence.Core.Converters.JsonElementConverter"/>: without it, every
 /// jsonb-backed property looks permanently modified because each materialization produces a new
 /// <see cref="System.Text.Json.JsonElement"/> instance.
 /// </summary>

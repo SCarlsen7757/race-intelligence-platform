@@ -1,6 +1,6 @@
 using System.Text.Json;
 using RaceIntelligence.Core.Telemetry;
-using RaceIntelligence.Persistence.Mapping;
+using RaceIntelligence.Persistence.Core.Mapping;
 using RaceIntelligence.Persistence.RaceRoom.Tests.Support;
 using Shouldly;
 

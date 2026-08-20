@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using RaceIntelligence.Persistence.Entities;
+using RaceIntelligence.Persistence.Core.Entities;
 
-namespace RaceIntelligence.Persistence.Repositories;
+namespace RaceIntelligence.Persistence.Core.Repositories;
 
 /// <summary>Resolve-or-create access to <c>drivers</c>, by the sim's own driver id where there is one.</summary>
 /// <remarks>

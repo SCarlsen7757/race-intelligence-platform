@@ -1,7 +1,7 @@
 using System.Text.Json;
 using CoreSessions = RaceIntelligence.Core.Sessions;
 
-namespace RaceIntelligence.Persistence.Mapping;
+namespace RaceIntelligence.Persistence.Core.Mapping;
 
 /// <summary>Maps the canonical <see cref="CoreSessions.SessionInfo"/> and <see cref="CoreSessions.LapInfo"/> to their persisted row shapes.</summary>
 public static class SessionMapper

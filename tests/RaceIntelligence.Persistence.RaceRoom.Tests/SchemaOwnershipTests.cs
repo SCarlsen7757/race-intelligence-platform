@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RaceIntelligence.Persistence.Core;
 using Shouldly;
 
 namespace RaceIntelligence.Persistence.RaceRoom.Tests;

@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace RaceIntelligence.Persistence.Repositories;
+namespace RaceIntelligence.Persistence.Core.Repositories;
 
 /// <summary>
 /// The resolve-or-create body every reference-data repository in this namespace shares: look the row

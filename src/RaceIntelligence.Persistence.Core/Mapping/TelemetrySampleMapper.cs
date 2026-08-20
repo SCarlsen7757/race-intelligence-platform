@@ -1,7 +1,7 @@
 using System.Text.Json;
 using CoreTelemetry = RaceIntelligence.Core.Telemetry;
 
-namespace RaceIntelligence.Persistence.Mapping;
+namespace RaceIntelligence.Persistence.Core.Mapping;
 
 /// <summary>Maps the canonical <see cref="CoreTelemetry.TelemetrySample"/> to its persisted row shape.</summary>
 /// <remarks>

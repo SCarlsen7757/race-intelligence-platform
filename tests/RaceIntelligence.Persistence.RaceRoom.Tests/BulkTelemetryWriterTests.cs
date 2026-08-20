@@ -1,8 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using RaceIntelligence.Core.Telemetry;
-using RaceIntelligence.Persistence.Bulk;
+using RaceIntelligence.Persistence.Core.Bulk;
 using RaceIntelligence.Persistence.RaceRoom.Bulk;
-using RaceIntelligence.Persistence.Mapping;
+using RaceIntelligence.Persistence.Core.Mapping;
 using RaceIntelligence.Persistence.RaceRoom.Tests.Support;
 using Shouldly;
 
@@ -91,7 +91,7 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
 
     /// <summary>
     /// The binary <c>COPY</c> path builds its row without going through
-    /// <see cref="RaceIntelligence.Persistence.Mapping.TelemetrySampleMapper.ToEntity"/>, so nothing
+    /// <see cref="RaceIntelligence.Persistence.Core.Mapping.TelemetrySampleMapper.ToEntity"/>, so nothing
     /// but a column-by-column comparison against the EF path proves the two still agree.
     /// </summary>
     [Fact]
