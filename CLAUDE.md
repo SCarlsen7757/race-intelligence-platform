@@ -47,14 +47,21 @@ Rules:
 - After modifying code, run `python tools/update-graph.py` to keep the graph current (AST-only, no
   API cost). Use it rather than `graphify update .` directly: it runs that, then restores the
   entity-to-table links that the rebuild drops (see below). `--no-update` relinks without rebuilding.
+- **There is more than one database.** The telemetry store is `src/RaceIntelligence.Persistence`
+  with `docs/schema.sql`; the cross-simulator identity registry is `src/RaceIntelligence.Identity`
+  with `docs/identity-schema.sql`, and it has its own because it must outlive any one simulator's
+  store (ADR 0002). `tools/update-graph.py` knows about both — see `STORES` there — so adding a
+  third means adding it to that list rather than teaching the script a special case.
 - The database schema reaches the graph through `docs/schema.sql`, a generated DDL dump of the EF
   Core migrations — the tables and their foreign keys are real nodes, so no database has to be
   running. After adding a migration, regenerate it in the same commit:
   `dotnet ef migrations script --project src/RaceIntelligence.Persistence --output docs/schema.sql`
+  and, for the registry:
+  `dotnet ef migrations script --project src/RaceIntelligence.Identity --output docs/identity-schema.sql`
   Otherwise the graph keeps describing the previous schema.
 - The C# and SQL extractors do not know they describe the same tables, so a bare `graphify update .`
   leaves the entity configurations and the schema unconnected, and drops any previous links.
   `tools/update-graph.py` restores them, reading each mapping off the `builder.ToTable("...")` call
   that declares it — which is why it is the command to run rather than graphify directly. It exits
-  non-zero when a configuration maps to a table the graph does not have, meaning docs/schema.sql is
+  non-zero when a configuration maps to a table the graph does not have, naming which schema dump is
   stale.

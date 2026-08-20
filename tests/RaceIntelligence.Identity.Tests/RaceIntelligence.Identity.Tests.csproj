@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Same reason as the persistence suite: threading TestContext.Current.CancellationToken
+         through every EF Core call in an integration suite is churn for no responsiveness gain,
+         where the container and query calls are already bounded. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RaceIntelligence.Identity\RaceIntelligence.Identity.csproj" />
+  </ItemGroup>
+
+</Project>

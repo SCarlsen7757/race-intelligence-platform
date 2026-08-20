@@ -18,8 +18,12 @@ extractors, which know nothing about this join, and so drops the links every tim
 
 Re-running is safe: existing links are replaced rather than duplicated.
 
-Exits non-zero if a configuration names a table that is absent from the graph, which means
-docs/schema.sql is stale -- regenerate it with `dotnet ef migrations script` (see CLAUDE.md).
+Every database gets this treatment, not just the telemetry store: see STORES. The identity registry
+has a schema dump of its own because it has a database of its own (ADR 0002), and its tables land
+under their own node prefix.
+
+Exits non-zero if a configuration names a table that is absent from the graph, which means that
+store's schema dump is stale -- regenerate it with `dotnet ef migrations script` (see CLAUDE.md).
 
     --no-update   skip `graphify update .` and only relink an existing graph
 """
@@ -35,7 +39,51 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 GRAPH = REPO / "graphify-out" / "graph.json"
-CONFIG_DIR = REPO / "src" / "RaceIntelligence.Persistence" / "Configurations"
+
+
+class Store:
+    """One database: where its EF configurations live, and which DDL dump describes it.
+
+    There is more than one because storage is not one database. The telemetry store is the
+    simulator's, and the identity registry deliberately has its own so that it outlives any one of
+    them (ADR 0002). They are extracted from separate schema dumps and their tables therefore land
+    under separate node prefixes, so the join has to know which dump a configuration belongs to
+    rather than assuming there is only one.
+    """
+
+    def __init__(self, project: str, schema: str) -> None:
+        self.project = project
+        self.config_dir = REPO / "src" / project / "Configurations"
+        self.schema = schema
+        # graphify names a SQL node after the file that declared it, so `docs/schema.sql` gives
+        # `docs_schema_<table>` and `docs/identity-schema.sql` gives `docs_identity_schema_<table>`.
+        self.table_prefix = re.sub(r"[^a-z0-9]+", "_", schema.lower().removesuffix(".sql"))
+        self.namespace = f"{project.lower().replace('.', '_')}_configurations"
+
+    def config_node_id(self, stem: str) -> str:
+        """Node id graphify's C# extractor gives the configuration class in `stem`.cs."""
+        lower = stem.lower()
+        return (
+            f"src_{self.project.lower().replace('.', '_')}_configurations_{lower}"
+            f"_{self.namespace}_{lower}"
+        )
+
+    def table_node_id(self, table: str) -> str:
+        """Node id graphify's SQL extractor gives a table declared in this store's DDL dump."""
+        return f"{self.table_prefix}_{re.sub(r'[^a-z0-9]+', '_', table.lower())}"
+
+    @property
+    def script_command(self) -> str:
+        return (
+            f"  dotnet ef migrations script --project src/{self.project} "
+            f"--output {self.schema}"
+        )
+
+
+STORES = [
+    Store("RaceIntelligence.Persistence", "docs/schema.sql"),
+    Store("RaceIntelligence.Identity", "docs/identity-schema.sql"),
+]
 
 # `builder.ToTable("sessions");` -- the only form used in this repo. A schema-qualified or
 # variable-named overload would not match, and is reported as unmapped rather than guessed at.
@@ -43,20 +91,6 @@ TO_TABLE = re.compile(r'\.ToTable\(\s*"([^"]+)"', re.MULTILINE)
 
 RELATION = "implements"
 MARKER = "ef-table-mapping"
-
-
-def config_node_id(stem: str) -> str:
-    """Node id graphify's C# extractor gives the configuration class in `stem`.cs."""
-    lower = stem.lower()
-    return (
-        f"src_raceintelligence_persistence_configurations_{lower}"
-        f"_raceintelligence_persistence_configurations_{lower}"
-    )
-
-
-def table_node_id(table: str) -> str:
-    """Node id graphify's SQL extractor gives a table declared in docs/schema.sql."""
-    return f"docs_schema_{re.sub(r'[^a-z0-9]+', '_', table.lower())}"
 
 
 def run_graphify_update() -> int:
@@ -89,26 +123,33 @@ def main() -> int:
     edge_key = "links" if "links" in graph else "edges"
     node_ids = {n["id"] for n in graph["nodes"]}
 
-    mappings: list[tuple[str, str]] = []
-    for path in sorted(CONFIG_DIR.glob("*Configuration.cs")):
-        for table in TO_TABLE.findall(path.read_text(encoding="utf-8")):
-            mappings.append((path.stem, table))
+    mappings: list[tuple[Store, str, str]] = []
+    for store in STORES:
+        found = False
+        for path in sorted(store.config_dir.glob("*Configuration.cs")):
+            for table in TO_TABLE.findall(path.read_text(encoding="utf-8")):
+                mappings.append((store, path.stem, table))
+                found = True
 
-    if not mappings:
-        print(f"error: no ToTable(\"...\") calls found under {CONFIG_DIR}", file=sys.stderr)
-        return 1
+        if not found:
+            print(
+                f"error: no ToTable(\"...\") calls found under {store.config_dir}",
+                file=sys.stderr,
+            )
+            return 1
 
     # Drop any links from a previous run so re-running replaces rather than accumulates.
     graph[edge_key] = [e for e in graph[edge_key] if e.get("origin") != MARKER]
 
-    added, missing = 0, []
-    for stem, table in mappings:
-        source, target = config_node_id(stem), table_node_id(table)
+    added = 0
+    missing: list[tuple[Store, str]] = []
+    for store, stem, table in mappings:
+        source, target = store.config_node_id(stem), store.table_node_id(table)
         if source not in node_ids:
-            missing.append(f"{stem} (configuration class absent from graph)")
+            missing.append((store, f"{stem} (configuration class absent from graph)"))
             continue
         if target not in node_ids:
-            missing.append(f'{stem} -> "{table}" (table absent from graph)')
+            missing.append((store, f'{stem} -> "{table}" (absent from {store.schema})'))
             continue
         graph[edge_key].append(
             {
@@ -117,7 +158,7 @@ def main() -> int:
                 "relation": RELATION,
                 "confidence": "EXTRACTED",
                 "confidence_score": 1.0,
-                "source_file": f"src/RaceIntelligence.Persistence/Configurations/{stem}.cs",
+                "source_file": f"src/{store.project}/Configurations/{stem}.cs",
                 "source_location": None,
                 "weight": 1.0,
                 "origin": MARKER,

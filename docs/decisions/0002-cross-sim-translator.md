@@ -1,6 +1,9 @@
 # 0002 — The cross-simulator translator
 
-**Status:** Accepted, not yet implemented. Design only.
+**Status:** Accepted. **§1, the driver-identity registry, is built** — `person` and
+`person_sim_alias` in their own database (`src/RaceIntelligence.Identity`), with a service in front
+of them for the hand-curation. **The translator itself is not**: §2 raw codes, §3 sentinels and §4
+units remain design only, and nothing yet writes an analysis store.
 **Exists because of:** [0001 — per-simulator storage](0001-per-sim-storage.md). Splitting storage
 per simulator removes the one thing that made cross-simulator comparison possible. This is the
 replacement, and it is a deliverable rather than an aspiration: without it, 0001 is a net loss.
@@ -32,7 +35,7 @@ derived and disposable, and can always be rebuilt from history.
 
 ## The four things it must get right
 
-### 1. Driver identity — the shared state that must exist
+### 1. Driver identity — the shared state that must exist *(built)*
 
 This is the only piece of genuinely shared, hand-curated state in the whole platform, and the only
 part of 0001 that cannot be per-simulator.

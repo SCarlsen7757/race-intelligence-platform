@@ -18,8 +18,9 @@ reads a Windows named shared-memory block that only exists while the game is run
 
 ## Option A — the whole stack locally (Aspire)
 
-Runs PostgreSQL, the ingest API and the collector together on this one machine. Use this when you're
-developing the pipeline itself and want to see telemetry land in a database.
+Runs PostgreSQL, the ingest API, the identity registry and the collector together on this one
+machine. Use this when you're developing the pipeline itself and want to see telemetry land in a
+database.
 
 ```powershell
 # One-time: set the shared secret the collector and API both use.
@@ -29,6 +30,11 @@ dotnet user-secrets set "Parameters:ingest-api-key" "dev-local-only-key" --proje
 # the ingest one on purpose — the two guard services with different exposure, and the hub is the one
 # meant to be reachable through a tunnel.
 dotnet user-secrets set "Parameters:live-api-key" "dev-local-only-key" --project src/RaceIntelligence.AppHost
+
+# One-time: the secret guarding the cross-simulator identity registry. A third key, on the same
+# argument as the second: it guards the only hand-curated state in the platform, which is a reason
+# to keep it apart rather than to economise on keys.
+dotnet user-secrets set "Parameters:identity-api-key" "dev-local-only-key" --project src/RaceIntelligence.AppHost
 
 # One-time: fix the local Postgres password so it doesn't regenerate on every run — otherwise any
 # external tool (DataGrip, psql, ...) has to be reconfigured each time you restart AppHost.

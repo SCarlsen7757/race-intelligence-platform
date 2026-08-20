@@ -683,8 +683,9 @@ work can start before multi-simulator support is finished, and probably will.
 - Collector plugin host: the collect loop dispatches, plugins deliver *(built)*
 - Per-sim storage images and the translator layer that restores cross-sim comparison *(designed —
   [0001](decisions/0001-per-sim-storage.md), [0002](decisions/0002-cross-sim-translator.md))*
-- The cross-simulator identity registry, which must exist **before** the second simulator's database
-  rather than after it
+- The cross-simulator identity registry, which had to exist **before** the second simulator's
+  database rather than after it *(built — `person` and `person_sim_alias` in their own database,
+  with a small service for the hand-curation; [0002 §1](decisions/0002-cross-sim-translator.md))*
 
 ### In progress — the live dashboard
 

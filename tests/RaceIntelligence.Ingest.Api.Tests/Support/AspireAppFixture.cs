@@ -32,6 +32,16 @@ public sealed class AspireAppFixture : IAsyncLifetime
     /// <summary>The password configured for the <c>postgres-password</c> AppHost parameter in this test run.</summary>
     public const string PostgresPassword = "test-fixture-postgres-password";
 
+    /// <summary>
+    /// The API key configured for the <c>identity-api-key</c> AppHost parameter in this test run.
+    /// </summary>
+    /// <remarks>
+    /// Every secret parameter the AppHost declares has to be answered here. A parameter left unset
+    /// does not fail loudly — it prompts for a value, which in a test run means hanging until the
+    /// timeout and then reporting something that looks nothing like "you added a parameter".
+    /// </remarks>
+    public const string IdentityApiKey = "test-fixture-identity-api-key";
+
     private DistributedApplication? _app;
 
     /// <summary><see langword="true"/> once the AppHost graph started successfully.</summary>
@@ -42,6 +52,9 @@ public sealed class AspireAppFixture : IAsyncLifetime
 
     /// <summary>An <see cref="HttpClient"/> pointed at the running ingest API's plaintext HTTP endpoint, resolved via Aspire service discovery. Only valid when <see cref="IsAvailable"/>.</summary>
     public HttpClient ApiClient { get; private set; } = null!;
+
+    /// <summary>An <see cref="HttpClient"/> pointed at the running identity registry's plaintext HTTP endpoint. Only valid when <see cref="IsAvailable"/>.</summary>
+    public HttpClient IdentityClient { get; private set; } = null!;
 
     /// <summary>
     /// The connection string for the named AppHost resource — <c>raceintel</c> being the Postgres
@@ -77,6 +90,7 @@ public sealed class AspireAppFixture : IAsyncLifetime
                 args: ["--RaceIntelligence:IsIntegrationTest=true"]);
             appHost.Configuration["Parameters:ingest-api-key"] = ApiKey;
             appHost.Configuration["Parameters:postgres-password"] = PostgresPassword;
+            appHost.Configuration["Parameters:identity-api-key"] = IdentityApiKey;
 
             appHost.Services.ConfigureHttpClientDefaults(http => http.AddStandardResilienceHandler());
 
@@ -86,6 +100,11 @@ public sealed class AspireAppFixture : IAsyncLifetime
             var notifications = _app.Services.GetRequiredService<ResourceNotificationService>();
             await notifications
                 .WaitForResourceAsync("ingest-api", KnownResourceStates.Running)
+                .WaitAsync(TimeSpan.FromMinutes(3))
+                .ConfigureAwait(false);
+
+            await notifications
+                .WaitForResourceAsync("identity-api", KnownResourceStates.Running)
                 .WaitAsync(TimeSpan.FromMinutes(3))
                 .ConfigureAwait(false);
 
@@ -103,6 +122,7 @@ public sealed class AspireAppFixture : IAsyncLifetime
             // middleware, and transport security in production is the reverse proxy's job, not
             // Kestrel's dev certificate.
             ApiClient = _app.CreateHttpClient("ingest-api", "http");
+            IdentityClient = _app.CreateHttpClient("identity-api", "http");
             IsAvailable = true;
         }
         catch (Exception ex)
