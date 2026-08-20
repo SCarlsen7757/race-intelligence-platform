@@ -78,11 +78,11 @@ Two things, both in `app/sims/`:
 
 Three, and the choice is about how fast the data moves, not about taste:
 
-| The data | How it draws | Example |
-| --- | --- | --- |
-| a series at frame rate | `LiveChart` | `InputsTrace`, the tyre traces |
-| at frame rate, but not a series | render once, write from a rAF loop | `TyreHeatmap`, `LiveReadout` |
-| once a lap or slower | plain React | `LapTrend`, `FuelPanel` |
+| The data                        | How it draws                       | Example                        |
+| ------------------------------- | ---------------------------------- | ------------------------------ |
+| a series at frame rate          | `LiveChart`                        | `InputsTrace`, the tyre traces |
+| at frame rate, but not a series | render once, write from a rAF loop | `TyreHeatmap`, `LiveReadout`   |
+| once a lap or slower            | plain React                        | `LapTrend`, `FuelPanel`        |
 
 Reaching for `LiveChart` for the third case would be machinery for a shape the data does not have;
 reaching for plain React for the first two is the mistake the next section exists to prevent.
@@ -122,11 +122,11 @@ laptop well before it does on a desktop.
 
 Three channels arrive, and which one a value travels on is decided by how fast it actually changes:
 
-| Channel | Rate | Carries |
-| --- | --- | --- |
-| focus frame | collector poll rate | pedals, steering, speed, gear, RPM, fuel, brake pressure, assists |
-| stint frame | ~1 Hz, typed | tyre pressure, wear, tread temperatures and their operating window |
-| extras | ~1 Hz, the connector's own JSON | brake temperature, tyre grip and load, engine health, energy, flags, DRS, push-to-pass |
+| Channel     | Rate                            | Carries                                                                                |
+| ----------- | ------------------------------- | -------------------------------------------------------------------------------------- |
+| focus frame | collector poll rate             | pedals, steering, speed, gear, RPM, fuel, brake pressure, assists                      |
+| stint frame | ~1 Hz, typed                    | tyre pressure, wear, tread temperatures and their operating window                     |
+| extras      | ~1 Hz, the connector's own JSON | brake temperature, tyre grip and load, engine health, energy, flags, DRS, push-to-pass |
 
 Tyre channels are on their own frame because they are read over a stint: on the fast frame,
 fifty-nine of every sixty samples were serialised, sent, decoded and then dropped by the client's
