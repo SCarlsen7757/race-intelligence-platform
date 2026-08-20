@@ -27,6 +27,15 @@ builder.Services.AddProblemDetails();
 var connectionString = builder.Configuration.GetConnectionString("raceintel")
     ?? throw new InvalidOperationException("Connection string 'raceintel' is not configured.");
 
+// Which simulator this database holds. One per simulator now (ADR 0001), so this is not optional
+// and there is no sensible default: an ingest API with no simulator configured cannot tell a post
+// it should store from one it should refuse, and "accept anything" is precisely the silent mixing
+// the split was made to prevent. Failing at startup makes a misconfigured deployment obvious on
+// the first run rather than after a week of merged cars and drivers.
+_ = builder.Configuration["Ingest:GameKey"]
+    ?? throw new InvalidOperationException(
+        "'Ingest:GameKey' is not configured. Each ingest API serves exactly one simulator; set it to that simulator's game key (e.g. 'raceroom').");
+
 builder.Services.AddDbContext<RaceIntelligenceDbContext>(options => options.UseNpgsql(connectionString));
 
 // NpgsqlDataSource is the bulk telemetry writer's own connection source, kept separate from the
@@ -34,7 +43,7 @@ builder.Services.AddDbContext<RaceIntelligenceDbContext>(options => options.UseN
 builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
 builder.Services.AddScoped<NpgsqlTelemetryWriter>();
 
-builder.Services.AddScoped<GameRepository>();
+builder.Services.AddScoped<GameVersionRepository>();
 builder.Services.AddScoped<TrackRepository>();
 builder.Services.AddScoped<CarRepository>();
 builder.Services.AddScoped<DriverRepository>();

@@ -18,11 +18,6 @@ public sealed class GameVersion
     /// <summary>Primary key. Generated in application code via <see cref="Guid.CreateVersion7"/>, never by the database.</summary>
     public Guid Id { get; set; }
 
-    /// <summary>The game this version belongs to.</summary>
-    public Guid GameId { get; set; }
-
-    public Game? Game { get; set; }
-
     /// <summary>
     /// The simulator's own build/version string, when it exposes one. <see langword="null"/> when
     /// the sim does not report a build identifier over its telemetry API.

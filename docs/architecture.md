@@ -298,29 +298,22 @@ The schema should be designed so that adopting TimescaleDB later is an optimizat
 
 ## Database Tables
 
-### Games
-
-```
-Game
-Key
-Name
-```
-
-Every session records **which simulator produced it**.
-
-This is reference data, not a branch in the code. The backend still never asks
-"is this RaceRoom?" — it asks the capability system what the data supports.
-
----
-
 ### Game Versions
 
 ```
-Game
 Game Version
 Telemetry API Version
 Connector Version
 ```
+
+There is no `games` table. **The database is the simulator** — one database per simulator, per
+[0001](decisions/0001-per-sim-storage.md) — so a reference table naming which one would hold exactly
+one row and answer a question nothing in this schema can ask. Which simulator a session claims is
+still on the wire, and the ingest API checks it against the simulator it is configured for
+(`Ingest:GameKey`), refusing anything else rather than storing it.
+
+This changes nothing about the backend staying simulator-agnostic. It still never asks "is this
+RaceRoom?" — it asks the capability system what the data supports.
 
 Simulators change. A game update can silently alter units, add fields, or change
 the meaning of an existing value.
@@ -375,21 +368,19 @@ So identity is the **sim's own stable driver id**, not the display name:
 
 - The **sim driver id** — a durable account id issued by the simulator. RaceRoom
   exposes one over shared memory; a rename does not change it.
-- The **game** — scoping the id, because the id is only unique within the sim that
-  issued it. A RaceRoom user id and a future iRacing customer id share a numeric
-  namespace and would otherwise collide.
 - The **display name** — a mutable label, tracking the most recently seen name.
   The name used during a given session is recorded on the session itself, so
   renaming loses nothing.
 
-> **Changing.** Storage is moving to one database per simulator, so the **game** scope above
-> disappears — inside RaceRoom's database, a RaceRoom driver id is already unique. What that scope
-> bought, one human recognisable across simulators, moves to a separately held identity registry.
-> See [0001](decisions/0001-per-sim-storage.md) and [0002](decisions/0002-cross-sim-translator.md).
-> The other two bullets are unaffected.
+A sim driver id used to be scoped by game, because ids are only unique within the simulator that
+issued them and a RaceRoom user id would otherwise collide with a future iRacing customer id. That
+scope is gone: the database is one simulator now, so there is nothing in it to collide with
+([0001](decisions/0001-per-sim-storage.md)). What the scope bought — one human recognisable across
+simulators — moved to the identity registry, which is asserted by a person rather than derived from
+an id ([0002](decisions/0002-cross-sim-translator.md), built).
 
-Sims that expose no driver id fall back to name matching within a game — worse, but
-the only option available for that source.
+Sims that expose no driver id fall back to name matching — worse, but the only option available for
+that source.
 
 ---
 
@@ -681,8 +672,12 @@ work can start before multi-simulator support is finished, and probably will.
 ### In progress — the platform
 
 - Collector plugin host: the collect loop dispatches, plugins deliver *(built)*
-- Per-sim storage images and the translator layer that restores cross-sim comparison *(designed —
-  [0001](decisions/0001-per-sim-storage.md), [0002](decisions/0002-cross-sim-translator.md))*
+- Per-sim storage: the schema no longer scopes anything by game, and each ingest API serves exactly
+  one simulator *(built — [0001](decisions/0001-per-sim-storage.md) steps 1–2; promoting a
+  simulator's first-class channels out of `extras` is step 3 and still to do)*
+- The translator layer that restores cross-sim comparison *(designed —
+  [0002](decisions/0002-cross-sim-translator.md); its identity registry is built, the translator
+  itself is not)*
 - The cross-simulator identity registry, which had to exist **before** the second simulator's
   database rather than after it *(built — `person` and `person_sim_alias` in their own database,
   with a small service for the hand-curation; [0002 §1](decisions/0002-cross-sim-translator.md))*

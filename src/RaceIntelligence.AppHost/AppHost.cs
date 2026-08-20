@@ -59,7 +59,11 @@ var identityDatabase = postgres.AddDatabase("identity");
 var ingestApi = builder.AddProject<Projects.RaceIntelligence_Ingest_Api>("ingest-api")
     .WithReference(database)
     .WaitFor(database)
-    .WithEnvironment("Ingest__ApiKey", ingestApiKey);
+    .WithEnvironment("Ingest__ApiKey", ingestApiKey)
+    // Which simulator this database holds. One per simulator now (ADR 0001), so the ingest API
+    // refuses a session claiming any other — and refuses to start at all without this, because an
+    // ingest API that accepts anything is the silent mixing the split exists to prevent.
+    .WithEnvironment("Ingest__GameKey", "raceroom");
 
 // The cross-simulator identity registry. The only other service allowed to hold database
 // credentials, and only ever its own — it is never given a reference to the telemetry store, which

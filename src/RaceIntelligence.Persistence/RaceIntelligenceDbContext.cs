@@ -23,8 +23,6 @@ namespace RaceIntelligence.Persistence;
 public sealed class RaceIntelligenceDbContext(DbContextOptions<RaceIntelligenceDbContext> options)
     : DbContext(options)
 {
-    public DbSet<Game> Games => Set<Game>();
-
     public DbSet<GameVersion> GameVersions => Set<GameVersion>();
 
     public DbSet<Driver> Drivers => Set<Driver>();

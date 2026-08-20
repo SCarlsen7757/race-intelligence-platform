@@ -108,6 +108,10 @@ startup, so supply one:
 
 ```powershell
 $env:ConnectionStrings__raceintel = "Host=localhost;Port=55432;Database=raceintel;Username=postgres;Password=dev-local-only-password"
+
+# Which simulator this database holds. Required: one database per simulator (ADR 0001), so the API
+# refuses to start without it and refuses any session claiming a different simulator.
+$env:Ingest__GameKey = "raceroom"
 dotnet run --project src/RaceIntelligence.Ingest.Api --launch-profile https
 ```
 

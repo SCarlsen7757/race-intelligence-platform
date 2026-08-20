@@ -10,25 +10,41 @@ namespace RaceIntelligence.Persistence.Tests.Support;
 /// <summary>Builders for canonical Core objects and persisted prerequisite rows, kept small and explicit for test readability.</summary>
 internal static class SampleFactory
 {
-    /// <summary>Builds a <see cref="GameVersionIdentity"/> for a uniquely-keyed test game, so tests never collide over the shared container's <c>games.key</c> uniqueness constraint.</summary>
-    public static GameVersionIdentity UniqueGameVersion(string? connectorVersion = "1.0.0")
-    {
-        var key = $"test-{Guid.NewGuid():N}";
-        return new GameVersionIdentity
+    /// <summary>
+    /// A name nothing else in the shared container will have claimed.
+    /// </summary>
+    /// <remarks>
+    /// These tests used to isolate themselves by giving each one its own <i>game</i>, because every
+    /// unique key was scoped by <c>game_id</c>. The database is the simulator now (ADR 0001), so
+    /// that scoping is gone and two tests both resolving "Suzuka" would legitimately get the same
+    /// row. Isolation therefore comes from the names themselves.
+    /// </remarks>
+    public static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// Builds a <see cref="GameVersionIdentity"/> no other test will resolve to the same row.
+    /// </summary>
+    /// <remarks>
+    /// Uniqueness now rides on the connector version, since <c>game_versions</c> is keyed on
+    /// <c>(game_version, api_version_major, api_version_minor, connector_version)</c> and no longer
+    /// on the game. <see cref="GameVersionIdentity.Game"/> is still populated because the canonical
+    /// type requires it and the ingest API checks it — storage simply ignores it.
+    /// </remarks>
+    public static GameVersionIdentity UniqueGameVersion(string? connectorVersion = null) =>
+        new()
         {
-            Game = new GameIdentity(key, $"Test Game {key}"),
+            Game = WellKnownGames.RaceRoom,
             GameVersion = "1.2.3",
             ApiVersionMajor = 1,
             ApiVersionMinor = 0,
-            ConnectorVersion = connectorVersion!,
+            ConnectorVersion = connectorVersion ?? Unique("connector"),
         };
-    }
 
-    /// <summary>Persists a game/version and a session that references it, returning the session id.</summary>
+    /// <summary>Persists a game version and a session that references it, returning the session id.</summary>
     public static async Task<Guid> CreateSessionAsync(RaceIntelligenceDbContext db, JsonElement? extras = null)
     {
-        var repo = new GameRepository(db);
-        var (_, version) = await repo.ResolveOrCreateAsync(UniqueGameVersion()).ConfigureAwait(false);
+        var repo = new GameVersionRepository(db);
+        var version = await repo.ResolveOrCreateAsync(UniqueGameVersion()).ConfigureAwait(false);
 
         var session = new RaceIntelligence.Persistence.Entities.Session
         {
