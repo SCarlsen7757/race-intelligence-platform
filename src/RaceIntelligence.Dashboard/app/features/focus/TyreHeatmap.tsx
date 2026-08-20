@@ -131,7 +131,11 @@ export function TyreHeatmap({
     let frame = 0;
 
     const paint = () => {
-      const latest = store.frameFor(driverKey);
+      // The stint frame, not the focus frame: tread temperatures moved to their own roughly 1 Hz
+      // channel. Still painted from the loop rather than through React — the per-cell guard below
+      // means an unchanged reading writes nothing, so a slower source costs a comparison and no
+      // DOM work, and the loop stays the one place this figure is drawn.
+      const latest = store.stintFor(driverKey);
       const corners: (TreadTemperatures | undefined)[] = latest?.tyreTemperatureCelsius ?? [];
       const window = firstReportedWindow(corners);
 

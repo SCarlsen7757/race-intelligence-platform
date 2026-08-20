@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
-import type { FocusFrameMessage, TreadTemperatures } from '../../shared/live/contracts';
+import type { StintFrameMessage, TreadTemperatures } from '../../shared/live/contracts';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
 import { firstReportedWindow } from './operatingWindow';
@@ -9,19 +9,12 @@ import { TyreHeatmap } from './TyreHeatmap';
 
 const DRIVER = 'id:9';
 
-function frame(tread: TreadTemperatures[]): FocusFrameMessage {
+function frame(tread: TreadTemperatures[]): StintFrameMessage {
   return {
-    type: 'focusFrame',
+    type: 'stintFrame',
     roomId: 'room',
     driverKey: DRIVER,
     capturedAtUtc: '2026-08-19T10:00:00Z',
-    simulationTime: 1,
-    lapNumber: 2,
-    sector: 1,
-    speedMetersPerSecond: 50,
-    steering: 0,
-    engineRpm: 7000,
-    fuelLeftLiters: 40,
     tyrePressureKpa: [null, null, null, null],
     tyreWear: [null, null, null, null],
     tyreTemperatureCelsius: tread,

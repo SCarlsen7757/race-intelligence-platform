@@ -105,6 +105,9 @@ internal static class LiveDtoFactory
             new TyreTemperature(89f, 90f, 91f, 90f, 60f, 110f)),
         TyrePressure = new WheelData<float?>(180f, 181f, 182f, 183f),
         TyreWear = new WheelData<float?>(0.1f, 0.2f, 0.3f, null),
+        // The rear right is unreported, so it can prove a missing corner stays missing rather than
+        // arriving as a brake that did nothing.
+        BrakePressure = new WheelData<float?>(3.1f, 3.2f, 1.4f, null),
         TrackPositionFraction = 0.4242f,
         Extras = """{"pushToPass":{"engaged":1}}""",
     };

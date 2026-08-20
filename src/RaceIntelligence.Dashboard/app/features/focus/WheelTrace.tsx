@@ -1,4 +1,4 @@
-import type { FocusFrameMessage } from '../../shared/live/contracts';
+import type { StintFrameMessage } from '../../shared/live/contracts';
 import { WHEELS } from '../../shared/live/contracts';
 import {
   TYRE_TRACE_CAPACITY,
@@ -6,7 +6,7 @@ import {
   type TyreTraces,
   type WheelTraces,
 } from '../../shared/live/store';
-import { LiveReadout } from '../../shared/ui/LiveReadout';
+import { useStint } from '../../shared/live/useLive';
 import { ChannelLegend, type LegendChannel } from './ChannelLegend';
 import { LiveChart, type LiveChartSpec, type OperatingWindowValues } from './LiveChart';
 import { WHEEL_COLOURS } from './traceColours';
@@ -33,8 +33,8 @@ interface WheelTraceProps {
   onToggleChannel: (channelId: string) => void;
   /** Which of the tyre rings to plot. */
   channel: (tyres: TyreTraces) => WheelTraces;
-  /** The same channel read off a frame, for the current-value labels. */
-  read: (frame: FocusFrameMessage, wheel: number) => number | null | undefined;
+  /** The same channel read off a stint frame, for the current-value labels. */
+  read: (frame: StintFrameMessage, wheel: number) => number | null | undefined;
   format: (value: number | null | undefined) => string;
   unit: string;
   /**
@@ -52,7 +52,7 @@ interface WheelTraceProps {
    * a window for tread temperature and nothing equivalent for the others, and a band drawn from a
    * nominal pressure would be this dashboard's opinion wearing the simulator's clothes.
    */
-  window?: (frame: FocusFrameMessage) => OperatingWindowValues | null;
+  window?: (frame: StintFrameMessage) => OperatingWindowValues | null;
   height?: number;
 }
 
@@ -68,11 +68,11 @@ interface WheelTraceProps {
  * a left front climbing away from the right front is a car that is about to understeer, and that is
  * visible as a gap between two lines and invisible in four separate charts.
  *
- * The rings behind it are the slow ones — see `TYRE_SAMPLE_INTERVAL_MS`. Plotting tyres on the
- * pedals' thirty-second window would show a flat line and call it information.
+ * The rings behind it are the slow ones — a fifteen-minute window. Plotting tyres on the pedals'
+ * thirty-second one would show a flat line and call it information.
  *
- * The painting is `LiveChart`'s and the labels are `LiveReadout`s, so no React render happens per
- * frame here either.
+ * The painting is `LiveChart`'s. The labels are ordinary React, because tyre readings arrive on
+ * their own roughly 1 Hz frame: there is no per-frame render to avoid here.
  */
 export function WheelTrace({
   store,
@@ -87,6 +87,8 @@ export function WheelTrace({
   window: readWindow,
   height = 112,
 }: WheelTraceProps) {
+  const stint = useStint(driverKey);
+
   const spec: LiveChartSpec = {
     capacity: TYRE_TRACE_CAPACITY,
     scales: { y: range === undefined ? {} : { range: [...range] } },
@@ -106,7 +108,7 @@ export function WheelTrace({
             // built before the first frame arrives, and a window captured then would be null for
             // the life of the panel.
             read: () => {
-              const frame = store.frameFor(driverKey);
+              const frame = store.stintFor(driverKey);
               return frame === null ? null : readWindow(frame);
             },
           },
@@ -132,13 +134,13 @@ export function WheelTrace({
         // Kept live even for a hidden channel. The line going away is what the user asked for; the
         // number is a reading they may still want, and blanking it would make hiding a corner look
         // like losing it.
+        // Plain React, not a `LiveReadout`. These arrive on the stint frame at about 1 Hz, so
+        // there is no 60 Hz render to keep off the path — the machinery exists for the channels
+        // that do move that fast, and using it here would be ceremony.
         renderValue={(_, index) => (
-          <LiveReadout
-            store={store}
-            driverKey={driverKey}
-            className="wheel-chart__number"
-            render={(liveFrame) => format(read(liveFrame, index))}
-          />
+          <span className="wheel-chart__number">
+            {format(stint === null ? null : read(stint, index))}
+          </span>
         )}
       />
     </div>

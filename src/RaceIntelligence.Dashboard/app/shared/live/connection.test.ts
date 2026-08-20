@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveConnection } from './connection';
-import type {
-  FocusFrameMessage,
-  LiveViewCommand,
-  LiveViewMessage,
-  TreadTemperatures,
-} from './contracts';
+import type { FocusFrameMessage, LiveViewCommand, LiveViewMessage } from './contracts';
 import { LiveStore } from './store';
 
 /**
@@ -61,9 +56,6 @@ function socket(): FakeWebSocket {
  * Shoulders either side of the middle rather than three identical numbers, so a test that started
  * reading the wrong one would fail rather than pass by coincidence.
  */
-function tread(middle: number): TreadTemperatures {
-  return { inner: middle + 2, middle, outer: middle - 2, optimal: 90, cold: 70, hot: 110 };
-}
 
 function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessage {
   return {
@@ -82,9 +74,7 @@ function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessa
     gear: 4,
     engineRpm: 7000,
     fuelLeftLiters: 40,
-    tyrePressureKpa: [180, 180, 175, 175],
-    tyreWear: [0.1, 0.1, 0.1, 0.1],
-    tyreTemperatureCelsius: [tread(85), tread(85), tread(82), tread(82)],
+    brakePressureKiloNewtons: [],
     ...overrides,
   };
 }

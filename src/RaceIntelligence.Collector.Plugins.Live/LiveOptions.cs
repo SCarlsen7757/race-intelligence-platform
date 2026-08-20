@@ -85,6 +85,19 @@ public sealed class LiveOptions
     [Range(typeof(TimeSpan), "00:00:00.020", "00:01:00")]
     public TimeSpan ExtrasInterval { get; init; } = TimeSpan.FromSeconds(1);
 
+    /// <summary>
+    /// How often to publish the local car's stint channels — tyre pressure, wear and temperature.
+    /// Default: 1 Hz.
+    /// </summary>
+    /// <remarks>
+    /// These used to ride the self frame at the full poll rate, which put twelve values a corner on
+    /// the wire sixty times a second for readings that move over a stint — and every consumer thinned
+    /// them back to about this rate on arrival, having already paid to receive them. A tyre chart
+    /// covers fifteen minutes; a sample a second draws it exactly as well as sixty do.
+    /// </remarks>
+    [Range(typeof(TimeSpan), "00:00:00.020", "00:01:00")]
+    public TimeSpan StintInterval { get; init; } = TimeSpan.FromSeconds(1);
+
     /// <summary>How long to wait before the first reconnect attempt after the socket drops.</summary>
     [Range(typeof(TimeSpan), "00:00:00.100", "00:01:00")]
     public TimeSpan ReconnectDelay { get; init; } = TimeSpan.FromSeconds(1);
@@ -141,6 +154,14 @@ public sealed class LiveOptionsValidator(IOptions<CollectorOptions> collectorOpt
                 $"'Collector:Live:ExtrasInterval' ({options.ExtrasInterval}) is shorter than "
                 + $"'Collector:PollInterval' ({pollInterval}), which cannot produce extras any faster "
                 + "than the poll rate. Lower the poll interval instead.");
+        }
+
+        if (options.StintInterval < pollInterval)
+        {
+            failures.Add(
+                $"'Collector:Live:StintInterval' ({options.StintInterval}) is shorter than "
+                + $"'Collector:PollInterval' ({pollInterval}), which cannot produce tyre readings any "
+                + "faster than the poll rate. Lower the poll interval instead.");
         }
 
         return failures.Count > 0

@@ -42,6 +42,19 @@ public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> optio
     /// </summary>
     private string _announcedRosterFingerprint = string.Empty;
 
+    /// <summary>
+    /// When the stint frame last went out, so its rate is measured against the clock rather than
+    /// counted in samples.
+    /// </summary>
+    /// <remarks>
+    /// By elapsed time, not every Nth sample, for the reason the dashboard's tyre rings used to give
+    /// before the wire took the job over: the poll rate is not a constant, and a machine under load
+    /// reports fewer frames a second, so a fixed count would silently stretch the interval whenever
+    /// the game got busy. Starts at <see cref="DateTimeOffset.MinValue"/> so the first sample of a
+    /// session publishes immediately.
+    /// </remarks>
+    private DateTimeOffset _lastStintAtUtc = DateTimeOffset.MinValue;
+
     /// <inheritdoc />
     public TimeSpan StandingsInterval => options.Value.StandingsInterval;
 
@@ -85,8 +98,29 @@ public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> optio
     }
 
     /// <inheritdoc />
-    public void OnSample(TelemetrySample sample, CancellationToken cancellationToken) =>
+    /// <remarks>
+    /// Two frames come out of one sample, at two rates. The self frame goes every time; the stint
+    /// frame — the tyre channels — goes at <see cref="LiveOptions.StintInterval"/>, because a tyre
+    /// is read over a stint and sixty samples a second of one is a flat line sent expensively.
+    /// <para>
+    /// The decimation is here rather than in the outbox because this is where the clock already is,
+    /// and rather than at the far end because the far end is across a network: a consumer thinning
+    /// the stream after it arrives has already paid for every byte it discards.
+    /// </para>
+    /// </remarks>
+    public void OnSample(TelemetrySample sample, CancellationToken cancellationToken)
+    {
         outbox.PublishSelf(sample, _currentSimDriverId);
+
+        var now = timeProvider.GetUtcNow();
+        if (now - _lastStintAtUtc < options.Value.StintInterval)
+        {
+            return;
+        }
+
+        _lastStintAtUtc = now;
+        outbox.PublishStint(sample, _currentSimDriverId);
+    }
 
     /// <summary>
     /// Nothing to unpark. The outbox drops rather than blocking, so this observer can never be

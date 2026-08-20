@@ -8,6 +8,7 @@ import type {
   RaceRoomExtras,
   RaceRoomFlags,
   SessionStateMessage,
+  StintFrameMessage,
   TowerSnapshotMessage,
 } from './contracts';
 import { parseExtras, reportedNumber, reportedOrNaN } from './extras';
@@ -219,12 +220,12 @@ export class LapTrace {
  * stint, and sixty seconds of them is a flat line that says nothing. Sampling once a second and
  * keeping 900 slots gives the requested rolling fifteen-minute stint window.
  *
- * Decimated by elapsed time rather than by counting frames, because the collector's poll rate is
- * not a constant: a machine under load reports fewer frames per second, and a fixed "every 60th"
- * would silently stretch the window whenever the game got busy.
+ * The decimation itself is no longer done here. It used to be — sixty samples a second arrived and
+ * fifty-nine were dropped — which was the right thinning happening three processes too late, after
+ * the hub had serialised them and the socket had carried them. The publisher sends the stint frame
+ * at about this rate now, so one arrival is one sample.
  */
 export const TYRE_TRACE_CAPACITY = 900;
-export const TYRE_SAMPLE_INTERVAL_MS = 1000;
 
 /**
  * One assist flag as a ring holds it: 1 intervening, 0 watched and quiet, NaN never reported.
@@ -269,7 +270,6 @@ export const LAP_BINS = 1000;
 export interface ExtrasTraces {
   // Per-wheel channels, FL/FR/RL/RR.
   brakeTemperatureCelsius: WheelTraces;
-  brakePressureKiloNewtons: WheelTraces;
   brakeWear: WheelTraces;
   tyreGrip: WheelTraces;
   tyreLoadNewtons: WheelTraces;
@@ -401,25 +401,40 @@ export interface FocusTraces {
    */
   absActive: TraceBuffer;
   tractionControlActive: TraceBuffer;
+  /**
+   * Brake pressure at each corner, on the input channels' sample index rather than the tyres'.
+   *
+   * Here because it moves at pedal rate: it rises and falls inside one braking event, so a sample a
+   * second is one or two readings of a corner. Sharing the index with `brake` is also what makes
+   * pedal-against-pressure a comparison — the two are the same instant, which they were not while
+   * pressure rode the once-a-second extras document.
+   */
+  brakePressureKiloNewtons: WheelTraces;
   /** Tyre channels, on their own slower sample index. */
   tyres: TyreTraces;
   /** Extras channels, sharing the tyre rings' cadence — see {@link ExtrasTraces}. */
   extras: ExtrasTraces;
 }
 
-function wheelTraces(): WheelTraces {
+/**
+ * Four rings in wheel order, at whichever capacity the channel's rate calls for.
+ *
+ * Defaults to the stint window, because most per-wheel channels are read over one. Brake pressure is
+ * the exception and passes the input capacity: it belongs on the pedals' index, and a ring sized for
+ * fifteen minutes would hold about four seconds of it.
+ */
+function wheelTraces(capacity: number = TYRE_TRACE_CAPACITY): WheelTraces {
   return [
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
+    new TraceBuffer(capacity),
+    new TraceBuffer(capacity),
+    new TraceBuffer(capacity),
+    new TraceBuffer(capacity),
   ];
 }
 
 function extrasTraces(): ExtrasTraces {
   return {
     brakeTemperatureCelsius: wheelTraces(),
-    brakePressureKiloNewtons: wheelTraces(),
     brakeWear: wheelTraces(),
     tyreGrip: wheelTraces(),
     tyreLoadNewtons: wheelTraces(),
@@ -444,6 +459,7 @@ function newTraces(): FocusTraces {
     engineRpm: new TraceBuffer(),
     absActive: new TraceBuffer(),
     tractionControlActive: new TraceBuffer(),
+    brakePressureKiloNewtons: wheelTraces(TRACE_CAPACITY),
     tyres: {
       pressureKpa: wheelTraces(),
       wear: wheelTraces(),
@@ -463,7 +479,6 @@ function newTraces(): FocusTraces {
  */
 const EXTRAS_WHEEL_CHANNELS = [
   ['brakeTemperatureCelsius', (extras, wheel) => extras.brakeTemperatureCelsius?.[wheel]?.current],
-  ['brakePressureKiloNewtons', (extras, wheel) => extras.brakePressureKiloNewtons?.[wheel]],
   ['brakeWear', (extras, wheel) => extras.brakeWear?.[wheel]],
   ['tyreGrip', (extras, wheel) => extras.tyreGrip?.[wheel]],
   ['tyreLoadNewtons', (extras, wheel) => extras.tyreLoadNewtons?.[wheel]],
@@ -488,8 +503,8 @@ interface DriverFocus {
   frame: FocusFrameMessage | null;
   traces: FocusTraces;
   framesReceived: number;
-  /** When the tyre rings last took a sample, so the decimation is by time and not by frame count. */
-  lastTyreSampleAtMs: number;
+  /** The last tyre readings, for widgets reading the tread spread and the operating window. */
+  stint: StintFrameMessage | null;
   /**
    * The capture time of the extras frame last pushed into the rings.
    *
@@ -689,6 +704,17 @@ export class LiveStore {
   }
 
   /**
+   * One driver's latest tyre readings, or null before the first stint frame has arrived.
+   *
+   * Unlike {@link frameFor} this is safe to read from a render: it changes at about 1 Hz and the
+   * store emits when it does, so the widgets that want the tread spread or the operating window read
+   * it as ordinary React state rather than from a paint loop.
+   */
+  stintFor(driverKey: string): StintFrameMessage | null {
+    return this.focus.get(driverKey)?.stint ?? null;
+  }
+
+  /**
    * One driver's rolling traces, created on demand.
    *
    * Created rather than returned-or-null because the panels mount before the first frame arrives and
@@ -781,6 +807,10 @@ export class LiveStore {
         this.emit();
         break;
 
+      case 'stintFrame':
+        this.applyStint(message);
+        break;
+
       case 'extrasFrame':
         // Roughly 1 Hz, so this one *does* go through React. The whole reason extras have their own
         // channel is that they change slowly enough for that to be free.
@@ -854,7 +884,7 @@ export class LiveStore {
 
       // Measured against the wrong side of the gap otherwise: an interval that elapsed during the
       // outage would swallow the first frame back instead of sampling it.
-      entry.lastTyreSampleAtMs = Number.NEGATIVE_INFINITY;
+      entry.stint = null;
 
       // Cleared for the same reason, from the other direction: the hub re-sends extras on re-focus,
       // and a repeated capture time would otherwise be mistaken for the duplicate this guards
@@ -953,7 +983,7 @@ export class LiveStore {
         framesReceived: 0,
         // Negative infinity rather than "now", so the first frame of a stint is sampled instead of
         // being swallowed by an interval that has not elapsed yet.
-        lastTyreSampleAtMs: Number.NEGATIVE_INFINITY,
+        stint: null,
         lastExtrasCapturedAtUtc: null,
         currentLap: null,
         currentLapStartedAt: 0,
@@ -1012,37 +1042,65 @@ export class LiveStore {
     entry.traces.absActive.push(assistState(frame.absActive));
     entry.traces.tractionControlActive.push(assistState(frame.tractionControlActive));
 
-    this.pushTyreSample(entry, frame);
+    // On the pedals' index, not the tyres'. A null stays NaN so an unreported corner draws as a
+    // hole: at zero it would read as a brake that did nothing, which is a different and much more
+    // alarming claim than "not measured".
+    for (let wheel = 0; wheel < 4; wheel++) {
+      entry.traces.brakePressureKiloNewtons[wheel]!.push(
+        frame.brakePressureKiloNewtons[wheel] ?? Number.NaN,
+      );
+    }
+
     this.pushLapSample(entry, frame);
   }
 
   /**
-   * Adds one sample to the tyre rings, at most once per {@link TYRE_SAMPLE_INTERVAL_MS}.
+   * Adds one sample to the tyre rings, from the frame that carries them.
+   *
+   * **No decimation here any more.** The stint frame arrives at about 1 Hz because the publisher
+   * sends it at that rate, which is where the thinning belongs: this used to drop fifty-nine of
+   * every sixty samples *after* the hub had serialised them, the socket had carried them and the
+   * browser had decoded them. The window and the ring capacity are unchanged — a tyre is still read
+   * over fifteen minutes; only the waste is gone.
    *
    * The same NaN discipline the pedals follow, and for the same reason: tyre arrays are nullable on
    * the wire, and a wheel the simulator did not report must leave a hole rather than being bridged
    * into a confident line — or, worse, drawn at zero, which for a pressure reads as a flat tyre.
    */
-  private pushTyreSample(entry: DriverFocus, frame: FocusFrameMessage): void {
-    const now = this.now();
-    if (now - entry.lastTyreSampleAtMs < TYRE_SAMPLE_INTERVAL_MS) {
+  private applyStint(message: StintFrameMessage): void {
+    // Dropped for a driver nobody is following, exactly as a focus frame is and for the same
+    // reason: one in flight when the subscription changes must not start a set of rings that then
+    // never advance again.
+    if (!this.followedDriverKeys.has(message.driverKey)) {
       return;
     }
 
-    entry.lastTyreSampleAtMs = now;
+    // `ensureFocus` rather than a lookup, because the two channels race. A stint frame is sent on
+    // joining and then about once a second, so on a slow first poll it can easily arrive before the
+    // first focus frame — and requiring focus to have landed first would silently discard the
+    // opening tyre reading of every session, leaving the stint rings a second short at the one
+    // moment a race engineer is watching them fill.
+    const entry = this.ensureFocus(message.driverKey);
+
+    entry.stint = message;
 
     for (let wheel = 0; wheel < 4; wheel++) {
-      entry.traces.tyres.pressureKpa[wheel]!.push(frame.tyrePressureKpa[wheel] ?? Number.NaN);
-      entry.traces.tyres.wear[wheel]!.push(frame.tyreWear[wheel] ?? Number.NaN);
+      entry.traces.tyres.pressureKpa[wheel]!.push(message.tyrePressureKpa[wheel] ?? Number.NaN);
+      entry.traces.tyres.wear[wheel]!.push(message.tyreWear[wheel] ?? Number.NaN);
       // The middle of the tread is what the stint trace plots — one line per tyre, which is the
       // question "is this corner running away from its opposite number". The shoulders and the
-      // window are on the frame too and are read straight off it by the widgets that want them: a
+      // window ride the same message and are read straight off it by the widgets that want them: a
       // spread is drawn at one instant across the car, and a band does not move, so neither is
       // something a ring of samples over fifteen minutes would answer better.
       entry.traces.tyres.temperatureCelsius[wheel]!.push(
-        frame.tyreTemperatureCelsius[wheel]?.middle ?? Number.NaN,
+        message.tyreTemperatureCelsius[wheel]?.middle ?? Number.NaN,
       );
     }
+
+    // Through React, like extras and for the same reason: at roughly 1 Hz the render cost is
+    // irrelevant, and the widgets reading the tread spread and the operating window want a value
+    // rather than a ring.
+    this.emit();
   }
 
   /**

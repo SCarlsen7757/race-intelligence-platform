@@ -29,6 +29,7 @@ namespace RaceIntelligence.Live.Contracts.Publish;
 [Union(3, typeof(LiveSelfFrame))]
 [Union(4, typeof(LiveGoodbye))]
 [Union(5, typeof(LiveExtrasFrame))]
+[Union(6, typeof(LiveStintFrame))]
 public abstract record LivePublisherMessage;
 
 /// <summary>
@@ -223,9 +224,15 @@ public sealed record LiveRaceLengthDto(
 /// <param name="Gear">-1 reverse, 0 neutral, positive forward gear.</param>
 /// <param name="EngineRpm">Revolutions per minute.</param>
 /// <param name="FuelLeft">Liters.</param>
-/// <param name="TyrePressure">Kilopascals, FL/FR/RL/RR. Members are <see langword="null"/> when unreported.</param>
-/// <param name="TyreWear">0 (new) to 1 (fully worn), FL/FR/RL/RR.</param>
-/// <param name="TyreTemperature">Tread temperatures and the simulator's operating window, FL/FR/RL/RR.</param>
+/// <param name="BrakePressure">
+/// Kilonewtons at each corner, FL/FR/RL/RR. Members are <see langword="null"/> when unreported.
+/// <para>
+/// Here rather than on <see cref="LiveStintFrame"/> because it moves at pedal rate: it rises and
+/// falls inside one braking event, and it shares a sample index with
+/// <paramref name="Brake"/> — which is what makes "what the driver asked for against what arrived at
+/// the corner" a comparison rather than two traces sampled at unrelated moments.
+/// </para>
+/// </param>
 /// <param name="Clutch">
 /// 0 (engaged) to 1 (fully disengaged), or <see langword="null"/> when unreported — the normal case
 /// for a car with an automatic clutch, where a dashboard must draw nothing rather than a bar at
@@ -249,15 +256,53 @@ public sealed record LiveSelfFrame(
     [property: Key(12)] int? Gear,
     [property: Key(13)] float EngineRpm,
     [property: Key(14)] float FuelLeft,
-    [property: Key(15)] LiveWheelValues TyrePressure,
-    [property: Key(16)] LiveWheelValues TyreWear,
-    [property: Key(17)] LiveTyreTemperatures TyreTemperature,
-    [property: Key(18)] float? Clutch,
-    [property: Key(19)] int? AbsSetting = null,
-    [property: Key(20)] bool? AbsActive = null,
-    [property: Key(21)] int? TractionControlSetting = null,
-    [property: Key(22)] bool? TractionControlActive = null,
-    [property: Key(23)] float? BrakeBias = null) : LivePublisherMessage;
+    [property: Key(15)] LiveWheelValues BrakePressure,
+    [property: Key(16)] float? Clutch,
+    [property: Key(17)] int? AbsSetting = null,
+    [property: Key(18)] bool? AbsActive = null,
+    [property: Key(19)] int? TractionControlSetting = null,
+    [property: Key(20)] bool? TractionControlActive = null,
+    [property: Key(21)] float? BrakeBias = null) : LivePublisherMessage;
+
+/// <summary>
+/// The local car's canonical channels that move over a stint rather than over a corner.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A third rate class, and the reason it exists is arithmetic. Tyre pressure, wear and temperature
+/// are twelve values a corner once the tread and its window are carried whole, and they were riding
+/// <see cref="LiveSelfFrame"/> sixty times a second — the majority of a frame, for readings that
+/// change over a stint. Every consumer then decimated them back to about 1 Hz on arrival, so
+/// fifty-nine of every sixty samples were serialised, sent, decoded and dropped.
+/// </para>
+/// <para>
+/// <b>Not folded into <see cref="LiveExtrasFrame"/>, despite sharing its cadence.</b> That message
+/// is the connector's own document: untyped, simulator-specific, and explicitly carrying sentinels
+/// untranslated. These are canonical channels with translated nulls, and putting them there would
+/// make a tyre pressure RaceRoom-only and hand every consumer a raw <c>-1</c> to rediscover.
+/// </para>
+/// <para>
+/// The decimation happens at the publisher, not by leaving members null on the fast frame. Null
+/// already means "the simulator did not report this", and reusing it for "unchanged since the last
+/// frame" would make an unreported tyre indistinguishable from a decimated one.
+/// </para>
+/// </remarks>
+/// <param name="SessionId">The publishing client's session id.</param>
+/// <param name="SimDriverId">
+/// Which driver this describes, in the same identity space as <see cref="LiveSelfFrame.SimDriverId"/>.
+/// </param>
+/// <param name="CapturedAtUtc">Wall-clock capture time on the publishing machine.</param>
+/// <param name="TyrePressure">Kilopascals, FL/FR/RL/RR. Members are <see langword="null"/> when unreported.</param>
+/// <param name="TyreWear">0 (new) to 1 (fully worn), FL/FR/RL/RR.</param>
+/// <param name="TyreTemperature">Tread temperatures and the simulator's operating window, FL/FR/RL/RR.</param>
+[MessagePackObject]
+public sealed record LiveStintFrame(
+    [property: Key(0)] Guid SessionId,
+    [property: Key(1)] string? SimDriverId,
+    [property: Key(2)] DateTimeOffset CapturedAtUtc,
+    [property: Key(3)] LiveWheelValues TyrePressure,
+    [property: Key(4)] LiveWheelValues TyreWear,
+    [property: Key(5)] LiveTyreTemperatures TyreTemperature) : LivePublisherMessage;
 
 /// <summary>Per-wheel values in the platform's FL, FR, RL, RR order.</summary>
 /// <remarks>

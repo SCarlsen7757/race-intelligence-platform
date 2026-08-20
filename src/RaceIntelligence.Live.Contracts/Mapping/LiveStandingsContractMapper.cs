@@ -238,6 +238,36 @@ public static class LiveStandingsContractMapper
             sample.EngineRpm,
             sample.FuelLeft,
             new LiveWheelValues(
+                sample.BrakePressure.FrontLeft,
+                sample.BrakePressure.FrontRight,
+                sample.BrakePressure.RearLeft,
+                sample.BrakePressure.RearRight),
+            sample.Clutch,
+            sample.AbsSetting,
+            sample.AbsActive,
+            sample.TractionControlSetting,
+            sample.TractionControlActive,
+            sample.BrakeBias);
+    }
+
+    /// <summary>
+    /// Builds the stint frame — the tyre channels, at their own slower rate.
+    /// </summary>
+    /// <remarks>
+    /// Takes the same <see cref="TelemetrySample"/> the self frame does, and the publisher decides
+    /// how often to call it. Nothing about the sample says which of its channels are fast and which
+    /// are slow; that judgement lives in the two mapping functions and in the interval the outbox
+    /// applies, which is the only place it can be changed once rather than in every consumer.
+    /// </remarks>
+    public static LiveStintFrame ToStintFrame(TelemetrySample sample, string? simDriverId)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+
+        return new LiveStintFrame(
+            sample.SessionId,
+            simDriverId,
+            sample.Timestamp,
+            new LiveWheelValues(
                 sample.TyrePressure.FrontLeft,
                 sample.TyrePressure.FrontRight,
                 sample.TyrePressure.RearLeft,
@@ -251,13 +281,7 @@ public static class LiveStandingsContractMapper
                 ToTreadTemperatures(sample.TyreTemperature.FrontLeft),
                 ToTreadTemperatures(sample.TyreTemperature.FrontRight),
                 ToTreadTemperatures(sample.TyreTemperature.RearLeft),
-                ToTreadTemperatures(sample.TyreTemperature.RearRight)),
-            sample.Clutch,
-            sample.AbsSetting,
-            sample.AbsActive,
-            sample.TractionControlSetting,
-            sample.TractionControlActive,
-            sample.BrakeBias);
+                ToTreadTemperatures(sample.TyreTemperature.RearRight)));
     }
 
     /// <summary>

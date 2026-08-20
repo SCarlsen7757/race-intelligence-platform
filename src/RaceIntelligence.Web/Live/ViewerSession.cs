@@ -236,6 +236,14 @@ public sealed class ViewerSession(
                     viewer.Queue.OfferExtras(extras);
                 }
 
+                // Same argument, and it bites harder: tyre charts plot a fifteen-minute stint, so a
+                // viewer waiting out an interval sees an empty chart for a car that has been running
+                // on those tyres for half an hour.
+                if (room.LatestStintFor(driverKey) is { } stint)
+                {
+                    viewer.Queue.OfferStint(stint);
+                }
+
                 break;
 
             case DriverFocusAvailability.ObservedOnly:

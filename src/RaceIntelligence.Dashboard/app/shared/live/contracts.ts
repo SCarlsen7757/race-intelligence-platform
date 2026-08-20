@@ -260,6 +260,33 @@ export interface FocusFrameMessage {
   gear?: number | null;
   engineRpm: number;
   fuelLeftLiters: number;
+  /**
+   * Kilonewtons at each corner, FL/FR/RL/RR.
+   *
+   * On the fast frame, beside the pedal that caused it — the two share a sample index, which is what
+   * makes "what the driver asked for against what arrived at the corner" a comparison rather than
+   * two traces sampled at unrelated moments. A null is unreported, never zero: a corner drawn at
+   * zero reads as a brake that did nothing.
+   */
+  brakePressureKiloNewtons: (number | null)[];
+}
+
+/**
+ * The focused driver's tyre channels, at roughly 1 Hz.
+ *
+ * These used to ride `FocusFrameMessage` at the collector's full poll rate and were the majority of
+ * it — twelve values a corner, sixty times a second, for readings the store then thinned straight
+ * back to about this rate. The decimation was right and was simply happening three processes too
+ * late; the wire does it now.
+ *
+ * Typed and canonical, unlike `ExtrasFrameMessage`, which shares the cadence but is the connector's
+ * own untranslated document.
+ */
+export interface StintFrameMessage {
+  type: 'stintFrame';
+  roomId: string;
+  driverKey: string;
+  capturedAtUtc: string;
   tyrePressureKpa: (number | null)[];
   tyreWear: (number | null)[];
   tyreTemperatureCelsius: TreadTemperatures[];
@@ -331,6 +358,7 @@ export type LiveViewMessage =
   | TowerSnapshotMessage
   | FocusFrameMessage
   | LapHistoryMessage
+  | StintFrameMessage
   | ExtrasFrameMessage
   | LiveErrorMessage;
 
@@ -490,7 +518,6 @@ export interface RaceRoomExtras {
 
   // Per-wheel channels, in the platform's FL, FR, RL, RR order.
   brakeTemperatureCelsius?: BrakeTemperature[];
-  brakePressureKiloNewtons?: number[];
   /**
    * Grip loss measured directly rather than inferred from lap time.
    *

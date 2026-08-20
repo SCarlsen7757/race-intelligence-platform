@@ -31,9 +31,7 @@ function frame(lapNumber: number, fuelLeftLiters: number): FocusFrameMessage {
     steering: 0,
     engineRpm: 8000,
     fuelLeftLiters,
-    tyrePressureKpa: [],
-    tyreWear: [],
-    tyreTemperatureCelsius: [],
+    brakePressureKiloNewtons: [],
   };
 }
 

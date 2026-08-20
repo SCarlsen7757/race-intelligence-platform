@@ -18,7 +18,7 @@ public sealed class ViewerQueueTests
         null, null, null, null, null, [], [], [], null, null, null, -1, -1, null, -1, null, LiveDataTier.Observed);
 
     private static FocusFrameMessage Focus(int lap, string driverKey = "id:1") => new(
-        "room", driverKey, DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, null, 0, null, 0, 0, [], [], []);
+        "room", driverKey, DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, null, 0, null, 0, 0, []);
 
     private static ExtrasFrameMessage Extras(string driverKey = "id:1") => new(
         "room", driverKey, DateTimeOffset.UnixEpoch, """{"damage":{"engine":0.5}}""");

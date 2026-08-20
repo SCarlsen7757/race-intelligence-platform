@@ -70,6 +70,7 @@ public sealed class LiveOutbox : ILiveOutbox
     private LiveStandingsFrame? _latestStandings;
     private LiveSelfFrame? _latestSelf;
     private LiveExtrasFrame? _latestExtras;
+    private LiveStintFrame? _latestStint;
     private LiveSessionFrame? _currentSession;
 
     /// <summary>
@@ -188,6 +189,22 @@ public sealed class LiveOutbox : ILiveOutbox
 
     /// <inheritdoc />
     /// <remarks>
+    /// No drop counter, for the reason <see cref="PublishExtras"/> gives: this arrives at about the
+    /// same rate, and a superseded stint frame says nothing the self frame's counter has not.
+    /// </remarks>
+    public void PublishStint(TelemetrySample sample, string? simDriverId)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+
+        Interlocked.Exchange(
+            ref _latestStint,
+            LiveStandingsContractMapper.ToStintFrame(sample, simDriverId));
+
+        Wake();
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
     /// No drop counter, unlike standings and self. Those count frames at a rate worth knowing you
     /// are behind on; extras arrive about once a second, so a superseded one says nothing a
     /// backed-up socket has not already said through the other two.
@@ -211,6 +228,7 @@ public sealed class LiveOutbox : ILiveOutbox
         // snapshot of a race that is no longer running.
         Interlocked.Exchange(ref _latestStandings, null);
         Interlocked.Exchange(ref _latestSelf, null);
+        Interlocked.Exchange(ref _latestStint, null);
         Interlocked.Exchange(ref _latestExtras, null);
 
         // Stop re-announcing it on reconnect — but only if it is still the session being published.
@@ -279,6 +297,15 @@ public sealed class LiveOutbox : ILiveOutbox
         if (Interlocked.Exchange(ref _latestSelf, null) is { } self)
         {
             return self;
+        }
+
+        // Below the self frame and above extras, mirroring the viewer queue's ladder. A stint frame
+        // interrupting the trace to deliver a tyre reading that will look the same next second is
+        // the trade neither side is worth making; extras sit lower still because parsing a document
+        // costs more than reading twelve floats.
+        if (Interlocked.Exchange(ref _latestStint, null) is { } stint)
+        {
+            return stint;
         }
 
         return Interlocked.Exchange(ref _latestExtras, null);

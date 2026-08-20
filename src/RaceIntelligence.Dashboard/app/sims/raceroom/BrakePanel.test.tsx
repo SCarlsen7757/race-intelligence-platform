@@ -9,6 +9,57 @@ import { BrakePressurePanel, BrakeTemperaturePanel } from './BrakePanel';
 
 const DRIVER = 'id:4';
 
+/**
+ * Renders the pressure panel against a focus frame rather than an extras document.
+ *
+ * Pressure moved to the fast channel because a braking event lasts about a second, which at the
+ * extras cadence is one or two samples of the thing being asked about. Its own helper rather than a
+ * flag on the one below, because the two panels genuinely read different channels now — temperature
+ * is still a stint-rate reading from the connector's document.
+ */
+async function renderPressure(pressure: (number | null)[], hidden: readonly string[] = []) {
+  const store = new LiveStore();
+  store.setFollowedDrivers([DRIVER]);
+  store.apply({
+    type: 'focusFrame',
+    roomId: 'room',
+    driverKey: DRIVER,
+    capturedAtUtc: '2026-08-19T11:00:00Z',
+    simulationTime: 0,
+    lapNumber: 1,
+    sector: 1,
+    speedMetersPerSecond: 50,
+    throttle: 0,
+    brake: 1,
+    clutch: 0,
+    steering: 0,
+    gear: 3,
+    engineRpm: 6000,
+    fuelLeftLiters: 40,
+    brakePressureKiloNewtons: pressure,
+  });
+
+  const rendered = render(
+    <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
+      <BrakePressurePanel
+        store={store}
+        driverKey={DRIVER}
+        hiddenChannels={hidden}
+        onToggleChannel={vi.fn()}
+      />
+    </LiveContext.Provider>,
+  );
+
+  // The readouts write their text from a paint loop rather than from a render, so a freshly mounted
+  // panel still says "—" until one frame has run. Waiting here keeps that mechanism out of every
+  // assertion below.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 32));
+  });
+
+  return rendered;
+}
+
 function renderPanel(
   Panel: typeof BrakePressurePanel,
   extras: Record<string, unknown>,
@@ -36,10 +87,8 @@ describe('BrakePressurePanel', () => {
    * The channel the extras document has carried all along and nothing read. Temperature says the
    * discs are working; pressure says how they were asked to.
    */
-  it('reads out pressure for every corner', () => {
-    renderPanel(BrakePressurePanel, {
-      brakePressureKiloNewtons: [12.4, 12.9, 6.1, 6.0],
-    });
+  it('reads out pressure for every corner', async () => {
+    await renderPressure([12.4, 12.9, 6.1, 6.0]);
 
     for (const reading of ['12.4', '12.9', '6.1', '6.0']) {
       expect(screen.getByText(reading)).toBeTruthy();
@@ -47,21 +96,25 @@ describe('BrakePressurePanel', () => {
   });
 
   /**
-   * RaceRoom's `-1` is "not available". Drawn as a number it would read as a corner taking no
-   * pressure at all — a brake that has failed rather than one nobody measured.
+   * An unmeasured corner reads as no reading, never as a corner taking no pressure — which would be
+   * a brake that has failed rather than one nobody measured.
+   *
+   * Null rather than RaceRoom's `-1` because pressure moved to the typed wire, where the connector
+   * translates the sentinel (`NullIfNegative`) before it is ever sent. That is a real gain from the
+   * move: the extras document carries the connector's raw values and leaves every reader to know
+   * the sentinel, and this channel no longer does.
    */
-  it('shows the simulator sentinel as no reading rather than as no braking', () => {
-    renderPanel(BrakePressurePanel, {
-      brakePressureKiloNewtons: [-1, 12.9, 6.1, 6.0],
-    });
+  it('shows an unmeasured corner as no reading rather than as no braking', async () => {
+    await renderPressure([null, 12.9, 6.1, 6.0]);
 
-    expect(screen.getByText('—')).toBeTruthy();
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
     expect(screen.queryByText('-1.0')).toBeNull();
+    expect(screen.queryByText('0.0')).toBeNull();
   });
 
   /** An imbalance across an axle is the reading this chart exists for, so all four stay legible. */
-  it('keeps a hidden corner readable, because the line going away is what was asked for', () => {
-    renderPanel(BrakePressurePanel, { brakePressureKiloNewtons: [12.4, 12.9, 6.1, 6.0] }, ['fl']);
+  it('keeps a hidden corner readable, because the line going away is what was asked for', async () => {
+    await renderPressure([12.4, 12.9, 6.1, 6.0], ['fl']);
 
     expect(screen.getByText('12.4')).toBeTruthy();
   });
@@ -121,16 +174,16 @@ describe('the extras rings behind both panels', () => {
         roomId: 'room',
         driverKey: DRIVER,
         capturedAtUtc: `2026-08-19T11:00:0${second}Z`,
-        extras: JSON.stringify({ brakePressureKiloNewtons: [second, second, second, second] }),
+        extras: JSON.stringify({ brakeTemperatureCelsius: [{ current: second }, {}, {}, {}] }),
       });
     }
 
-    const rings = store.tracesFor(DRIVER).extras.brakePressureKiloNewtons;
+    const rings = store.tracesFor(DRIVER).extras.brakeTemperatureCelsius;
     expect(rings[0].length).toBe(3);
 
     const { unmount } = render(
       <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
-        <BrakePressurePanel
+        <BrakeTemperaturePanel
           store={store}
           driverKey={DRIVER}
           hiddenChannels={[]}
@@ -144,6 +197,6 @@ describe('the extras rings behind both panels', () => {
     });
     unmount();
 
-    expect(store.tracesFor(DRIVER).extras.brakePressureKiloNewtons[0].length).toBe(3);
+    expect(store.tracesFor(DRIVER).extras.brakeTemperatureCelsius[0].length).toBe(3);
   });
 });

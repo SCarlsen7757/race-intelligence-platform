@@ -316,6 +316,27 @@ public sealed class LiveWireRoundTripTests
         frame.EngineRpm.ShouldBe(sample.EngineRpm);
         frame.FuelLeft.ShouldBe(sample.FuelLeft);
 
+        // Brake pressure rides the fast frame, beside the pedal it is the consequence of. The
+        // unreported rear right stays null rather than reading as a corner that did no braking.
+        frame.BrakePressure.ShouldBe(new LiveWheelValues(3.1f, 3.2f, 1.4f, null));
+    }
+
+    /// <summary>
+    /// The tyre channels travel on their own slower frame now. This is the test that would fail if
+    /// they were ever folded back onto the 60 Hz stream — where twelve values a corner made up the
+    /// majority of it, for readings every consumer then thinned back to about 1 Hz.
+    /// </summary>
+    [Fact]
+    public void The_stint_frame_carries_the_tyre_channels_the_self_frame_no_longer_does()
+    {
+        var sample = LiveDtoFactory.FullyPopulatedSample();
+
+        var frame = RoundTrip(LiveStandingsContractMapper.ToStintFrame(sample, "4242"));
+
+        frame.SessionId.ShouldBe(sample.SessionId);
+        frame.SimDriverId.ShouldBe("4242");
+        frame.CapturedAtUtc.ShouldBe(sample.Timestamp);
+
         frame.TyrePressure.ShouldBe(new LiveWheelValues(180f, 181f, 182f, 183f));
 
         // The unreported rear-right wheel stays null rather than reading as a brand-new tyre.

@@ -71,7 +71,6 @@ public class R3ETelemetryMapperExtrasTests
         propertyNames.ShouldContain("drs");
         propertyNames.ShouldContain("damage");
         propertyNames.ShouldContain("brakeTemperatureCelsius");
-        propertyNames.ShouldContain("brakePressureKiloNewtons");
         propertyNames.ShouldContain("flags");
         propertyNames.ShouldContain("pit");
         propertyNames.ShouldContain("tyreGrip");
@@ -229,8 +228,12 @@ public class R3ETelemetryMapperExtrasTests
         // Raw, sentinel and all — the same rule the whole document follows. A consumer runs these
         // through its own sentinel check; the mapper does not decide for it.
         brakes[0].GetProperty("hot").GetSingle().ShouldBe(-1f);
-        extras.GetProperty("brakePressureKiloNewtons").EnumerateArray().Select(e => e.GetSingle())
-            .ShouldBe([1f, 2f, 3f, 4f]);
+
+        // Brake pressure is deliberately absent: it moved to the canonical sample, and so to the
+        // full-rate wire, because it changes as fast as the pedal does. This document is written
+        // once a second, which is one or two samples of a braking event.
+        extras.EnumerateObject().Select(property => property.Name)
+            .ShouldNotContain("brakePressureKiloNewtons");
     }
 
     [Fact]

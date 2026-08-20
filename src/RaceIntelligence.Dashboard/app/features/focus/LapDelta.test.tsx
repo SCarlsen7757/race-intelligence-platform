@@ -22,9 +22,7 @@ function frame(lapNumber: number, fraction: number, simulationTime: number): Foc
     steering: 0,
     engineRpm: 7000,
     fuelLeftLiters: 40,
-    tyrePressureKpa: [null, null, null, null],
-    tyreWear: [null, null, null, null],
-    tyreTemperatureCelsius: [{}, {}, {}, {}],
+    brakePressureKiloNewtons: [],
   };
 }
 

@@ -1,4 +1,10 @@
 import { formatNumber, formatPercent } from '../../shared/format/format';
+import { TRACE_CAPACITY } from '../../shared/live/store';
+import { LiveReadout } from '../../shared/ui/LiveReadout';
+import { ChannelLegend, type LegendChannel } from '../../features/focus/ChannelLegend';
+import { LiveChart, type LiveChartSpec } from '../../features/focus/LiveChart';
+import { WHEEL_CHANNELS } from '../../features/focus/WheelTrace';
+import { TRACE_COLOURS } from '../../features/focus/traceColours';
 import { ExtrasWheelTrace, type ExtrasWheelChannel } from '../../features/focus/ExtrasWheelTrace';
 import { firstReportedWindow } from '../../features/focus/operatingWindow';
 import type { ChannelPanelProps } from '../registry';
@@ -11,15 +17,24 @@ const TEMPERATURE: ExtrasWheelChannel = {
   window: (document) => firstReportedWindow(document?.brakeTemperatureCelsius),
 };
 
-const PRESSURE: ExtrasWheelChannel = {
-  ring: (extras) => extras.brakePressureKiloNewtons,
-  read: (document, wheel) => document?.brakePressureKiloNewtons?.[wheel],
-};
-
 const WEAR: ExtrasWheelChannel = {
   ring: (extras) => extras.brakeWear,
   read: (document, wheel) => document?.brakeWear?.[wheel],
 };
+
+/**
+ * The brake pedal, as a channel on the pressure chart.
+ *
+ * Its own entry rather than a wheel, because it is not one: it shares the plot and the legend but
+ * sits on a 0..1 axis while the corners are in kilonewtons.
+ */
+const PEDAL_CHANNEL: LegendChannel = {
+  id: 'pedal',
+  label: 'Pedal',
+  stroke: TRACE_COLOURS.brake,
+};
+
+const PRESSURE_CHANNELS: readonly LegendChannel[] = [...WHEEL_CHANNELS, PEDAL_CHANNEL];
 
 const formatTemperature = (value: number | null | undefined) => formatNumber(value, 0);
 const formatPressure = (value: number | null | undefined) => formatNumber(value, 1);
@@ -50,24 +65,74 @@ export function BrakeTemperaturePanel(props: ChannelPanelProps) {
  * hard this driver brakes — so the axis fits what arrived, and the shape of the stint is the
  * message rather than the absolute height.
  *
- * ### The pedal is deliberately not on this chart
+ * ### And the pedal beside it
  *
- * Putting brake input beside corner pressure would show what the driver asked for against what
- * arrived, which is where bias and locking live — and it cannot be done honestly from this wire.
- * The pedal is a focus channel at sixty samples a second; pressure rides in the extras document at
- * roughly one. A brake application lasts about a second, so at the extras cadence a whole braking
- * event is one or two samples, and the two series share no index at all — the store keeps them in
- * separate rings for exactly that reason.
+ * Brake input is drawn on its own 0..1 axis as a fifth channel. This is only honest because pressure
+ * moved to the focus frame: the two now share a sample index, so a point on the pedal line and a
+ * point on a corner line are the same instant. While pressure rode the once-a-second extras
+ * document they shared no index at all, and drawing them together would have looked like a
+ * comparison while sampling a one-second braking event once — a chart that appears to show locking
+ * and cannot is worse than no chart.
  *
- * Drawn together anyway, it would look like a comparison while sampling far too coarsely to be one:
- * a chart that appears to show locking and cannot is worse than no chart. It wants brake pressure
- * on the focus frame, which is a wire change rather than a widget.
- *
- * The narrower question it was reaching for is already answered elsewhere — `brakeBias` is on the
- * focus frame and reads out in the assists widget, straight from the simulator rather than inferred.
+ * It is a channel like any other, so an engineer who wants only the corners turns it off.
  */
-export function BrakePressurePanel(props: ChannelPanelProps) {
-  return <ExtrasWheelTrace {...props} channel={PRESSURE} unit="kN" format={formatPressure} />;
+export function BrakePressurePanel({
+  store,
+  driverKey,
+  hiddenChannels,
+  onToggleChannel,
+}: ChannelPanelProps) {
+  const spec: LiveChartSpec = {
+    capacity: TRACE_CAPACITY,
+    scales: { pedal: { range: [0, 1] } },
+    series: [
+      ...WHEEL_CHANNELS.map((wheel, index) => ({
+        id: wheel.id,
+        label: wheel.label,
+        stroke: wheel.stroke,
+        // Resolved inside the closure so the on-demand ring creation stays out of a render pass.
+        buffer: () => store.tracesFor(driverKey).brakePressureKiloNewtons[index]!,
+      })),
+      {
+        id: PEDAL_CHANNEL.id,
+        label: PEDAL_CHANNEL.label,
+        stroke: PEDAL_CHANNEL.stroke,
+        scale: 'pedal',
+        buffer: () => store.tracesFor(driverKey).brake,
+      },
+    ],
+  };
+
+  return (
+    <div className="wheel-chart">
+      <LiveChart
+        store={store}
+        driverKey={driverKey}
+        spec={spec}
+        hidden={hiddenChannels}
+        className="wheel-chart__plot"
+      />
+
+      <ChannelLegend
+        channels={PRESSURE_CHANNELS}
+        hidden={hiddenChannels}
+        onToggle={onToggleChannel}
+        unit="kN"
+        renderValue={(channel, index) => (
+          <LiveReadout
+            store={store}
+            driverKey={driverKey}
+            className="wheel-chart__number"
+            render={(frame) =>
+              channel.id === PEDAL_CHANNEL.id
+                ? formatPercent(frame.brake)
+                : formatPressure(frame.brakePressureKiloNewtons[index])
+            }
+          />
+        )}
+      />
+    </div>
+  );
 }
 
 /**

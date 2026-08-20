@@ -139,6 +139,14 @@ internal static class R3ETelemetryMapper
             TreadRemainingToWear(raw.TireWear[2]),
             TreadRemainingToWear(raw.TireWear[3]));
 
+        // Promoted out of the extras document, where it was written raw and read once a second. It
+        // is a canonical channel now, so the -1 sentinel is translated here like every other one.
+        var brakePressure = new WheelData<float?>(
+            NullIfNegative(raw.BrakePressure[0]),
+            NullIfNegative(raw.BrakePressure[1]),
+            NullIfNegative(raw.BrakePressure[2]),
+            NullIfNegative(raw.BrakePressure[3]));
+
         return new TelemetrySample
         {
             SessionId = sessionId,
@@ -173,6 +181,7 @@ internal static class R3ETelemetryMapper
             TyreTemperature = tyreTemperature,
             TyrePressure = tyrePressure,
             TyreWear = tyreWear,
+            BrakePressure = brakePressure,
             TrackPositionFraction = NullIfNegative(raw.LapDistanceFraction),
             Extras = BuildSampleExtras(in raw),
         };
@@ -619,12 +628,9 @@ internal static class R3ETelemetryMapper
         }
         writer.WriteEndArray();
 
-        writer.WriteStartArray("brakePressureKiloNewtons");
-        for (int i = 0; i < 4; i++)
-        {
-            writer.WriteNumberValue(raw.BrakePressure[i]);
-        }
-        writer.WriteEndArray();
+        // Brake pressure used to be written here. It moved to the canonical sample, and so to the
+        // full-rate wire, because it changes as fast as the pedal does — a braking event lasts about
+        // a second, and this document is written once a second.
 
         // Per-tyre channels with no canonical equivalent yet. tyreGrip is the reason this block
         // exists: it is grip loss measured directly, rather than inferred from lap time the way a

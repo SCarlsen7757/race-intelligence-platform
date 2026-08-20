@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
-import type { LapHistoryMessage } from './contracts';
+import type { LapHistoryMessage, StintFrameMessage } from './contracts';
 import type { LiveConnection } from './connection';
 import type { ExtrasSnapshot, LapSummary, LiveStore, RaceEvent } from './store';
 
@@ -108,6 +108,20 @@ export function useLapHistory(driverKey: string): LapHistoryMessage | null {
 export function useExtras(driverKey: string): ExtrasSnapshot | null {
   const { store } = useLive();
   const read = useCallback(() => store.getExtras()[driverKey] ?? null, [store, driverKey]);
+
+  return useStoreSlice(store, read);
+}
+
+/**
+ * One driver's latest tyre readings — pressure, wear, and the tread with its operating window.
+ *
+ * A hook rather than a paint-loop read, unlike the focus frame: these arrive at about 1 Hz on their
+ * own frame, so the render cost is irrelevant and the ergonomics are worth a great deal. The rolling
+ * traces behind them are still rings, read from `LiveChart` as always.
+ */
+export function useStint(driverKey: string): StintFrameMessage | null {
+  const { store } = useLive();
+  const read = useCallback(() => store.stintFor(driverKey), [store, driverKey]);
 
   return useStoreSlice(store, read);
 }

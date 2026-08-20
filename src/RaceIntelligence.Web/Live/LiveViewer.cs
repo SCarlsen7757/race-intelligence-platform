@@ -201,6 +201,23 @@ public sealed class LiveViewer
         }
     }
 
+    /// <summary>Offers tyre readings, if this viewer is following the driver they describe.</summary>
+    /// <remarks>
+    /// Gated on the focus rather than on a subscription of its own, exactly as extras are: tyre
+    /// readings describe the car a race engineer has open, and a second subscription for a channel
+    /// that always accompanies the focus would be two things to keep in step for no gain.
+    /// </remarks>
+    public void OfferStint(StintFrameMessage frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        if (string.Equals(RoomId, frame.RoomId, StringComparison.Ordinal)
+            && IsFocused(frame.DriverKey))
+        {
+            Queue.OfferStint(frame);
+        }
+    }
+
     /// <summary>Offers an extras document, if this viewer is following the driver it describes.</summary>
     /// <remarks>
     /// Gated on the focus rather than on a subscription of its own. Extras describe the car a race

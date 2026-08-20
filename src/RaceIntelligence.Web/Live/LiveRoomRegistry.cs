@@ -139,6 +139,22 @@ public sealed class LiveRoomRegistry(
         }
     }
 
+    /// <summary>Applies a publisher's tyre readings and fans them out to viewers focused on that driver.</summary>
+    public void ApplyStint(Guid clientId, LiveStintFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        if (!_publisherRooms.TryGetValue(clientId, out var room))
+        {
+            return;
+        }
+
+        if (room.ApplyStint(clientId, frame, timeProvider.GetUtcNow()) is { } stint)
+        {
+            viewers.BroadcastStint(stint);
+        }
+    }
+
     /// <summary>Applies a publisher's extras document and fans it out to viewers focused on that driver.</summary>
     public void ApplyExtras(Guid clientId, LiveExtrasFrame frame)
     {

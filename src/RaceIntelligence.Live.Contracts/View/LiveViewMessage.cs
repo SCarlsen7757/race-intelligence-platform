@@ -33,6 +33,7 @@ namespace RaceIntelligence.Live.Contracts.View;
 [JsonDerivedType(typeof(TowerSnapshotMessage), "towerSnapshot")]
 [JsonDerivedType(typeof(FocusFrameMessage), "focusFrame")]
 [JsonDerivedType(typeof(LapHistoryMessage), "lapHistory")]
+[JsonDerivedType(typeof(StintFrameMessage), "stintFrame")]
 [JsonDerivedType(typeof(ExtrasFrameMessage), "extrasFrame")]
 [JsonDerivedType(typeof(LiveErrorMessage), "error")]
 public abstract record LiveViewMessage;
@@ -378,9 +379,10 @@ public sealed record TowerRow(
 /// <param name="Gear">-1 reverse, 0 neutral, positive forward gear.</param>
 /// <param name="EngineRpm">Revolutions per minute.</param>
 /// <param name="FuelLeftLiters">Fuel remaining.</param>
-/// <param name="TyrePressureKpa">Kilopascals, FL/FR/RL/RR.</param>
-/// <param name="TyreWear">0 (new) to 1 (fully worn), FL/FR/RL/RR.</param>
-/// <param name="TyreTemperatureCelsius">Tread temperatures and the simulator's window, FL/FR/RL/RR.</param>
+/// <param name="BrakePressureKiloNewtons">
+/// Kilonewtons at each corner, FL/FR/RL/RR. Null members are unreported, never zero — a corner
+/// drawn at zero reads as a brake that did nothing.
+/// </param>
 public sealed record FocusFrameMessage(
     string RoomId,
     string DriverKey,
@@ -397,9 +399,7 @@ public sealed record FocusFrameMessage(
     int? Gear,
     float EngineRpm,
     float FuelLeftLiters,
-    IReadOnlyList<float?> TyrePressureKpa,
-    IReadOnlyList<float?> TyreWear,
-    IReadOnlyList<TreadTemperatures> TyreTemperatureCelsius,
+    IReadOnlyList<float?> BrakePressureKiloNewtons,
     int? AbsSetting = null,
     bool? AbsActive = null,
     int? TractionControlSetting = null,
@@ -476,6 +476,36 @@ public sealed record ExtrasFrameMessage(
     string DriverKey,
     DateTimeOffset CapturedAtUtc,
     string Extras) : LiveViewMessage;
+
+/// <summary>
+/// The focused driver's tyre channels, at roughly 1 Hz.
+/// </summary>
+/// <remarks>
+/// <para>
+/// These used to ride <see cref="FocusFrameMessage"/> at the collector's full poll rate, and they
+/// were the majority of it: twelve values a corner once the tread and its window travel whole.
+/// A tyre is read over a stint, so the dashboard thinned them straight back to about this rate on
+/// arrival — having already paid to receive fifty-nine samples out of sixty it then dropped.
+/// </para>
+/// <para>
+/// Typed and canonical, unlike <see cref="ExtrasFrameMessage"/>, which shares this cadence but is
+/// the connector's own untranslated document. A null here is a reading the simulator did not report
+/// and must never be drawn as a value — a pressure at zero reads as a flat tyre.
+/// </para>
+/// </remarks>
+/// <param name="RoomId">The room this belongs to.</param>
+/// <param name="DriverKey">Which driver, matching <see cref="TowerRow.DriverKey"/>.</param>
+/// <param name="CapturedAtUtc">Capture time on the publishing machine.</param>
+/// <param name="TyrePressureKpa">Kilopascals, FL/FR/RL/RR.</param>
+/// <param name="TyreWear">0 (new) to 1 (fully worn), FL/FR/RL/RR.</param>
+/// <param name="TyreTemperatureCelsius">Tread temperatures and the simulator's window, FL/FR/RL/RR.</param>
+public sealed record StintFrameMessage(
+    string RoomId,
+    string DriverKey,
+    DateTimeOffset CapturedAtUtc,
+    IReadOnlyList<float?> TyrePressureKpa,
+    IReadOnlyList<float?> TyreWear,
+    IReadOnlyList<TreadTemperatures> TyreTemperatureCelsius) : LiveViewMessage;
 
 /// <summary>
 /// Every completed lap the hub has watched one driver finish.

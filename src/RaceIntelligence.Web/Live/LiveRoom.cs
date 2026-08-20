@@ -220,6 +220,64 @@ public sealed class LiveRoom
     }
 
     /// <summary>
+    /// Turns a publisher's stint frame into the message for the row it belongs to.
+    /// </summary>
+    /// <returns>
+    /// The message to broadcast, or <see langword="null"/> under the same conditions as
+    /// <see cref="ApplySelf"/>.
+    /// </returns>
+    public StintFrameMessage? ApplyStint(Guid clientId, LiveStintFrame frame, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        lock (_gate)
+        {
+            if (!_publishers.TryGetValue(clientId, out var state))
+            {
+                return null;
+            }
+
+            // Kept per publisher for the reason extras are: at roughly 1 Hz, a viewer focusing a
+            // driver would otherwise watch empty tyre charts for a second, which reads as a car
+            // with no tyre data rather than as one whose first reading has not arrived.
+            state.Stint = frame;
+            _lastUpdatedAtUtc = nowUtc;
+
+            string? driverKey = LocalDriverKeyFor(state, frame.SimDriverId);
+
+            return driverKey is null ? null : ToStintFrame(RoomId, driverKey, frame);
+        }
+    }
+
+    /// <summary>
+    /// The most recent tyre readings for a driver, for a viewer that has just focused them.
+    /// </summary>
+    public StintFrameMessage? LatestStintFor(string driverKey)
+    {
+        ArgumentNullException.ThrowIfNull(driverKey);
+
+        lock (_gate)
+        {
+            foreach (var state in _publishers.Values)
+            {
+                if (state.Stint is not { } frame)
+                {
+                    continue;
+                }
+
+                string? key = LocalDriverKeyFor(state, frame.SimDriverId);
+
+                if (string.Equals(key, driverKey, StringComparison.Ordinal))
+                {
+                    return ToStintFrame(RoomId, driverKey, frame);
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
     /// The most recent extras document for a driver, for a viewer that has just focused them.
     /// </summary>
     public ExtrasFrameMessage? LatestExtrasFor(string driverKey)
@@ -612,14 +670,20 @@ public sealed class LiveRoom
         frame.Gear,
         frame.EngineRpm,
         frame.FuelLeft,
-        ToWheelArray(frame.TyrePressure),
-        ToWheelArray(frame.TyreWear),
-        ToTreadArray(frame.TyreTemperature),
+        ToWheelArray(frame.BrakePressure),
         frame.AbsSetting,
         frame.AbsActive,
         frame.TractionControlSetting,
         frame.TractionControlActive,
         frame.BrakeBias);
+
+    private static StintFrameMessage ToStintFrame(string roomId, string driverKey, LiveStintFrame frame) => new(
+        roomId,
+        driverKey,
+        frame.CapturedAtUtc,
+        ToWheelArray(frame.TyrePressure),
+        ToWheelArray(frame.TyreWear),
+        ToTreadArray(frame.TyreTemperature));
 
     /// <summary>
     /// Flattens per-wheel values into the platform's FL, FR, RL, RR order.
@@ -736,6 +800,9 @@ internal sealed class LivePublisherState(LivePublisherIdentity identity)
     /// second of an empty damage panel, which reads as "no damage" rather than "not known yet".
     /// </remarks>
     public LiveExtrasFrame? Extras { get; set; }
+
+    /// <summary>The last tyre readings this publisher sent, for a viewer that focuses mid-stint.</summary>
+    public LiveStintFrame? Stint { get; set; }
 
     /// <summary>
     /// Server time <see cref="Standings"/> arrived.

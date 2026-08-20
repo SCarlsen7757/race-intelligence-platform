@@ -1,5 +1,5 @@
 import { formatNumber, formatPercent } from '../../shared/format/format';
-import type { FocusFrameMessage } from '../../shared/live/contracts';
+import type { StintFrameMessage } from '../../shared/live/contracts';
 import type { TyreTraces } from '../../shared/live/store';
 import { AssistSettings } from '../../features/focus/AssistSettings';
 import { CarMetrics } from '../../features/focus/CarMetrics';
@@ -41,8 +41,8 @@ const gripChannel: ExtrasWheelChannel = {
   read: (document, wheel) => document?.tyreGrip?.[wheel],
 };
 
-const readPressure = (frame: FocusFrameMessage, wheel: number) => frame.tyrePressureKpa[wheel];
-const readWear = (frame: FocusFrameMessage, wheel: number) => frame.tyreWear[wheel];
+const readPressure = (frame: StintFrameMessage, wheel: number) => frame.tyrePressureKpa[wheel];
+const readWear = (frame: StintFrameMessage, wheel: number) => frame.tyreWear[wheel];
 
 /**
  * The tread window, taken off the frame for the temperature chart's band.
@@ -50,12 +50,12 @@ const readWear = (frame: FocusFrameMessage, wheel: number) => frame.tyreWear[whe
  * Every corner reports the same three numbers because they are the compound's, not the corner's —
  * see `firstReportedWindow` for why only the first reported one is drawn.
  */
-const readTyreWindow = (frame: FocusFrameMessage) =>
+const readTyreWindow = (frame: StintFrameMessage) =>
   firstReportedWindow(frame.tyreTemperatureCelsius);
 // The middle of the tread, matching the line this chart draws. The shoulders and the simulator's
 // window arrive on the same frame and are what the tread heatmap and the window band will read;
 // this readout stays the one number that belongs beside a single line.
-const readTemperature = (frame: FocusFrameMessage, wheel: number) =>
+const readTemperature = (frame: StintFrameMessage, wheel: number) =>
   frame.tyreTemperatureCelsius[wheel]?.middle;
 
 const formatPressure = (value: number | null | undefined) => formatNumber(value, 1);

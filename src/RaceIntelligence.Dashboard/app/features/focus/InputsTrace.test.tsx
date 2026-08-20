@@ -19,9 +19,7 @@ function frame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessage {
     steering: 0,
     engineRpm: 7200,
     fuelLeftLiters: 40,
-    tyrePressureKpa: [null, null, null, null],
-    tyreWear: [null, null, null, null],
-    tyreTemperatureCelsius: [{}, {}, {}, {}],
+    brakePressureKiloNewtons: [],
     ...overrides,
   };
 }

@@ -57,6 +57,18 @@ public interface ILiveOutbox
     void PublishSelf(TelemetrySample sample, string? simDriverId);
 
     /// <summary>
+    /// Publishes the local car's stint channels — the tyres. Conflated: only the newest survives.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="PublishSelf"/> because the caller decides how often to send it, and
+    /// that is the whole point of the split: these are read over a stint, and sending them at the
+    /// poll rate spends the high-rate channel's budget on the low-rate channel's data.
+    /// </remarks>
+    /// <param name="sample">The sample to take the tyre channels from.</param>
+    /// <param name="simDriverId">The local driver's simulator identity, as on <see cref="PublishSelf"/>.</param>
+    void PublishStint(TelemetrySample sample, string? simDriverId);
+
+    /// <summary>
     /// Publishes the local car's simulator-specific document. Conflated: only the newest survives.
     /// </summary>
     /// <param name="sessionId">The session the values were captured in.</param>

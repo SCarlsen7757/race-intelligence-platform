@@ -24,6 +24,7 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
     private readonly List<(SessionInfo Session, string RosterFingerprint, int RosterSize)> _startedSessions = [];
     private readonly List<SessionStandings> _publishedStandings = [];
     private readonly List<(TelemetrySample Sample, string? SimDriverId)> _publishedSelfFrames = [];
+    private readonly List<(TelemetrySample Sample, string? SimDriverId)> _publishedStintFrames = [];
     private readonly List<(Guid SessionId, string ExtrasJson, DateTimeOffset CapturedAtUtc, string? SimDriverId)> _publishedExtras = [];
     private readonly List<(Guid SessionId, string? Reason)> _endedSessions = [];
 
@@ -114,6 +115,27 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
         lock (_gate)
         {
             _publishedSelfFrames.Add((sample, simDriverId));
+        }
+    }
+
+    /// <summary>Stint frames published, in order — the tyre channels, at their own slower rate.</summary>
+    public IReadOnlyList<(TelemetrySample Sample, string? SimDriverId)> PublishedStintFrames
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _publishedStintFrames];
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public void PublishStint(TelemetrySample sample, string? simDriverId)
+    {
+        lock (_gate)
+        {
+            _publishedStintFrames.Add((sample, simDriverId));
         }
     }
 

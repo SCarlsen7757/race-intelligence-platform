@@ -3,17 +3,12 @@ import type {
   ExtrasFrameMessage,
   FocusFrameMessage,
   LapHistoryMessage,
+  StintFrameMessage,
   TowerRow,
   TowerSnapshotMessage,
   TreadTemperatures,
 } from './contracts';
-import {
-  LAP_BINS,
-  LiveStore,
-  TraceBuffer,
-  TYRE_SAMPLE_INTERVAL_MS,
-  TYRE_TRACE_CAPACITY,
-} from './store';
+import { LAP_BINS, LiveStore, TraceBuffer, TYRE_TRACE_CAPACITY } from './store';
 
 /**
  * A store already following the drivers a test is about to push frames for.
@@ -39,6 +34,25 @@ function tread(middle: number): TreadTemperatures {
   return { inner: middle + 2, middle, outer: middle - 2, optimal: 90, cold: 70, hot: 110 };
 }
 
+/**
+ * A stint frame — the tyre channels, on the roughly 1 Hz message they travel on.
+ *
+ * Separate from {@link focusFrame} because the wire separates them: tyres are read over a stint and
+ * used to ride the 60 Hz frame, where fifty-nine of every sixty samples were sent and then dropped.
+ */
+function stintFrame(overrides: Partial<StintFrameMessage> = {}): StintFrameMessage {
+  return {
+    type: 'stintFrame',
+    roomId: 'room',
+    driverKey: 'id:2',
+    capturedAtUtc: '2026-08-16T12:00:00Z',
+    tyrePressureKpa: [180, 180, 175, 175],
+    tyreWear: [0.1, 0.1, 0.1, 0.1],
+    tyreTemperatureCelsius: [tread(85), tread(85), tread(82), tread(82)],
+    ...overrides,
+  };
+}
+
 function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessage {
   return {
     type: 'focusFrame',
@@ -56,9 +70,7 @@ function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessa
     gear: 4,
     engineRpm: 7000,
     fuelLeftLiters: 40,
-    tyrePressureKpa: [180, 180, 175, 175],
-    tyreWear: [0.1, 0.1, 0.1, 0.1],
-    tyreTemperatureCelsius: [tread(85), tread(85), tread(82), tread(82)],
+    brakePressureKiloNewtons: [3.1, 3.2, 1.4, 1.5],
     ...overrides,
   };
 }
@@ -433,17 +445,13 @@ describe('LiveStore', () => {
     expect([...store.tracesFor('id:2').throttle.toArray()]).toEqual([1, Number.NaN, 0.25]);
   });
 
-  /** Otherwise an interval that elapsed during the outage swallows the first frame back. */
-  it('samples the first tyre reading after an interruption rather than waiting out the interval', () => {
-    let now = 0;
-    const store = following(['id:2'], () => now);
-    store.apply(focusFrame({ tyreWear: [0.25, 0.25, 0.25, 0.25] }));
+  /** An outage leaves a hole in the tyre rings too, and the first frame back lands straight after it. */
+  it('resumes the tyre rings after an interruption', () => {
+    const store = following(['id:2']);
+    store.apply(stintFrame({ tyreWear: [0.25, 0.25, 0.25, 0.25] }));
 
-    now += TYRE_SAMPLE_INTERVAL_MS * 4;
     store.interruptFocus();
-
-    now += 1;
-    store.apply(focusFrame({ tyreWear: [0.5, 0.5, 0.5, 0.5] }));
+    store.apply(stintFrame({ tyreWear: [0.5, 0.5, 0.5, 0.5] }));
 
     // The reading, the gap the outage left, and the first reading back.
     expect([...store.tracesFor('id:2').tyres.wear[0].toArray()]).toEqual([0.25, Number.NaN, 0.5]);
@@ -480,33 +488,63 @@ describe('LiveStore', () => {
   });
 
   /**
-   * A tyre moves over a stint, not over a corner. Sampling the tyre rings at focus rate would fill
-   * the whole window with sixty seconds of a flat line and call it information.
+   * The decimation moved to the publisher, and this is what proves the store no longer does it: one
+   * arrival, one sample. It used to drop fifty-nine of every sixty *after* the hub had serialised
+   * them and the socket had carried them, which was the right thinning happening three processes
+   * too late.
+   *
+   * The two rates are still separate — a hundred focus frames advance the pedal rings and leave the
+   * tyre rings alone, because tyres arrive on their own message.
    */
-  it('decimates the tyre traces to one sample per interval', () => {
-    let now = 0;
-    const store = following(['id:2'], () => now);
+  it('takes one tyre sample per stint frame, and none from a focus frame', () => {
+    const store = following(['id:2']);
 
-    // Ten frames inside one interval, then one after it.
-    for (let i = 0; i < 10; i++) {
-      now += TYRE_SAMPLE_INTERVAL_MS / 20;
-      store.apply(focusFrame({ tyreWear: [0.25, 0.25, 0.25, 0.25] }));
+    for (let i = 0; i < 100; i++) {
+      store.apply(focusFrame());
     }
 
-    now += TYRE_SAMPLE_INTERVAL_MS;
-    store.apply(focusFrame({ tyreWear: [0.5, 0.5, 0.5, 0.5] }));
+    store.apply(stintFrame({ tyreWear: [0.25, 0.25, 0.25, 0.25] }));
+    store.apply(stintFrame({ tyreWear: [0.5, 0.5, 0.5, 0.5] }));
 
-    // Two: the first frame of the stint, and the first one past the interval.
     expect([...store.tracesFor('id:2').tyres.wear[0].toArray()]).toEqual([0.25, 0.5]);
-    expect(store.tracesFor('id:2').throttle.length).toBe(11);
+    expect(store.tracesFor('id:2').throttle.length).toBe(100);
+  });
+
+  /**
+   * Brake pressure went the other way: it used to ride the once-a-second extras document, where a
+   * one-second braking event was one or two samples. On the focus frame it shares an index with the
+   * pedal, which is what makes pedal-against-pressure a comparison rather than two unrelated traces.
+   */
+  it('samples brake pressure at focus rate, on the same index as the pedal', () => {
+    const store = following(['id:2']);
+
+    // Quarters, because the rings are Float32Array and 3.1 comes back as 3.0999999046325684. The
+    // reading under test is which index a sample lands on, not how many bits it survives, so the
+    // values are chosen to round-trip exactly and leave the assertion about the thing it is for.
+    store.apply(focusFrame({ brake: 0.5, brakePressureKiloNewtons: [3.5, 3.25, 1.5, 1.25] }));
+    store.apply(focusFrame({ brake: 0.9, brakePressureKiloNewtons: [9.5, 9.25, 4.5, 4.25] }));
+
+    const traces = store.tracesFor('id:2');
+
+    expect([...traces.brakePressureKiloNewtons[0].toArray()]).toEqual([3.5, 9.5]);
+    expect(traces.brakePressureKiloNewtons[0].length).toBe(traces.brake.length);
+  });
+
+  /** An unreported corner is a hole: at zero it would read as a brake that did nothing. */
+  it('plots an unreported brake corner as a gap rather than as zero', () => {
+    const store = following(['id:2']);
+
+    store.apply(focusFrame({ brakePressureKiloNewtons: [3.5, null, 1.5, 1.25] }));
+
+    expect(store.tracesFor('id:2').brakePressureKiloNewtons[1].last()).toBeNaN();
+    expect(store.tracesFor('id:2').brakePressureKiloNewtons[0].last()).toBe(3.5);
   });
 
   it('keeps every tyre channel per wheel, in wire order', () => {
-    const now = 0;
-    const store = following(['id:2'], () => now);
+    const store = following(['id:2']);
 
     store.apply(
-      focusFrame({
+      stintFrame({
         tyrePressureKpa: [180, 181, 175, 176],
         tyreTemperatureCelsius: [tread(85), tread(86), tread(82), tread(83)],
       }),
@@ -524,19 +562,19 @@ describe('LiveStore', () => {
   /**
    * The live path used to carry the middle reading alone, which made two whole charts unbuildable:
    * the shoulder spread that shows a camber problem, and the band the simulator is willing to name.
-   * Both arrive on the frame now, and neither belongs in a ring — a spread is read across the car at
-   * one instant, and a window does not move — so the frame is where a widget reaches for them.
+   * Both arrive on the stint frame now, and neither belongs in a ring — a spread is read across the
+   * car at one instant, and a window does not move — so the frame is where a widget reaches for them.
    */
-  it('keeps the tread shoulders and the operating window on the frame', () => {
+  it('keeps the tread shoulders and the operating window on the stint frame', () => {
     const store = following(['id:2']);
 
     store.apply(
-      focusFrame({
+      stintFrame({
         tyreTemperatureCelsius: [tread(85), tread(86), tread(82), tread(83)],
       }),
     );
 
-    const frontLeft = store.frameFor('id:2')!.tyreTemperatureCelsius[0]!;
+    const frontLeft = store.stintFor('id:2')!.tyreTemperatureCelsius[0]!;
 
     expect(frontLeft.inner).toBe(87);
     expect(frontLeft.outer).toBe(83);
@@ -552,9 +590,9 @@ describe('LiveStore', () => {
   it('leaves an unreported window absent rather than zero', () => {
     const store = following(['id:2']);
 
-    store.apply(focusFrame({ tyreTemperatureCelsius: [{ middle: 85 }, {}, {}, {}] }));
+    store.apply(stintFrame({ tyreTemperatureCelsius: [{ middle: 85 }, {}, {}, {}] }));
 
-    const frontLeft = store.frameFor('id:2')!.tyreTemperatureCelsius[0]!;
+    const frontLeft = store.stintFor('id:2')!.tyreTemperatureCelsius[0]!;
 
     expect(frontLeft.optimal).toBeUndefined();
     expect(frontLeft.hot).toBeUndefined();
@@ -569,10 +607,9 @@ describe('LiveStore', () => {
    * simulator did not report must leave a hole — drawn at zero it would read as a flat tyre.
    */
   it('plots an unreported wheel as a gap rather than as zero', () => {
-    const now = 0;
-    const store = following(['id:2'], () => now);
+    const store = following(['id:2']);
 
-    store.apply(focusFrame({ tyrePressureKpa: [180, null, 175, 176] }));
+    store.apply(stintFrame({ tyrePressureKpa: [180, null, 175, 176] }));
 
     expect(Number.isNaN(store.tracesFor('id:2').tyres.pressureKpa[1].last())).toBe(true);
     expect(store.tracesFor('id:2').tyres.pressureKpa[0].last()).toBe(180);
@@ -583,12 +620,10 @@ describe('LiveStore', () => {
    * here would be a slow leak over a two-hour race.
    */
   it('keeps the tyre rings flat over a long stint', () => {
-    let now = 0;
-    const store = following(['id:2'], () => now);
+    const store = following(['id:2']);
 
     for (let i = 0; i < TYRE_TRACE_CAPACITY + 500; i++) {
-      now += TYRE_SAMPLE_INTERVAL_MS;
-      store.apply(focusFrame({ tyreWear: [i / 10_000, 0, 0, 0] }));
+      store.apply(stintFrame({ tyreWear: [i / 10_000, 0, 0, 0] }));
     }
 
     expect(store.tracesFor('id:2').tyres.wear[0].length).toBe(TYRE_TRACE_CAPACITY);

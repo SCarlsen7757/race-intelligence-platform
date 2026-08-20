@@ -252,13 +252,7 @@ public sealed class LiveViewContractShapeTests
     {
         var message = new FocusFrameMessage(
             "room-1", "id:1", DateTimeOffset.UnixEpoch, 1.0, 2, 1, 0.25f, 55f,
-            1f, 0f, 0.5f, 0.1f, 4, 7200f, 40f, [180f, 181f, 175f, 176f], [0.1f, 0.1f, 0.1f, 0.1f],
-            [
-                new TreadTemperatures(84f, 85f, 86f, 90f, 70f, 110f),
-                new TreadTemperatures(85f, 86f, 87f, 90f, 70f, 110f),
-                new TreadTemperatures(81f, 82f, 83f, 90f, 70f, 110f),
-                new TreadTemperatures(82f, 83f, 84f, 90f, 70f, null),
-            ],
+            1f, 0f, 0.5f, 0.1f, 4, 7200f, 40f, [3.1f, 3.2f, 1.4f, null],
             3, true, 4, false, 0.43f);
 
         var json = Serialize(message);
@@ -268,13 +262,51 @@ public sealed class LiveViewContractShapeTests
             [
                 "type", "roomId", "driverKey", "capturedAtUtc", "simulationTime", "lapNumber",
                 "sector", "trackPositionFraction", "speedMetersPerSecond", "throttle", "brake",
-                "clutch", "steering", "gear", "engineRpm", "fuelLeftLiters", "tyrePressureKpa",
-                "tyreWear", "tyreTemperatureCelsius", "absSetting", "absActive",
+                "clutch", "steering", "gear", "engineRpm", "fuelLeftLiters",
+                "brakePressureKiloNewtons", "absSetting", "absActive",
                 "tractionControlSetting", "tractionControlActive", "brakeBias",
             ],
             ignoreOrder: true);
 
         // FL, FR, RL, RR — the platform's wheel order, which the dashboard indexes positionally.
+        var pressure = json.GetProperty("brakePressureKiloNewtons");
+        pressure.GetArrayLength().ShouldBe(4);
+        pressure[0].GetSingle().ShouldBe(3.1f);
+
+        // An unreported corner is null, never zero: a brake drawn at zero reads as one that did
+        // nothing, which is a different and much more alarming fact.
+        pressure[3].ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    /// <summary>
+    /// The tyre channels have their own message now, at their own rate. On the focus frame they were
+    /// the majority of a payload sent sixty times a second, for readings the dashboard thinned back
+    /// to about 1 Hz the moment they arrived.
+    /// </summary>
+    [Fact]
+    public void A_stint_frame_carries_the_tyre_names_the_dashboard_reads()
+    {
+        var message = new StintFrameMessage(
+            "room-1", "id:1", DateTimeOffset.UnixEpoch,
+            [180f, 181f, 175f, 176f],
+            [0.1f, 0.1f, 0.1f, 0.1f],
+            [
+                new TreadTemperatures(84f, 85f, 86f, 90f, 70f, 110f),
+                new TreadTemperatures(85f, 86f, 87f, 90f, 70f, 110f),
+                new TreadTemperatures(81f, 82f, 83f, 90f, 70f, 110f),
+                new TreadTemperatures(82f, 83f, 84f, 90f, 70f, null),
+            ]);
+
+        var json = Serialize(message);
+        json.GetProperty("type").GetString().ShouldBe("stintFrame");
+
+        PropertyNames(json).ShouldBe(
+            [
+                "type", "roomId", "driverKey", "capturedAtUtc",
+                "tyrePressureKpa", "tyreWear", "tyreTemperatureCelsius",
+            ],
+            ignoreOrder: true);
+
         json.GetProperty("tyrePressureKpa").GetArrayLength().ShouldBe(4);
 
         // A tyre temperature is an object per corner, not a number: three tread readings plus the

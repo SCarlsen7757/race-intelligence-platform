@@ -120,6 +120,20 @@ public sealed record TelemetrySample
     /// </summary>
     public WheelData<float?> TyreWear { get; init; }
 
+    /// <summary>
+    /// Per-wheel brake pressure, in kilonewtons. Individual wheels are <see langword="null"/> if the
+    /// source does not report it.
+    /// </summary>
+    /// <remarks>
+    /// A canonical channel rather than a simulator extra, and it sits with the pedals rather than
+    /// with the tyres because that is the rate it moves at. Brake pressure is what the pedal
+    /// actually produced at each corner — it rises and falls inside a single braking event, and the
+    /// difference between what the driver asked for and what arrived is where bias and locking
+    /// live. Read once a second it is one or two samples of a corner, which is not a reading of
+    /// anything.
+    /// </remarks>
+    public WheelData<float?> BrakePressure { get; init; }
+
     /// <summary>Fractional position around the track lap, 0 to 1. <see langword="null"/> if not reported.</summary>
     public float? TrackPositionFraction { get; init; }
 

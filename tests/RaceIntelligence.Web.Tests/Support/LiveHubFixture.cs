@@ -232,19 +232,29 @@ public static class LiveDtoFactory
             Gear: 4,
             EngineRpm: 7200f,
             FuelLeft: 40f,
-            new LiveWheelValues(180f, 181f, 175f, 176f),
-            new LiveWheelValues(0.1f, 0.11f, 0.09f, 0.12f),
-            new LiveTyreTemperatures(
-                new LiveTreadTemperatures(84f, 85f, 86f, 90f, 70f, 110f),
-                new LiveTreadTemperatures(85f, 86f, 87f, 90f, 70f, 110f),
-                new LiveTreadTemperatures(81f, 82f, 83f, 90f, 70f, 110f),
-                new LiveTreadTemperatures(82f, 83f, 84f, 90f, 70f, 110f)),
+            new LiveWheelValues(3.1f, 3.2f, 1.4f, 1.5f),
             clutch,
             absSetting,
             absActive,
             tractionControlSetting,
             tractionControlActive,
             brakeBias);
+
+    /// <summary>The tyre channels, on the slower frame they travel on.</summary>
+    public static LiveStintFrame StintFrame(
+        Guid? sessionId = null,
+        string? simDriverId = null) =>
+        new(
+            sessionId ?? Guid.NewGuid(),
+            simDriverId,
+            DateTimeOffset.Parse("2026-08-16T12:00:00Z", null),
+            new LiveWheelValues(180f, 181f, 175f, 176f),
+            new LiveWheelValues(0.1f, 0.11f, 0.09f, 0.12f),
+            new LiveTyreTemperatures(
+                new LiveTreadTemperatures(84f, 85f, 86f, 90f, 70f, 110f),
+                new LiveTreadTemperatures(85f, 86f, 87f, 90f, 70f, 110f),
+                new LiveTreadTemperatures(81f, 82f, 83f, 90f, 70f, 110f),
+                new LiveTreadTemperatures(82f, 83f, 84f, 90f, 70f, 110f)));
 
     public static LiveExtrasFrame ExtrasFrame(
         Guid? sessionId = null,
