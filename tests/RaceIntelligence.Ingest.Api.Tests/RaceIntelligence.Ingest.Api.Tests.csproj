@@ -12,7 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\RaceIntelligence.Ingest.Api\RaceIntelligence.Ingest.Api.csproj" />
+    <ProjectReference Include="..\..\src\RaceIntelligence.Ingest.RaceRoom\RaceIntelligence.Ingest.RaceRoom.csproj" />
     <ProjectReference Include="..\..\src\RaceIntelligence.AppHost\RaceIntelligence.AppHost.csproj" />
   </ItemGroup>
 

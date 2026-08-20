@@ -9,7 +9,7 @@ namespace RaceIntelligence.Identity.Repositories;
 /// </summary>
 /// <remarks>
 /// A deliberate three-line duplicate of the telemetry store's helper of the same name, and not a
-/// shared one. This project must not reference <c>RaceIntelligence.Persistence</c>: the registry
+/// shared one. This project must not reference <c>RaceIntelligence.Persistence.Core</c>: the registry
 /// exists precisely so that identity outlives any one simulator's database, and a compile-time
 /// dependency on that database's assembly would be the first crack in that. Putting it in
 /// <c>Core</c> instead would drag Npgsql into the canonical model to save three lines.

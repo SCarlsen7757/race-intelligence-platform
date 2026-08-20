@@ -33,20 +33,36 @@ jobs:
       - name: Restore
         run: dotnet restore RaceIntelligence.slnx
 
-      # docs/schema.sql is generated from the migrations and committed, so the schema is reviewable
-      # as a schema and so the knowledge graph can read it without a database. Nothing else fails
-      # when it goes stale — the tests build their database from the migrations, not from this file
-      # — so a forgotten regeneration would otherwise sit unnoticed until someone trusted the file.
+      # Each schema dump is generated from its migrations and committed, so the schema is
+      # reviewable as a schema and so the knowledge graph can read it without a database. Nothing
+      # else fails when one goes stale — the tests build their database from the migrations, not
+      # from these files — so a forgotten regeneration would otherwise sit unnoticed until someone
+      # trusted the file.
+      #
+      # There is more than one, and there will be one more per simulator: storage is one database
+      # per simulator (ADR 0001) and the identity registry has its own besides (ADR 0002). The list
+      # below is the same list `tools/update-graph.py` keeps in `STORES`; the two have to stay in
+      # step, and a new simulator adds a line to each.
       #
       # Regenerating and diffing is the whole check. `dotnet ef migrations script` is deterministic
-      # (verified: identical bytes across runs), and .gitattributes normalizes the file to LF, so
-      # the CRLF this writes on a Windows developer's machine does not register as a difference.
-      - name: Verify docs/schema.sql matches the migrations
+      # (verified: identical bytes across runs), and .gitattributes normalizes to LF, so the CRLF
+      # this writes on a Windows developer's machine does not register as a difference.
+      - name: Verify the schema dumps match their migrations
         run: |
           dotnet tool install --global dotnet-ef
-          dotnet ef migrations script --project src/RaceIntelligence.Persistence --output docs/schema.sql
-          git diff --exit-code -- docs/schema.sql \
-            || { echo "::error file=docs/schema.sql::Out of date. Regenerate it in the same commit as the migration: dotnet ef migrations script --project src/RaceIntelligence.Persistence --output docs/schema.sql"; exit 1; }
+          stores=(
+            "src/RaceIntelligence.Persistence.RaceRoom:RaceRoomDbContext:docs/raceroom-schema.sql"
+            "src/RaceIntelligence.Identity:IdentityDbContext:docs/identity-schema.sql"
+          )
+          for store in "${stores[@]}"; do
+            IFS=: read -r project context dump <<< "$store"
+            regenerate="dotnet ef migrations script --project $project --context $context --output $dump"
+            $regenerate
+            if ! git diff --exit-code -- "$dump"; then
+              echo "::error file=$dump::Out of date. Regenerate it in the same commit as the migration: $regenerate"
+              exit 1
+            fi
+          done
 
       - name: Build
         # Directory.Build.props already sets TreatWarningsAsErrors=true; -warnaserror also promotes
@@ -57,8 +73,13 @@ jobs:
 
       - name: Test
         # Every suite except the RaceRoom connector, which is covered by the windows job below.
-        # Listed explicitly rather than filtered: if a new test project is added and nobody adds it
-        # here, that is visible in this file rather than silently unrun.
+        #
+        # Listed explicitly, because which suites run is worth reading in this file. The list used
+        # to be trusted on its own, on the grounds that a missing entry would be "visible here
+        # rather than silently unrun" — and that is precisely what did not happen: the identity
+        # registry arrived with its own suite, nobody added it, and CI stayed green while those
+        # tests never ran. So the list is now checked against what is actually on disk, and a
+        # project nobody listed fails the run instead of disappearing.
         #
         # Two things here are load-bearing and were both verified by running them in a Linux
         # container, because getting either wrong fails quietly rather than loudly:
@@ -67,15 +88,38 @@ jobs:
         #   - no --no-build: these projects run on Microsoft.Testing.Platform, and --no-build makes
         #     discovery report "No test projects were found" too. Rebuilding costs seconds.
         run: |
-          dotnet test tests/RaceIntelligence.Analysis.Tests/RaceIntelligence.Analysis.Tests.csproj --configuration Release
-          dotnet test tests/RaceIntelligence.Collector.Plugins.Ingest.Tests/RaceIntelligence.Collector.Plugins.Ingest.Tests.csproj --configuration Release
-          dotnet test tests/RaceIntelligence.Collector.Plugins.Live.Tests/RaceIntelligence.Collector.Plugins.Live.Tests.csproj --configuration Release
-          dotnet test tests/RaceIntelligence.Collector.Tests/RaceIntelligence.Collector.Tests.csproj --configuration Release
-          dotnet test tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj --configuration Release
-          dotnet test tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj --configuration Release
-          dotnet test tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj --configuration Release
-          dotnet test tests/RaceIntelligence.Persistence.Tests/RaceIntelligence.Persistence.Tests.csproj --configuration Release
-          dotnet test tests/RaceIntelligence.Web.Tests/RaceIntelligence.Web.Tests.csproj --configuration Release
+          suites=(
+            tests/RaceIntelligence.Analysis.Tests/RaceIntelligence.Analysis.Tests.csproj
+            tests/RaceIntelligence.Collector.Plugins.Ingest.Tests/RaceIntelligence.Collector.Plugins.Ingest.Tests.csproj
+            tests/RaceIntelligence.Collector.Plugins.Live.Tests/RaceIntelligence.Collector.Plugins.Live.Tests.csproj
+            tests/RaceIntelligence.Collector.Tests/RaceIntelligence.Collector.Tests.csproj
+            tests/RaceIntelligence.Core.Tests/RaceIntelligence.Core.Tests.csproj
+            tests/RaceIntelligence.Identity.Tests/RaceIntelligence.Identity.Tests.csproj
+            tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj
+            tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj
+            tests/RaceIntelligence.Persistence.RaceRoom.Tests/RaceIntelligence.Persistence.RaceRoom.Tests.csproj
+            tests/RaceIntelligence.Web.Tests/RaceIntelligence.Web.Tests.csproj
+          )
+
+          # TestSupport is a helper library rather than a suite; the RaceRoom connector needs
+          # Windows shared memory and runs in the job below.
+          for found in tests/*/*.csproj; do
+            case "$found" in
+              *.TestSupport/*|*Connectors.RaceRoom.Tests/*) continue ;;
+            esac
+            listed=0
+            for suite in "${suites[@]}"; do
+              if [ "$suite" = "$found" ]; then listed=1; fi
+            done
+            if [ "$listed" -eq 0 ]; then
+              echo "::error file=.github/workflows/ci.yml::$found exists but is not in the suite list above, so it would never run. Add it."
+              exit 1
+            fi
+          done
+
+          for suite in "${suites[@]}"; do
+            dotnet test "$suite" --configuration Release
+          done
 
   # The dashboard. Separate from the .NET jobs because it needs Node rather than the SDK, and
   # because a TypeScript error should read as a frontend failure rather than as part of a build log

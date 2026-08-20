@@ -1,9 +1,10 @@
 # 0001 — Per-simulator storage
 
-**Status:** Accepted. **Steps 1, 2 and 4 of the migration path are built** — the schema no longer
-scopes anything by game, each ingest API serves exactly one simulator, and the identity registry
-exists (`src/RaceIntelligence.Identity`). **Step 3 — promoting a simulator's first-class channels
-out of `extras` — is not.**
+**Status:** Accepted. **Steps 1, 2 and 4 of the migration path are built**, and the per-simulator
+project split they imply has landed: `Persistence.Core` holds the canonical types and declares no
+schema, `Persistence.RaceRoom` owns RaceRoom's tables, migrations and bulk writer, and
+`Ingest.RaceRoom` hosts the shared endpoints against it. **Step 3 — promoting a simulator's
+first-class channels out of `extras` — is not built.**
 **Supersedes:** the "one database holds every simulator" assumption in [architecture.md](../architecture.md).
 **Depends on:** [0002 — the cross-simulator translator](0002-cross-sim-translator.md), which is what makes this decision survivable.
 

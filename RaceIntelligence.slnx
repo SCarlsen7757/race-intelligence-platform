@@ -12,7 +12,7 @@
     <Project Path="src/RaceIntelligence.AppHost/RaceIntelligence.AppHost.csproj" />
     <Project Path="src/RaceIntelligence.Collector/RaceIntelligence.Collector.csproj" />
     <Project Path="src/RaceIntelligence.Identity.Api/RaceIntelligence.Identity.Api.csproj" />
-    <Project Path="src/RaceIntelligence.Ingest.Api/RaceIntelligence.Ingest.Api.csproj" />
+    <Project Path="src/RaceIntelligence.Ingest.RaceRoom/RaceIntelligence.Ingest.RaceRoom.csproj" />
     <Project Path="src/RaceIntelligence.Web/RaceIntelligence.Web.csproj" />
   </Folder>
   <Folder Name="/Infrastructure/">
@@ -20,7 +20,9 @@
     <Project Path="src/RaceIntelligence.Collector.Plugins.Live/RaceIntelligence.Collector.Plugins.Live.csproj" />
     <Project Path="src/RaceIntelligence.Connectors.RaceRoom/RaceIntelligence.Connectors.RaceRoom.csproj" />
     <Project Path="src/RaceIntelligence.Identity/RaceIntelligence.Identity.csproj" />
-    <Project Path="src/RaceIntelligence.Persistence/RaceIntelligence.Persistence.csproj" />
+    <Project Path="src/RaceIntelligence.Ingest.Api/RaceIntelligence.Ingest.Api.csproj" />
+    <Project Path="src/RaceIntelligence.Persistence.Core/RaceIntelligence.Persistence.Core.csproj" />
+    <Project Path="src/RaceIntelligence.Persistence.RaceRoom/RaceIntelligence.Persistence.RaceRoom.csproj" />
   </Folder>
   <Folder Name="/Shared/">
     <Project Path="src/RaceIntelligence.Collector.Abstractions/RaceIntelligence.Collector.Abstractions.csproj" />
@@ -39,7 +41,7 @@
     <Project Path="tests/RaceIntelligence.Identity.Tests/RaceIntelligence.Identity.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj" />
-    <Project Path="tests/RaceIntelligence.Persistence.Tests/RaceIntelligence.Persistence.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Persistence.RaceRoom.Tests/RaceIntelligence.Persistence.RaceRoom.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Web.Tests/RaceIntelligence.Web.Tests.csproj" />
   </Folder>
 </Solution>

@@ -8,8 +8,8 @@ using RaceIntelligence.Ingest.Api.Auth;
 using RaceIntelligence.Ingest.Contracts;
 using RaceIntelligence.Ingest.Contracts.Mapping;
 using RaceIntelligence.Ingest.Contracts.Telemetry;
-using RaceIntelligence.Persistence;
-using RaceIntelligence.Persistence.Bulk;
+using RaceIntelligence.Persistence.Core;
+using RaceIntelligence.Persistence.Core.Bulk;
 using CoreTelemetry = RaceIntelligence.Core.Telemetry;
 
 namespace RaceIntelligence.Ingest.Api.Endpoints;
@@ -50,8 +50,8 @@ public static class TelemetryEndpoints
     private static async Task<IResult> HandleBatchAsync(
         Guid id,
         HttpContext context,
-        RaceIntelligenceDbContext db,
-        NpgsqlTelemetryWriter writer,
+        TelemetryDbContext db,
+        ITelemetryWriter writer,
         CancellationToken ct)
     {
         if (context.Request.ContentLength > MaxBatchBodyBytes)

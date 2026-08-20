@@ -81,7 +81,7 @@ class Store:
 
 
 STORES = [
-    Store("RaceIntelligence.Persistence", "docs/schema.sql"),
+    Store("RaceIntelligence.Persistence.RaceRoom", "docs/raceroom-schema.sql"),
     Store("RaceIntelligence.Identity", "docs/identity-schema.sql"),
 ]
 
@@ -171,14 +171,15 @@ def main() -> int:
 
     if missing:
         print("\nunmapped:", file=sys.stderr)
-        for m in missing:
-            print(f"  - {m}", file=sys.stderr)
-        print(
-            "\ndocs/schema.sql is probably stale -- regenerate it with:\n"
-            "  dotnet ef migrations script --project src/RaceIntelligence.Persistence "
-            "--output docs/schema.sql",
-            file=sys.stderr,
-        )
+        for store, detail in missing:
+            print(f"  - [{store.project}] {detail}", file=sys.stderr)
+
+        # Only the stores that actually failed, each named once. With more than one database,
+        # "regenerate the schema" stopped being a single command.
+        stale = {store.schema: store for store, _ in missing}
+        print("\nprobably stale -- regenerate with:", file=sys.stderr)
+        for store in stale.values():
+            print(store.script_command, file=sys.stderr)
         return 1
 
     return 0

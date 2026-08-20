@@ -3,7 +3,7 @@ using RaceIntelligence.Ingest.Contracts.Telemetry;
 
 namespace RaceIntelligence.Ingest.Api.Tests.Support;
 
-/// <summary>Builders for wire DTOs, kept small and explicit for test readability. Mirrors <c>RaceIntelligence.Persistence.Tests.Support.SampleFactory</c>.</summary>
+/// <summary>Builders for wire DTOs, kept small and explicit for test readability. Mirrors <c>RaceIntelligence.Persistence.RaceRoom.Tests.Support.SampleFactory</c>.</summary>
 internal static class DtoFactory
 {
     /// <summary>

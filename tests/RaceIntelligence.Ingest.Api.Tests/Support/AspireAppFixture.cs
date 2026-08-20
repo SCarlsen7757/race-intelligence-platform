@@ -13,7 +13,7 @@ namespace RaceIntelligence.Ingest.Api.Tests.Support;
 /// <remarks>
 /// If Docker is not available in the environment this fixture runs in, <see cref="InitializeAsync"/>
 /// swallows the startup failure and records it in <see cref="SkipReason"/> instead of throwing —
-/// exactly the pattern <c>RaceIntelligence.Persistence.Tests.Support.PostgresFixture</c> uses. Tests
+/// exactly the pattern <c>RaceIntelligence.Persistence.RaceRoom.Tests.Support.PostgresFixture</c> uses. Tests
 /// that depend on the running app must guard with
 /// <c>Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable")</c> so
 /// the suite reports honest skips rather than failures (or a faked pass) when there is no container

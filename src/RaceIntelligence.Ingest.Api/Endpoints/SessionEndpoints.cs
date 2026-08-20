@@ -3,10 +3,10 @@ using Microsoft.EntityFrameworkCore;
 using RaceIntelligence.Ingest.Api.Auth;
 using RaceIntelligence.Ingest.Contracts;
 using RaceIntelligence.Ingest.Contracts.Mapping;
-using RaceIntelligence.Persistence;
-using RaceIntelligence.Persistence.Converters;
-using RaceIntelligence.Persistence.Mapping;
-using RaceIntelligence.Persistence.Repositories;
+using RaceIntelligence.Persistence.Core;
+using RaceIntelligence.Persistence.Core.Converters;
+using RaceIntelligence.Persistence.Core.Mapping;
+using RaceIntelligence.Persistence.Core.Repositories;
 using CoreSessions = RaceIntelligence.Core.Sessions;
 
 namespace RaceIntelligence.Ingest.Api.Endpoints;
@@ -46,7 +46,7 @@ public static class SessionEndpoints
     /// </remarks>
     private static async Task<IResult> CreateSessionAsync(
         SessionCreateRequest request,
-        RaceIntelligenceDbContext db,
+        TelemetryDbContext db,
         GameVersionRepository versionRepo,
         IConfiguration configuration,
         TrackRepository trackRepo,
@@ -153,7 +153,7 @@ public static class SessionEndpoints
     private static async Task<IResult> UpdateSessionAsync(
         Guid id,
         SessionUpdateRequest request,
-        RaceIntelligenceDbContext db,
+        TelemetryDbContext db,
         CancellationToken ct)
     {
         if (!SchemaVersion.IsSupported(request.SchemaVersion))
@@ -210,7 +210,7 @@ public static class SessionEndpoints
     private static async Task<IResult> RecordLapAsync(
         Guid id,
         LapCompletedRequest request,
-        RaceIntelligenceDbContext db,
+        TelemetryDbContext db,
         CancellationToken ct)
     {
         if (!SchemaVersion.IsSupported(request.SchemaVersion))
