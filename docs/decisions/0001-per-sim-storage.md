@@ -1,6 +1,7 @@
 # 0001 — Per-simulator storage
 
-**Status:** Accepted, not yet implemented. Design only; nothing in this record has been built.
+**Status:** Accepted. **Step 4 of the migration path — the identity registry — is built**
+(`src/RaceIntelligence.Identity`); steps 1–3 are not. Nothing else in this record has been built.
 **Supersedes:** the "one database holds every simulator" assumption in [architecture.md](../architecture.md).
 **Depends on:** [0002 — the cross-simulator translator](0002-cross-sim-translator.md), which is what makes this decision survivable.
 
@@ -104,10 +105,13 @@ Today's database is RaceRoom-only in practice, which makes the first step cheap:
 1. Treat the existing database as the RaceRoom instance.
 2. Drop `games`, drop the `game_id` columns and re-point the unique indexes.
 3. Promote RaceRoom's `extras` channels into typed columns, backfilling from the JSON already stored.
-4. Stand up the identity registry (0002) *before* the second simulator, not after — retrofitting
-   identity across two populated databases is materially harder than seeding it with one.
+4. ~~Stand up the identity registry (0002) *before* the second simulator, not after — retrofitting
+   identity across two populated databases is materially harder than seeding it with one.~~
+   **Done.** `person` and `person_sim_alias` live in their own database, with a small service in
+   front of them for the hand-curation — see 0002 §1.
 
-Step 4 is the one with a deadline. The rest can wait.
+Step 4 was the one with a deadline, and it has been met while there is still exactly one simulator
+to seed from. The rest can wait.
 
 ## Open questions
 

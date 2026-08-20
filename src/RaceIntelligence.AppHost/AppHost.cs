@@ -27,6 +27,12 @@ var ingestApiKey = builder.AddParameter("ingest-api-key", secret: true);
 // a leak of either compromises both.
 var liveApiKey = builder.AddParameter("live-api-key", secret: true);
 
+// Shared secret guarding the identity registry. A third parameter rather than a reuse of either
+// above, on the same argument that separated the first two: these guard different services with
+// different exposure. This one guards the only hand-curated, unrebuildable state in the platform,
+// which is a reason to keep its key apart rather than to economise on keys.
+var identityApiKey = builder.AddParameter("identity-api-key", secret: true);
+
 // Fixed the same way as ingest-api-key, so external tools (DataGrip, psql, ...) don't need
 // reconfiguring on every AppHost run.
 var postgresPassword = builder.AddParameter("postgres-password", secret: true);
@@ -42,10 +48,26 @@ if (!isIntegrationTest)
 
 var database = postgres.AddDatabase("raceintel");
 
+// The identity registry, in a database of its own.
+//
+// One PostgreSQL server here because this is a single-machine inner loop, but a separate database
+// on it — and that separation is the design rather than a convenience. Storage is becoming one
+// database per simulator, and the registry is the one thing that cannot be: it has to outlive any
+// of them, so restoring RaceRoom's database must not take iRacing's mapping with it. See ADR 0002.
+var identityDatabase = postgres.AddDatabase("identity");
+
 var ingestApi = builder.AddProject<Projects.RaceIntelligence_Ingest_Api>("ingest-api")
     .WithReference(database)
     .WaitFor(database)
     .WithEnvironment("Ingest__ApiKey", ingestApiKey);
+
+// The cross-simulator identity registry. The only other service allowed to hold database
+// credentials, and only ever its own — it is never given a reference to the telemetry store, which
+// is what keeps the separation above true in code rather than only in a diagram.
+builder.AddProject<Projects.RaceIntelligence_Identity_Api>("identity-api")
+    .WithReference(identityDatabase)
+    .WaitFor(identityDatabase)
+    .WithEnvironment("Identity__ApiKey", identityApiKey);
 
 // The live dashboard hub. It holds no database credentials either — everything it serves is in
 // memory and arrives over the publishing socket — so unlike the ingest API it gets no reference to
