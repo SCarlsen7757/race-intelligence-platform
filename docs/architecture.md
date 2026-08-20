@@ -239,12 +239,12 @@ Example
 A new simulator with fields nobody anticipated should cost a connector, not a migration.
 
 That still holds for the **wire**: the collector posts the canonical model plus this JSON, whatever
-the simulator is. What is changing is the far side of it. With storage moving per simulator
-([0001](decisions/0001-per-sim-storage.md)), a channel that is first-class to a simulator gets
-promoted out of this blob into a typed column in *that simulator's* schema — push-to-pass is not
-exotic metadata to RaceRoom, it is a strategy input, and buried in JSON it can be neither indexed
-nor constrained. The JSON stays as the escape hatch for everything not yet promoted, so a brand-new
-channel still costs nothing.
+the simulator is. The far side is simulator-owned. With storage split per simulator
+([0001](decisions/0001-per-sim-storage.md)), RaceRoom projects its first-class push-to-pass, tyre
+subtype, cut-track warning and damage leaves into typed nullable columns. Negative simulator
+sentinels become `NULL`, while a real zero remains zero. Those known leaves are removed from the
+stored JSON, which stays as the escape hatch for everything not yet promoted, so a brand-new channel
+still costs nothing.
 
 ---
 
@@ -672,9 +672,9 @@ work can start before multi-simulator support is finished, and probably will.
 ### In progress — the platform
 
 - Collector plugin host: the collect loop dispatches, plugins deliver *(built)*
-- Per-sim storage: the schema no longer scopes anything by game, and each ingest API serves exactly
-  one simulator *(built — [0001](decisions/0001-per-sim-storage.md) steps 1–2; promoting a
-  simulator's first-class channels out of `extras` is step 3 and still to do)*
+- Per-sim storage: the schema no longer scopes anything by game, each ingest API serves exactly one
+  simulator, and RaceRoom's first-class extras channels have typed columns *(built —
+  [0001](decisions/0001-per-sim-storage.md) steps 1–3)*
 - The translator layer that restores cross-sim comparison *(designed —
   [0002](decisions/0002-cross-sim-translator.md); its identity registry is built, the translator
   itself is not)*
@@ -704,8 +704,9 @@ work can start before multi-simulator support is finished, and probably will.
 - A historical read API, which is what the second half of the telemetry chart backlog waits on —
   every scatter, histogram and cross-session view needs stored telemetry rather than a rolling
   window
-- RaceRoom-specific channels not yet on the live wire: cut-track warnings, tyre subtype, pit menu
-  state
+- RaceRoom cut-track warnings and tyre subtype on the raw extras wire, with typed RaceRoom storage
+  columns *(built)*
+- RaceRoom-specific channels not yet on the live wire: pit menu state
 
 ### In progress — analysis
 
