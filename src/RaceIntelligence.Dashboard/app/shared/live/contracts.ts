@@ -511,10 +511,17 @@ export interface BrakeTemperature {
  */
 export interface RaceRoomExtras {
   damage?: RaceRoomDamage;
+  /** The simulator's accumulated cut-track warning count. `-1` means "not available". */
+  cutTrackWarnings?: number;
   /** This driver's accumulated incident points. `-1` is the simulator's "not available". */
   incidentPoints?: number;
   /** The server's disqualification limit. `-1` when there is none, e.g. offline. */
   maxIncidentPoints?: number;
+
+  /** Front-axle tyre compound/subtype identifier. Negative values are simulator sentinels. */
+  tireSubtypeFront?: number;
+  /** Rear-axle tyre compound/subtype identifier. Negative values are simulator sentinels. */
+  tireSubtypeRear?: number;
 
   // Per-wheel channels, in the platform's FL, FR, RL, RR order.
   brakeTemperatureCelsius?: BrakeTemperature[];

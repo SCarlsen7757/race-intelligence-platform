@@ -81,6 +81,7 @@ public class R3ETelemetryMapperExtrasTests
         propertyNames.ShouldContain("tyreSurfaceMaterial");
         propertyNames.ShouldContain("incidentPoints");
         propertyNames.ShouldContain("maxIncidentPoints");
+        propertyNames.ShouldContain("cutTrackWarnings");
     }
 
     [Fact]
@@ -118,6 +119,31 @@ public class R3ETelemetryMapperExtrasTests
         var extras = SampleExtras(builder => builder.Configure((ref R3ESharedRaw raw) => raw.IncidentPoints = 0));
 
         extras.GetProperty("incidentPoints").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public void SampleExtras_CarryCutTrackWarningsWithoutChangingTheOtherExtras()
+    {
+        var extras = SampleExtras(builder => builder.Configure((ref R3ESharedRaw raw) =>
+        {
+            raw.CutTrackWarnings = 3;
+            raw.IncidentPoints = 4;
+            raw.PushToPass.AmountLeft = 7;
+        }));
+
+        extras.GetProperty("cutTrackWarnings").GetInt32().ShouldBe(3);
+        extras.GetProperty("incidentPoints").GetInt32().ShouldBe(4);
+        extras.GetProperty("pushToPass").GetProperty("amountLeft").GetInt32().ShouldBe(7);
+    }
+
+    [Fact]
+    public void SampleExtras_CutTrackWarningsKeepTheirNotAvailableSentinel()
+    {
+        // Storage owns sentinel conversion. The collector/live extras wire remains a raw view of
+        // what RaceRoom reported, including -1 when cut-track warnings are unavailable.
+        var extras = SampleExtras();
+
+        extras.GetProperty("cutTrackWarnings").GetInt32().ShouldBe(-1);
     }
 
     [Fact]
