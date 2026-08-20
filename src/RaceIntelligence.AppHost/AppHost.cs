@@ -56,7 +56,7 @@ var database = postgres.AddDatabase("raceintel");
 // of them, so restoring RaceRoom's database must not take iRacing's mapping with it. See ADR 0002.
 var identityDatabase = postgres.AddDatabase("identity");
 
-var ingestApi = builder.AddProject<Projects.RaceIntelligence_Ingest_Api>("ingest-api")
+var ingestApi = builder.AddProject<Projects.RaceIntelligence_Ingest_RaceRoom>("ingest-api")
     .WithReference(database)
     .WaitFor(database)
     .WithEnvironment("Ingest__ApiKey", ingestApiKey)

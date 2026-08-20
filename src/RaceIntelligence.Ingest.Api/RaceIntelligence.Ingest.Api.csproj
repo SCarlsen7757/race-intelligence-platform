@@ -1,13 +1,33 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\RaceIntelligence.Ingest.Contracts\RaceIntelligence.Ingest.Contracts.csproj" />
-    <ProjectReference Include="..\RaceIntelligence.Persistence\RaceIntelligence.Persistence.csproj" />
-    <ProjectReference Include="..\RaceIntelligence.ServiceDefaults\RaceIntelligence.ServiceDefaults.csproj" />
+    <!--
+      A library, not a host. The endpoints, the API-key filter and the problem results are the same
+      for every simulator — they are driven by the shared ingest contract — so they are written once
+      here and hosted per simulator. `RaceIntelligence.Ingest.RaceRoom` is the first such host; a
+      second is a Program.cs, not a copy of this.
+    -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- The implicit usings the Web SDK would have given a host. Stated here because this is a plain
+       library: it is the endpoints, not the process that runs them. -->
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Http.HttpResults" />
+    <Using Include="Microsoft.AspNetCore.Mvc" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Serilog.AspNetCore" />
+    <ProjectReference Include="..\RaceIntelligence.Ingest.Contracts\RaceIntelligence.Ingest.Contracts.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Persistence.Core\RaceIntelligence.Persistence.Core.csproj" />
   </ItemGroup>
 
 </Project>

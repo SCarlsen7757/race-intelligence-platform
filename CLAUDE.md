@@ -47,15 +47,20 @@ Rules:
 - After modifying code, run `python tools/update-graph.py` to keep the graph current (AST-only, no
   API cost). Use it rather than `graphify update .` directly: it runs that, then restores the
   entity-to-table links that the rebuild drops (see below). `--no-update` relinks without rebuilding.
-- **There is more than one database.** The telemetry store is `src/RaceIntelligence.Persistence`
-  with `docs/schema.sql`; the cross-simulator identity registry is `src/RaceIntelligence.Identity`
-  with `docs/identity-schema.sql`, and it has its own because it must outlive any one simulator's
-  store (ADR 0002). `tools/update-graph.py` knows about both — see `STORES` there — so adding a
-  third means adding it to that list rather than teaching the script a special case.
+- **There is more than one database, and one per simulator.** RaceRoom's telemetry store is
+  `src/RaceIntelligence.Persistence.RaceRoom` with `docs/raceroom-schema.sql`; the cross-simulator
+  identity registry is `src/RaceIntelligence.Identity` with `docs/identity-schema.sql`, and it has
+  its own because it must outlive any one simulator's store (ADR 0002).
+  `tools/update-graph.py` knows about both — see `STORES` there — so a second simulator means
+  adding its project and dump to that list rather than teaching the script a special case.
+- **`src/RaceIntelligence.Persistence.Core` declares no schema, and must not start.** It owns the
+  entity types, converters, mappers and repositories; a simulator owns the `ToTable` calls and the
+  migrations. `SchemaOwnershipTests` asserts this rather than trusting it, because a configuration
+  put in the obvious-looking project compiles and passes everything else.
 - The database schema reaches the graph through `docs/schema.sql`, a generated DDL dump of the EF
   Core migrations — the tables and their foreign keys are real nodes, so no database has to be
   running. After adding a migration, regenerate it in the same commit:
-  `dotnet ef migrations script --project src/RaceIntelligence.Persistence --output docs/schema.sql`
+  `dotnet ef migrations script --project src/RaceIntelligence.Persistence.RaceRoom --output docs/raceroom-schema.sql`
   and, for the registry:
   `dotnet ef migrations script --project src/RaceIntelligence.Identity --output docs/identity-schema.sql`
   Otherwise the graph keeps describing the previous schema.

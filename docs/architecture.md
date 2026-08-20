@@ -93,7 +93,7 @@ while the race happens.
    ---------                          -----------                     --------
 
    Sim Connector
-     |  60 Hz local car ---> Buffer ---> Upload --HTTP+key--> Ingest.Api --> PostgreSQL
+     |  60 Hz local car ---> Buffer ---> Upload --HTTP+key--> Ingest.<Sim> --> PostgreSQL
      |
      |  10 Hz whole field
      |   1 Hz extras (damage)

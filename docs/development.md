@@ -112,7 +112,7 @@ $env:ConnectionStrings__raceintel = "Host=localhost;Port=55432;Database=raceinte
 # Which simulator this database holds. Required: one database per simulator (ADR 0001), so the API
 # refuses to start without it and refuses any session claiming a different simulator.
 $env:Ingest__GameKey = "raceroom"
-dotnet run --project src/RaceIntelligence.Ingest.Api --launch-profile https
+dotnet run --project src/RaceIntelligence.Ingest.RaceRoom --launch-profile https
 ```
 
 Any other PostgreSQL works too — adjust host, port and password to match it.
@@ -123,7 +123,7 @@ the same key — but the base URL does not. Under Aspire the collector resolves 
 service discovery (`https+http://ingest-api/`, injected by AppHost), so no port is baked into
 `appsettings.Development.json`. Running without Aspire there is nothing to resolve, so point the
 collector at the API's `https` launch profile URL yourself — see
-`src/RaceIntelligence.Ingest.Api/Properties/launchSettings.json` for the port:
+`src/RaceIntelligence.Ingest.RaceRoom/Properties/launchSettings.json` for the port:
 
 ```powershell
 $env:Collector__Ingest__BaseUrl = "https://localhost:<https-port-from-launchSettings>/"
@@ -501,8 +501,8 @@ skip you can't explain by Docker being down is worth investigating.
 ## Adding a database migration
 
 ```powershell
-dotnet ef migrations add <Name> --project src/RaceIntelligence.Persistence
-dotnet ef migrations script --project src/RaceIntelligence.Persistence --output docs/schema.sql
+dotnet ef migrations add <Name> --project src/RaceIntelligence.Persistence.RaceRoom
+dotnet ef migrations script --project src/RaceIntelligence.Persistence.RaceRoom --output docs/raceroom-schema.sql
 ```
 
 A design-time factory (`RaceIntelligenceDbContextFactory`) exists so this works without starting the

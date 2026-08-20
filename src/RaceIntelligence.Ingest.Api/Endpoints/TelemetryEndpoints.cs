@@ -50,8 +50,8 @@ public static class TelemetryEndpoints
     private static async Task<IResult> HandleBatchAsync(
         Guid id,
         HttpContext context,
-        RaceIntelligenceDbContext db,
-        NpgsqlTelemetryWriter writer,
+        TelemetryDbContext db,
+        ITelemetryWriter writer,
         CancellationToken ct)
     {
         if (context.Request.ContentLength > MaxBatchBodyBytes)
