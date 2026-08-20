@@ -2,29 +2,29 @@ import { describe, expect, it } from 'vitest';
 import {
   isDriverWidget,
   panelsFor,
+  minSizeFor,
   registerSimPanels,
   WIDGET_GRID_COLUMNS,
-  type SimPanel,
+  WIDGET_SIZES,
+  type SimPanelDeclaration,
 } from './registry';
 
-const panel = (id: string, requires: string[]): SimPanel => ({
+const panel = (id: string, requires: string[]): SimPanelDeclaration => ({
   id,
   title: id,
   scope: 'driver',
   requires,
   component: () => null,
   defaultSize: { w: 4, h: 6 },
-  minSize: { w: 3, h: 4 },
 });
 
-const roomPanel = (id: string): SimPanel => ({
+const roomPanel = (id: string): SimPanelDeclaration => ({
   id,
   title: id,
   scope: 'room',
   requires: [],
   component: () => null,
   defaultSize: { w: 6, h: 8 },
-  minSize: { w: 4, h: 6 },
 });
 
 describe('sim panel registry', () => {
@@ -174,6 +174,57 @@ describe('sim panel registry', () => {
       expect(widget.minSize.w).toBeGreaterThan(0);
       expect(widget.minSize.h).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * The vocabulary, enforced.
+   *
+   * Nineteen entries used to nominate their own numbers and between them used five widths and six
+   * heights, which is why the wall never packed. A rule nothing checks is how the twentieth widget
+   * invents a twentieth size, so this is the check — and it is deliberately about *every registered
+   * widget* rather than a list kept in step by hand.
+   */
+  it('opens every RaceRoom widget at one of the sizes the catalogue has', async () => {
+    await import('./raceroom');
+
+    const widgets = panelsFor('raceroom', [
+      'TyreWear',
+      'TyrePressure',
+      'TyreTemperature',
+      'BrakeTemperature',
+      'BrakeWear',
+      'Damage',
+      'IncidentPoints',
+    ]);
+
+    expect(widgets).not.toHaveLength(0);
+
+    for (const widget of widgets) {
+      expect(WIDGET_SIZES).toContainEqual(widget.defaultSize);
+    }
+  });
+
+  /**
+   * The minimum is the rule's, not the widget's. A catalogue entry cannot state one at all — the
+   * type has no field for it — and this is what proves registration fills it in rather than
+   * leaving it to whatever the declaration happened to carry.
+   */
+  it('derives every minimum from the size the widget opens at', async () => {
+    await import('./raceroom');
+
+    const widgets = panelsFor('raceroom', ['TyreWear', 'Damage']);
+
+    expect(widgets).not.toHaveLength(0);
+
+    for (const widget of widgets) {
+      expect(widget.minSize).toEqual(minSizeFor(widget.defaultSize));
+    }
+  });
+
+  it('fills in a minimum for a simulator that never mentioned one', () => {
+    registerSimPanels('testsim', [panel('wear', ['TyreWear'])]);
+
+    expect(panelsFor('testsim', ['TyreWear'])[0]?.minSize).toEqual({ w: 2, h: 3 });
   });
 
   /**

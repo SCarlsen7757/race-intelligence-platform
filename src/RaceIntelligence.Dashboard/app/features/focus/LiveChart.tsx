@@ -215,8 +215,27 @@ interface LiveChartProps {
    * fifteen minutes of stint already drawn.
    */
   hidden?: readonly string[];
-  height?: number;
+  /**
+   * The shortest the plot may be drawn, in pixels.
+   *
+   * A floor, not a height. **The height is whatever the container is** — the tile the user dragged
+   * — and this only exists for the two moments the container cannot answer: the first frame after
+   * mount, before layout has run, and a tile briefly collapsed by its own reflow. A uPlot instance
+   * built at zero pixels draws nothing and does not always recover.
+   */
+  minHeight?: number;
   className?: string;
+}
+
+/**
+ * How tall to draw, given a container.
+ *
+ * `clientHeight` rather than a prop, which is the whole of #88: every chart used to take a fixed
+ * number of pixels chosen at its call site, so a tile dragged taller grew a band of empty space
+ * under the legend instead of a taller trace.
+ */
+function plotHeight(container: HTMLElement, minHeight: number): number {
+  return Math.max(minHeight, container.clientHeight);
 }
 
 /**
@@ -255,7 +274,7 @@ export function LiveChart({
   driverKey,
   spec,
   hidden = EMPTY_HIDDEN,
-  height = 112,
+  minHeight = 96,
   className = 'trace',
 }: LiveChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -303,7 +322,7 @@ export function LiveChart({
     const chart = new uPlot(
       {
         width: container.clientWidth,
-        height,
+        height: plotHeight(container, minHeight),
         scales: {
           x: { time: false, range: [0, capacity - 1] },
           ...scales,
@@ -432,26 +451,62 @@ export function LiveChart({
 
     frame = requestAnimationFrame(paint);
 
-    // Observed rather than listening for window resizes, because the container is what actually
-    // decides the width: a chart in a panel that reflows — a sibling appearing, a grid column
-    // changing, a widget dragged wider — gets no window event at all and would sit at its mount
-    // width for the life of the session.
+    /*
+     * Both dimensions, from the container, and only when they have actually changed.
+     *
+     * Observed rather than listening for window resizes, because the container is what actually
+     * decides the size: a chart in a tile that reflows — a sibling appearing, a grid column
+     * changing, a widget dragged wider or taller — gets no window event at all and would sit at its
+     * mount size for the life of the session.
+     *
+     * The guard is not an optimisation. Resizing the canvas *inside* the box being observed is the
+     * documented way to produce "ResizeObserver loop completed with undelivered notifications", and
+     * a loop needs a change on every pass — so a `setSize` that runs only when the numbers differ
+     * cannot sustain one even if a feedback path exists. Deferring to the next frame gets the write
+     * out of the callback's synchronous path as well; the loop is already running, so this costs no
+     * extra frame. See #79.
+     */
+    let sizedWidth = container.clientWidth;
+    let sizedHeight = plotHeight(container, minHeight);
+    let pendingResize = 0;
+
     const observer = new ResizeObserver(() => {
-      chart.setSize({ width: container.clientWidth, height });
-      // Otherwise a slow channel sits at the old width until its next sample happens to arrive and
-      // the version guard above lets a repaint through, which for a tyre is up to a second.
-      paintedVersion = -1;
+      if (pendingResize !== 0) {
+        return;
+      }
+
+      pendingResize = requestAnimationFrame(() => {
+        pendingResize = 0;
+
+        const width = container.clientWidth;
+        const nextHeight = plotHeight(container, minHeight);
+        if (width === sizedWidth && nextHeight === sizedHeight) {
+          return;
+        }
+
+        sizedWidth = width;
+        sizedHeight = nextHeight;
+        chart.setSize({ width, height: nextHeight });
+        // Otherwise a slow channel sits at the old size until its next sample happens to arrive and
+        // the version guard above lets a repaint through, which for a tyre is up to a second.
+        paintedVersion = -1;
+      });
     });
     observer.observe(container);
 
     return () => {
       cancelAnimationFrame(frame);
+      cancelAnimationFrame(pendingResize);
       observer.disconnect();
       chart.destroy();
       chartRef.current = null;
       repaintRef.current = NOOP;
     };
-  }, [store, driverKey, height]);
+    // `minHeight` is here because the effect reads it, and it is safe to key on because it is a
+    // constant at every call site — a floor for the first frame, not a size. The *size* is never in
+    // this array: a chart that rebuilt when the tile was dragged would throw away the drawn window,
+    // which is the one thing this component's own remarks say a size change must not do.
+  }, [store, driverKey, minHeight]);
 
   /*
    * Turns channels on and off in place.

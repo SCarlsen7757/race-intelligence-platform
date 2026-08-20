@@ -115,13 +115,7 @@ export function RaceTimeline({ store, driverKey }: SimPanelProps) {
 
   return (
     <div className="race-timeline">
-      <LiveChart
-        store={store}
-        driverKey={driverKey}
-        spec={spec}
-        className="race-timeline__plot"
-        height={160}
-      />
+      <LiveChart store={store} driverKey={driverKey} spec={spec} className="race-timeline__plot" />
 
       <div className="race-timeline__cars">
         {rows.slice(0, 24).map((row) => {

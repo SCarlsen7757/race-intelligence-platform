@@ -39,7 +39,6 @@ interface ExtrasWheelTraceProps extends ChannelPanelProps {
    * temperature, force — are left to scale to what arrived.
    */
   range?: readonly [number, number];
-  height?: number;
 }
 
 /**
@@ -64,7 +63,6 @@ export function ExtrasWheelTrace({
   unit,
   format,
   range,
-  height = 112,
 }: ExtrasWheelTraceProps) {
   const extras = useExtras(driverKey);
   const { window: readWindow } = channel;
@@ -98,7 +96,6 @@ export function ExtrasWheelTrace({
         driverKey={driverKey}
         spec={spec}
         hidden={hiddenChannels}
-        height={height}
         className="wheel-chart__plot"
       />
 

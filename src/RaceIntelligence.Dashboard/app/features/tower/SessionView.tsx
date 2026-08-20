@@ -197,29 +197,32 @@ export function SessionView() {
         into 560 pixels beside an empty half.
       */}
       <div className={`session ${selectedDriverKey === null ? '' : 'session--split'}`}>
+        {/*
+          The tower takes the height and the map is pinned under it — two rows, not the wrapping row
+          this used to be. The map reads the same snapshot the tower does, so the two can never
+          disagree about where a car is, and keeping it always visible is the point of pinning it:
+          it used to travel down the page with the bottom of a thirty-car field.
+        */}
         <div className="session__left">
-          {/*
-            Tower and map side by side, wrapping to a stack when the window cannot hold both. The map
-            reads the same snapshot the tower does — no new subscription, no new wire field — so the
-            two can never disagree about where a car is.
-          */}
-          <div className="session__timing">
-            <div className={`session__tower ${connected ? '' : 'session__tower--stale'}`}>
-              {/*
+          <div className={`session__tower ${connected ? '' : 'session__tower--stale'}`}>
+            {/*
               Where the numbers are, not in the corner. The header's connection light is the only
               thing on screen today that tells a frozen tower from a tower where nobody is
               improving, and it is twelve pixels of muted text a metre from what is being read.
               This says the same thing in the place a gap is being read off, and keeps counting
               while the socket is down — which is exactly when it matters and exactly when no new
               snapshot will arrive to refresh it.
-            */}
-              {tower !== null && tower.roomId === roomId && (
-                <p className="tower__stamp">
-                  {connected ? 'Updated' : 'Not updating — last snapshot'}{' '}
-                  <LastUpdated atUtc={tower.capturedAtUtc} />
-                </p>
-              )}
 
+              Outside the scroll box below, so it cannot scroll away from the tower it describes.
+            */}
+            {tower !== null && tower.roomId === roomId && (
+              <p className="tower__stamp">
+                {connected ? 'Updated' : 'Not updating — last snapshot'}{' '}
+                <LastUpdated atUtc={tower.capturedAtUtc} />
+              </p>
+            )}
+
+            <div className="session__tower-scroll">
               <TimingTower
                 rows={rows}
                 focusedDriverKeys={followedDriverKeys}
@@ -239,17 +242,17 @@ export function SessionView() {
                 )}
               />
             </div>
-
-            <TrackMap
-              rows={rows}
-              focusedDriverKeys={followedDriverKeys}
-              expandedDriverKeys={expandedDriverKeys}
-              // The same thing clicking the row's driver button does. Every car on the map has that
-              // available — lap history comes from standings, so it works for the whole field — where
-              // opening telemetry only works for the few running a collector.
-              onSelect={toggleExpand}
-            />
           </div>
+
+          <TrackMap
+            rows={rows}
+            focusedDriverKeys={followedDriverKeys}
+            expandedDriverKeys={expandedDriverKeys}
+            // The same thing clicking the row's driver button does. Every car on the map has that
+            // available — lap history comes from standings, so it works for the whole field — where
+            // opening telemetry only works for the few running a collector.
+            onSelect={toggleExpand}
+          />
         </div>
 
         {/*

@@ -7,7 +7,9 @@ import {
   loadWallView,
   saveWallView,
   WALL_VIEW_VERSION,
+  type WallView,
   type WallWidget,
+  type WidgetGeometry,
 } from '../../shared/view/wallView';
 import {
   defaultWallFor,
@@ -15,8 +17,16 @@ import {
   hasChannels,
   isDriverWidget,
   panelsFor,
-  WIDGET_GRID_COLUMNS,
 } from '../../sims/registry';
+import {
+  BREAKPOINTS,
+  breakpointFor,
+  CANONICAL_BREAKPOINT,
+  COLUMNS,
+  WALL_BREAKPOINTS,
+  type WallBreakpoint,
+} from './breakpoints';
+import { fitToGrid, fitWidget, geometryAt, withGeometryAt } from './geometry';
 import '../../sims/raceroom';
 
 interface PitWallProps {
@@ -33,26 +43,6 @@ interface PitWallProps {
   /** How the car is named in the wall's heading. */
   displayName: (driverKey: string) => string;
 }
-
-/**
- * Column counts by container width.
- *
- * Four steps, chosen for the monitor the wall is on rather than for a device class: a 1080p right
- * region, a 1440p one, a 4K one, and an ultrawide. `lg` is twelve because that is
- * {@link WIDGET_GRID_COLUMNS}, the vocabulary every catalogue entry's `defaultSize` is written in —
- * so a widget added on a 4K screen opens at exactly the size it declared, and the other breakpoints
- * are that layout rescaled.
- *
- * Fewer columns on a narrower wall rather than more, which reads backwards until you hold the
- * widget's width fixed: three four-column charts sit side by side at `lg` and the same three stack
- * two-up at `md`, each keeping enough pixels to still be a chart. More columns would shrink them
- * instead, which is how a stint trace becomes a smear.
- *
- * Measured against the grid's own container, not the viewport, because the timing column takes its
- * share first and the wall only ever gets what is left.
- */
-const BREAKPOINTS = { xl: 2000, lg: 1400, md: 900, sm: 0 } as const;
-const COLUMNS = { xl: 16, lg: WIDGET_GRID_COLUMNS, md: 8, sm: 4 } as const;
 
 /**
  * How tall one grid cell is, in pixels.
@@ -78,6 +68,15 @@ const DRAG_CONFIG = { handle: '.wall__widget-grip' } as const;
  * that effect forces a repaint — so a drag anywhere on the wall would repaint every chart on it.
  */
 const NO_HIDDEN_CHANNELS: readonly string[] = [];
+
+/**
+ * How long the wall waits before writing itself to storage.
+ *
+ * Long enough that a drag — which produces a layout callback per frame — writes once when it stops
+ * rather than forty times while it is happening, and short enough that nobody notices. See the
+ * effect that uses it.
+ */
+const SAVE_DELAY_MS = 400;
 
 /** Enough to tell two placements of the same widget apart, which is all an instance id is for. */
 function newInstanceId(): string {
@@ -141,8 +140,16 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
   // A wall nobody has arranged gets the simulator's suggested one; a wall somebody has emptied
   // stays empty. `loadWallView` returns null only for the first, which is the whole reason it
   // distinguishes them — see the remark there.
+  //
+  // Fitted on the way in, not only on the way out of a file picker. Storage is as capable of
+  // holding a placement outside the grid as a file is — a wall arranged in a build with different
+  // widgets, or a profile someone has edited — and a tile the user cannot reach is a tile they
+  // cannot remove.
   const startingWidgets = useCallback(
-    () => loadWallView(gameKey)?.widgets ?? defaultWallFor(gameKey, stableCapabilities),
+    () =>
+      (loadWallView(gameKey)?.widgets ?? defaultWallFor(gameKey, stableCapabilities)).map(
+        (widget) => fitWidget(widget, gameKey),
+      ),
     [gameKey, stableCapabilities],
   );
 
@@ -164,9 +171,50 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
     setNotice(null);
   }
 
+  /*
+   * Saved on a trailing delay, not on every layout callback.
+   *
+   * The grid fires `onLayoutChange` continuously through a drag rather than once when it ends, so
+   * this effect used to serialise the whole view and write it to `localStorage` dozens of times a
+   * second while a tile was being moved. `localStorage` is synchronous and blocks the main thread —
+   * the same thread every chart's paint loop runs on — so the cost landed as the traces stuttering
+   * during a drag, which reads as "dragging is heavy" rather than as a storage write.
+   *
+   * A trailing delay rather than binding to a drag-stop event, because it covers every path that
+   * changes the wall — add, remove, channel toggle, import, reset — instead of the two gestures.
+   * The cleanup writes immediately, so a wall is never lost by leaving the session inside the
+   * window: unmount and a simulator change both flush what was pending.
+   */
+  const unsaved = useRef<WallView | null>(null);
+
   useEffect(() => {
-    saveWallView(gameKey, { version: WALL_VIEW_VERSION, widgets });
+    unsaved.current = { version: WALL_VIEW_VERSION, widgets };
+
+    const timer = setTimeout(() => {
+      if (unsaved.current !== null) {
+        saveWallView(gameKey, unsaved.current);
+        unsaved.current = null;
+      }
+    }, SAVE_DELAY_MS);
+
+    return () => {
+      clearTimeout(timer);
+    };
   }, [gameKey, widgets]);
+
+  // Flushed when the wall goes away rather than on every change, which is what keeps the delay
+  // above a delay. Keyed on the simulator so a wall is written out before the next one is loaded
+  // over it, and run on unmount so leaving the session inside the window never costs an
+  // arrangement.
+  useEffect(
+    () => () => {
+      if (unsaved.current !== null) {
+        saveWallView(gameKey, unsaved.current);
+        unsaved.current = null;
+      }
+    },
+    [gameKey],
+  );
 
   /** What the picker offers: everything this room can actually feed. */
   const addable = useMemo(
@@ -191,8 +239,13 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
           // Dropped at the bottom of the wall, where there is always room. Placing it in the first
           // gap would be cleverer and worse: a widget appearing somewhere in the middle of an
           // arrangement the user built is a widget they then have to go and find.
+          //
+          // One row past the lowest tile rather than `Number.MAX_SAFE_INTEGER`. The grid compacts
+          // either to the same place, but this is a number a person reading an exported file can
+          // make sense of — and the canonical arrangement is only rewritten when somebody arranges
+          // at that width, so a sentinel dropped in here would stay in the file indefinitely.
           x: 0,
-          y: Number.MAX_SAFE_INTEGER,
+          y: current.reduce((lowest, widget) => Math.max(lowest, widget.y + widget.h), 0),
           w: entry.defaultSize.w,
           h: entry.defaultSize.h,
         },
@@ -236,6 +289,25 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
   }, [gameKey, widgets]);
 
   /**
+   * Back to the simulator's suggested wall.
+   *
+   * The wall is otherwise a one-way door: `loadWallView` deliberately tells "never arranged" from
+   * "arranged empty", so clearing every tile does not bring the default back, and there is no undo.
+   * That was survivable while every arrangement was reachable — and it stopped being so the moment
+   * a geometry the user did not choose could put a tile somewhere its Remove button cannot be
+   * clicked. Import already refuses to leave the wall in a state it cannot get out of; this is the
+   * same promise for every other route in.
+   *
+   * Says what it did, because a wall vanishing and being replaced is a large enough change that
+   * silence would read as a fault.
+   */
+  const resetView = useCallback(() => {
+    setWidgets(defaultWallFor(gameKey, stableCapabilities));
+    setPicking(false);
+    setNotice({ tone: 'info', text: 'Back to the starting wall for this simulator.' });
+  }, [gameKey, stableCapabilities]);
+
+  /**
    * Reads a chosen file onto the wall.
    *
    * The wall is replaced only on a successful read. A refusal leaves the arrangement exactly as it
@@ -255,7 +327,7 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
         return;
       }
 
-      setWidgets(result.view.widgets);
+      setWidgets(result.view.widgets.map((widget) => fitWidget(widget, gameKey)));
 
       // Said in one breath, because they are one event. A wall can arrive from another simulator
       // *and* carry a widget this build has never heard of, and two banners for one import would
@@ -284,49 +356,96 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
   );
 
   /**
-   * Writes a drag or a resize back.
+   * Which monitor's arrangement is being edited.
+   *
+   * Derived from the measured width rather than tracked through the grid's `onBreakpointChange`,
+   * so it cannot be a frame behind the layout callback that depends on it. See `breakpointFor`.
+   */
+  const breakpoint = breakpointFor(width);
+
+  /**
+   * Writes a drag or a resize back — to *this* monitor's arrangement, not to every monitor's.
    *
    * Merged into the existing widgets rather than rebuilt from the layout, because the layout only
    * carries geometry — the widget id lives here and would be lost by a rebuild.
+   *
+   * The breakpoint is the load-bearing part. This callback fires for the grid's own rescaling as
+   * well as for a gesture, so writing its numbers into the canonical fields meant that opening the
+   * wall on a narrower screen once rewrote the arrangement for every screen, permanently. Routed
+   * through `withGeometryAt`, a laptop's placements land in that breakpoint's side table and the
+   * numbers the 4K wall is written in are never touched.
    */
-  const onLayoutChange = useCallback((layout: Layout) => {
-    const geometry = new Map(layout.map((item) => [item.i, item]));
+  const onLayoutChange = useCallback(
+    (layout: Layout) => {
+      const geometry = new Map(layout.map((item) => [item.i, item]));
 
-    setWidgets((current) =>
-      current.map((widget) => {
-        const item = geometry.get(widget.instanceId);
-        if (item === undefined) {
-          return widget;
-        }
+      setWidgets((current) =>
+        current.map((widget) => {
+          const item = geometry.get(widget.instanceId);
+          if (item === undefined) {
+            return widget;
+          }
 
-        return { ...widget, x: item.x, y: item.y, w: item.w, h: item.h };
-      }),
-    );
-  }, []);
+          return withGeometryAt(widget, breakpoint, {
+            x: item.x,
+            y: item.y,
+            w: item.w,
+            h: item.h,
+          });
+        }),
+      );
+    },
+    [breakpoint],
+  );
 
   /**
-   * The grid's own view of the wall, with each widget's minimum size attached.
+   * The grid's own view of the wall, one layout per breakpoint, with each widget's floor attached.
    *
-   * `minW`/`minH` come off the catalogue entry, so the floor below which a widget stops being worth
-   * reading is set by the widget and enforced by the grid — the drag simply stops. A widget whose
-   * entry has gone missing gets no floor, because there is nobody left to ask.
+   * `minW`/`minH` come off the catalogue entry, so the size below which a widget stops being worth
+   * reading is set by the widget and enforced by the grid — the drag simply stops. Capped at the
+   * breakpoint's column count, because a widget asking for six columns on a four-column wall would
+   * otherwise be given a floor it cannot stand on. A widget whose entry has gone missing gets no
+   * floor, because there is nobody left to ask — and it still has to be movable, or it cannot be
+   * removed.
+   *
+   * Every breakpoint is stated rather than left for the grid to derive. A derived layout is handed
+   * back through `onLayoutChange` and stored anyway, so the alternative is not "fewer numbers", it
+   * is "the same numbers, arrived at one render later".
    */
-  const layout = useMemo<Layout>(
-    () =>
+  const layouts = useMemo(() => {
+    const build = (name: WallBreakpoint): Layout =>
       widgets.map((widget) => {
         const entry = findPanel(gameKey, widget.widgetId);
+        const geometry: WidgetGeometry = fitToGrid(widget, gameKey, name, geometryAt(widget, name));
 
         return {
           i: widget.instanceId,
-          x: widget.x,
-          y: widget.y,
-          w: widget.w,
-          h: widget.h,
-          ...(entry === null ? {} : { minW: entry.minSize.w, minH: entry.minSize.h }),
+          ...geometry,
+          ...(entry === null
+            ? {}
+            : {
+                minW: Math.min(entry.minSize.w, COLUMNS[name]),
+                minH: entry.minSize.h,
+              }),
         };
-      }),
-    [gameKey, widgets],
-  );
+      });
+
+    const result: Partial<Record<WallBreakpoint, Layout>> = {};
+
+    for (const name of WALL_BREAKPOINTS) {
+      // A width nobody has arranged is deliberately left out, so the grid derives it by scaling the
+      // canonical arrangement — three tiles across twelve columns become two across eight, in
+      // proportion. Stating it here instead would mean clamping twelve-column numbers into eight,
+      // which stacks everything into the first column and calls it a layout. The derived version is
+      // handed back through `onLayoutChange` and stored, so a width becomes explicit the first time
+      // it is used and is never derived again.
+      if (name === CANONICAL_BREAKPOINT || widgets.some((widget) => widget.at?.[name])) {
+        result[name] = build(name);
+      }
+    }
+
+    return result;
+  }, [gameKey, widgets]);
 
   return (
     <section className="wall" aria-label="Pit wall">
@@ -363,6 +482,10 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
         */}
         <button type="button" className="link-button" onClick={() => fileInputRef.current?.click()}>
           Import
+        </button>
+
+        <button type="button" className="link-button" onClick={resetView}>
+          Reset
         </button>
         <input
           ref={fileInputRef}
@@ -423,7 +546,7 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
 
         <Responsive
           width={width}
-          layouts={{ xl: layout, lg: layout, md: layout, sm: layout }}
+          layouts={layouts}
           breakpoints={BREAKPOINTS}
           cols={COLUMNS}
           rowHeight={ROW_HEIGHT}

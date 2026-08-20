@@ -73,7 +73,6 @@ class LapDeltaSource implements LiveChartSource {
 interface LapDeltaProps {
   store: LiveStore;
   driverKey: string;
-  height?: number;
 }
 
 /**
@@ -93,7 +92,7 @@ interface LapDeltaProps {
  * reads as broken — the one impression it must not give while it is, in fact, working exactly as
  * intended.
  */
-export function LapDelta({ store, driverKey, height = 140 }: LapDeltaProps) {
+export function LapDelta({ store, driverKey }: LapDeltaProps) {
   // Subscribed for the re-render, not for the value. Lap summaries change once a lap, which is
   // precisely when a reference lap can appear or be beaten, so this is the cheapest correct signal
   // for "look again at whether there is something to compare against".
@@ -136,13 +135,7 @@ export function LapDelta({ store, driverKey, height = 140 }: LapDeltaProps) {
 
   return (
     <div className="wheel-chart">
-      <LiveChart
-        store={store}
-        driverKey={driverKey}
-        spec={spec}
-        height={height}
-        className="trace"
-      />
+      <LiveChart store={store} driverKey={driverKey} spec={spec} className="wheel-chart__plot" />
       <p className="chart-caption">
         Against lap {reference.lapNumber} · above the line is time lost
       </p>

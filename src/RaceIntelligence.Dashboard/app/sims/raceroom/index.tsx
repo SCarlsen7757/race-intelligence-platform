@@ -18,6 +18,9 @@ import { TyreHeatmap } from '../../features/focus/TyreHeatmap';
 import {
   registerDefaultWall,
   registerSimPanels,
+  WIDGET_HALF,
+  WIDGET_UNIT,
+  WIDGET_WIDE,
   type ChannelPanelProps,
   type WidgetChannel,
 } from '../registry';
@@ -195,9 +198,10 @@ function TyreGripPanel(props: ChannelPanelProps) {
  * abstraction from a sample of one, which is exactly what the paragraph above says not to do. The
  * second simulator is what will show whether a shared catalogue is the right shape.
  *
- * Sizes are in grid cells. The two channel stacks are the widest because four wheels over a stint
- * is a shape, not a number, and a stack squeezed to a quarter of the wall is a smear; damage and
- * incidents are the narrowest because they are readouts and gain nothing from width.
+ * Sizes come from the catalogue's vocabulary rather than from a number chosen here: `WIDGET_WIDE`
+ * for the things read left to right across a lap, `WIDGET_HALF` for the readouts that gain nothing
+ * from width, `WIDGET_UNIT` for everything else. Each entry picks one; none of them invents a size.
+ * The minimum is derived from the default and is not stated at all — see `minSizeFor`.
  */
 registerSimPanels('raceroom', [
   {
@@ -206,8 +210,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: [],
     component: CarMetrics,
-    defaultSize: { w: 3, h: 4 },
-    minSize: { w: 2, h: 3 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     id: 'pedals',
@@ -215,8 +218,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: [],
     component: PedalInputs,
-    defaultSize: { w: 3, h: 5 },
-    minSize: { w: 2, h: 4 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     id: 'assists',
@@ -224,8 +226,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: [],
     component: AssistSettings,
-    defaultSize: { w: 2, h: 3 },
-    minSize: { w: 2, h: 2 },
+    defaultSize: WIDGET_HALF,
   },
   {
     // Renamed from `pedal-trace`, which it outgrew: it now carries speed, gear, RPM and the two
@@ -240,8 +241,7 @@ registerSimPanels('raceroom', [
     component: InputsTrace,
     // Wider and taller than the pedal trace was. Nine channels on seven scales needs the room, and
     // this is the tile somebody arranges a wall around.
-    defaultSize: { w: 8, h: 6 },
-    minSize: { w: 4, h: 4 },
+    defaultSize: WIDGET_WIDE,
   },
   {
     // No capability, for the same reason the inputs trace declares none: lap timing and normalised
@@ -252,10 +252,8 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: [],
     component: LapDelta,
-    // Wide and short. A delta is read left to right across a lap, and height beyond a certain point
-    // adds nothing but amplitude to a line whose shape is the message.
-    defaultSize: { w: 6, h: 4 },
-    minSize: { w: 4, h: 3 },
+    // Wide: a delta is read left to right across a lap, and its shape is the message.
+    defaultSize: WIDGET_WIDE,
   },
   {
     id: 'lap-trend',
@@ -263,8 +261,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: [],
     component: LapTrend,
-    defaultSize: { w: 4, h: 4 },
-    minSize: { w: 3, h: 3 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     // No capability. Fuel is a core channel on the focus frame, and gating it would be gating a
@@ -276,8 +273,7 @@ registerSimPanels('raceroom', [
     component: FuelPanel,
     // Three numbers and a line of prose. Wider than the car metrics because the basis line needs
     // room to be a sentence rather than four wrapped fragments.
-    defaultSize: { w: 4, h: 4 },
-    minSize: { w: 3, h: 3 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     // No capability. These ride in the extras document rather than the typed wire, like tyre grip
@@ -289,8 +285,7 @@ registerSimPanels('raceroom', [
     requires: [],
     channels: SYSTEM_WIDGET_CHANNELS,
     component: SystemsTrend,
-    defaultSize: { w: 4, h: 6 },
-    minSize: { w: 3, h: 4 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     // No capability for the same reason, and one more: flags are a property of the session rather
@@ -302,8 +297,7 @@ registerSimPanels('raceroom', [
     requires: [],
     component: EventTimeline,
     // Narrow and tall. It is a list, and the useful dimension is how many rows fit.
-    defaultSize: { w: 3, h: 6 },
-    minSize: { w: 2, h: 3 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     // Takes a driver key despite describing the room, because it has to know which line is yours —
@@ -315,8 +309,7 @@ registerSimPanels('raceroom', [
     component: RaceTimeline,
     // The widest default on the wall, and the only widget that earns it: this is the one tile that
     // works for every car in the session rather than for the one with a collector.
-    defaultSize: { w: 8, h: 7 },
-    minSize: { w: 4, h: 5 },
+    defaultSize: WIDGET_WIDE,
   },
   {
     id: 'tyre-pressure',
@@ -326,8 +319,7 @@ registerSimPanels('raceroom', [
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Pressure' },
     channels: WHEEL_WIDGET_CHANNELS,
     component: TyrePressurePanel,
-    defaultSize: { w: 4, h: 6 },
-    minSize: { w: 3, h: 4 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     id: 'tyre-wear',
@@ -337,8 +329,7 @@ registerSimPanels('raceroom', [
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Wear' },
     channels: WHEEL_WIDGET_CHANNELS,
     component: TyreWearPanel,
-    defaultSize: { w: 4, h: 6 },
-    minSize: { w: 3, h: 4 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     id: 'tyre-temperature',
@@ -348,8 +339,7 @@ registerSimPanels('raceroom', [
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Temperature' },
     channels: WHEEL_WIDGET_CHANNELS,
     component: TyreTemperaturePanel,
-    defaultSize: { w: 4, h: 6 },
-    minSize: { w: 3, h: 4 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     // The one tyre widget that is not a stint chart, which is why it is not in the `tyres` group:
@@ -363,8 +353,7 @@ registerSimPanels('raceroom', [
     component: TyreHeatmap,
     // Squarer than the traces, because it is a picture of a car rather than a window of time — and
     // width past the point where four corners are legible buys nothing.
-    defaultSize: { w: 4, h: 5 },
-    minSize: { w: 3, h: 4 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     id: 'tyre-grip',
@@ -378,8 +367,7 @@ registerSimPanels('raceroom', [
     group: { id: 'tyres', title: 'Tyres', itemTitle: 'Grip' },
     channels: WHEEL_WIDGET_CHANNELS,
     component: TyreGripPanel,
-    defaultSize: { w: 4, h: 6 },
-    minSize: { w: 3, h: 4 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     // Brake *wear* is deliberately not registered beside this. `SimCapabilities.BrakeWear` exists
@@ -395,8 +383,7 @@ registerSimPanels('raceroom', [
     group: { id: 'brakes', title: 'Brakes', itemTitle: 'Temperature' },
     channels: WHEEL_WIDGET_CHANNELS,
     component: BrakeTemperaturePanel,
-    defaultSize: { w: 4, h: 6 },
-    minSize: { w: 3, h: 4 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     // No capability, for the same reason tyre grip has none: brake pressure rides in the extras
@@ -410,8 +397,7 @@ registerSimPanels('raceroom', [
     group: { id: 'brakes', title: 'Brakes', itemTitle: 'Pressure' },
     channels: WHEEL_WIDGET_CHANNELS,
     component: BrakePressurePanel,
-    defaultSize: { w: 4, h: 6 },
-    minSize: { w: 3, h: 4 },
+    defaultSize: WIDGET_UNIT,
   },
   {
     id: 'damage',
@@ -419,8 +405,7 @@ registerSimPanels('raceroom', [
     scope: 'driver',
     requires: ['Damage'],
     component: DamagePanel,
-    defaultSize: { w: 2, h: 5 },
-    minSize: { w: 2, h: 4 },
+    defaultSize: WIDGET_HALF,
   },
   {
     id: 'incidents',
@@ -429,8 +414,7 @@ registerSimPanels('raceroom', [
     requires: ['IncidentPoints'],
     component: IncidentsPanel,
     isEmpty: incidentsPanelIsEmpty,
-    defaultSize: { w: 2, h: 3 },
-    minSize: { w: 2, h: 2 },
+    defaultSize: WIDGET_HALF,
   },
 ]);
 

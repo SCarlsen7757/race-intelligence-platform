@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FocusFrameMessage } from '../../shared/live/contracts';
 import { LiveStore, TRACE_CAPACITY } from '../../shared/live/store';
 import { LiveChart, type LiveChartSpec } from './LiveChart';
@@ -18,6 +18,7 @@ const uplot = vi.hoisted(() => ({
     };
     data: unknown[];
     setData: ReturnType<typeof vi.fn>;
+    setSize: ReturnType<typeof vi.fn>;
     setSeries: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
   }[],
@@ -35,6 +36,7 @@ vi.mock('uplot', () => {
         options: options as { series: { label: string; show?: boolean }[] },
         data,
         setData: this.setData,
+        setSize: this.setSize,
         setSeries: this.setSeries,
         destroy: this.destroy,
       });
@@ -42,6 +44,39 @@ vi.mock('uplot', () => {
   }
 
   return { default: FakeUPlot };
+});
+
+/**
+ * A container with a size, and an observer that can be made to fire.
+ *
+ * jsdom lays nothing out — every element measures zero by zero — and its `ResizeObserver` stub in
+ * `vitest.setup.ts` never fires, both of which are fine for every other test here and neither of
+ * which is fine for the one thing this pair exists to check: that a chart follows the tile it is
+ * in. So the size is stated and the observer is driven by hand.
+ */
+const box = { width: 400, height: 200 };
+let fireResize: () => void = () => {};
+
+beforeAll(() => {
+  for (const property of ['clientWidth', 'clientHeight'] as const) {
+    Object.defineProperty(HTMLDivElement.prototype, property, {
+      configurable: true,
+      get: () => (property === 'clientWidth' ? box.width : box.height),
+    });
+  }
+
+  globalThis.ResizeObserver = class {
+    constructor(private readonly callback: () => void) {}
+    observe() {
+      fireResize = () => {
+        this.callback();
+      };
+    }
+    unobserve() {}
+    disconnect() {
+      fireResize = () => {};
+    }
+  } as unknown as typeof ResizeObserver;
 });
 
 const DRIVER = 'id:2';
@@ -129,9 +164,72 @@ async function paint() {
 
 beforeEach(() => {
   uplot.builds.length = 0;
+  box.width = 400;
+  box.height = 200;
 });
 
 describe('LiveChart', () => {
+  /**
+   * A tile is dragged, and the trace has to follow it — in both directions.
+   *
+   * Every chart used to take a fixed pixel height chosen at its call site, and the observer passed
+   * that frozen number straight back to `setSize`, so the only axis that ever responded was width.
+   * Dragging the inputs tile taller added a band of empty space under the legend and nothing else.
+   */
+  describe('the size of the tile it is in', () => {
+    it('opens at the size of its container', () => {
+      box.width = 640;
+      box.height = 300;
+
+      render(<Harness store={following()} driverKey={DRIVER} />);
+
+      expect(uplot.builds[0]!.options).toMatchObject({ width: 640, height: 300 });
+    });
+
+    it('follows the container taller, without rebuilding the chart', async () => {
+      render(<Harness store={following()} driverKey={DRIVER} />);
+
+      box.height = 320;
+      await act(async () => {
+        fireResize();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+
+      expect(uplot.builds[0]!.setSize).toHaveBeenCalledWith({ width: 400, height: 320 });
+      // The whole reason this is a resize and not a rebuild: a rebuilt chart starts empty, which on
+      // a tyre trace is fifteen minutes of stint disappearing because somebody dragged a corner.
+      expect(uplot.builds).toHaveLength(1);
+      expect(uplot.builds[0]!.destroy).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The guard that makes a `ResizeObserver` loop impossible rather than unlikely. Resizing the
+     * canvas inside the observed box is the documented way to produce "loop completed with
+     * undelivered notifications", and a loop needs a change on every pass to sustain itself.
+     */
+    it('does nothing when the container has not actually changed', async () => {
+      render(<Harness store={following()} driverKey={DRIVER} />);
+
+      await act(async () => {
+        fireResize();
+        fireResize();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+
+      expect(uplot.builds[0]!.setSize).not.toHaveBeenCalled();
+    });
+
+    /** A container that has not been laid out yet measures zero, and a chart built at zero draws
+        nothing and does not always recover. */
+    it('never draws shorter than its floor', () => {
+      box.height = 0;
+
+      render(<Harness store={following()} driverKey={DRIVER} />);
+
+      expect(uplot.builds[0]!.options).toMatchObject({ height: 96 });
+    });
+  });
+
   /**
    * The point of the whole component. Three separate chart components used to key their effect on
    * the caller's own functions, which meant an inline arrow destroyed and rebuilt the chart on

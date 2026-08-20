@@ -44,8 +44,11 @@ describe('TimingTower', () => {
       row({ driverKey: 'id:2', displayName: 'Second', position: 2 }),
     ]);
 
+    // The name is its own element now — it is the only elastic part of the row's identity, and the
+    // car number in front of it must never be what gets truncated. So this reads the name alone
+    // rather than the chevron and the name run together.
     const names = screen.getAllByText(/Leader|Second/).map((node) => node.textContent);
-    expect(names).toEqual(['▸Leader', '▸Second']);
+    expect(names).toEqual(['Leader', 'Second']);
   });
 
   /**
@@ -362,6 +365,63 @@ describe('TimingTower', () => {
     expect(container.querySelector('.tower__row--focused')).not.toBeNull();
   });
 
+  /**
+   * The mark is the whole control now, so the three things it has to say are worth pinning: a car
+   * with no collector shows nothing at all, a car with one shows an outline, and the car feeding
+   * the wall shows a filled dot. The fill matters as much as the colour — it is what carries the
+   * state for a reader who cannot separate grey from green, which is the rule #42 established.
+   */
+  describe('the telemetry mark', () => {
+    it('shows nothing at all for a car with no collector', () => {
+      const { container } = renderTower([
+        row({ driverKey: 'id:1', displayName: 'Watched', position: 1, tier: 'Observed' }),
+      ]);
+
+      expect(container.querySelector('.telemetry-mark')).toBeNull();
+      expect(screen.queryByRole('button', { name: /Open telemetry/ })).toBeNull();
+    });
+
+    it('is hollow for a car that is publishing but not open', () => {
+      const { container } = renderTower([row({ driverKey: 'id:1', position: 1, tier: 'Self' })], {
+        focusedDriverKeys: [],
+      });
+
+      expect(container.querySelector('.telemetry-mark circle')?.getAttribute('fill')).toBe('none');
+    });
+
+    it('fills in for the car feeding the wall', () => {
+      const { container } = renderTower([row({ driverKey: 'id:1', position: 1, tier: 'Self' })], {
+        focusedDriverKeys: ['id:1'],
+      });
+
+      expect(container.querySelector('.telemetry-mark circle')?.getAttribute('fill')).toBe(
+        'currentColor',
+      );
+      expect(container.querySelector('.focus-button')?.className).toContain('focus-button--open');
+    });
+
+    /** The mark carries no name of its own: the button already has one, and two would be read out
+        twice. */
+    it('leaves the accessible name to the button', () => {
+      const { container } = renderTower([row({ driverKey: 'id:1', position: 1, tier: 'Self' })]);
+
+      expect(container.querySelector('.telemetry-mark')?.getAttribute('aria-hidden')).toBe('true');
+      expect(screen.getByRole('button', { name: /Open telemetry/ })).toBeTruthy();
+    });
+  });
+
+  /**
+   * The car number leads and the name follows, because the number is how a car is called and the
+   * name is what confirms it.
+   */
+  it('puts the car number before the driver name', () => {
+    const { container } = renderTower([
+      row({ driverKey: 'id:1', displayName: 'Leader', position: 1, carNumber: 42 }),
+    ]);
+
+    expect(container.querySelector('td.tower__driver')?.textContent).toContain('#42Leader');
+  });
+
   /** Two drivers can be compared, so both their rows have to read as open at once. */
   it('marks both rows of a comparison', () => {
     const { container } = renderTower(
@@ -374,13 +434,17 @@ describe('TimingTower', () => {
     );
 
     expect(container.querySelectorAll('.tower__row--focused')).toHaveLength(2);
+    // The control is a mark rather than a word now, so its state is read where a screen reader
+    // reads it. That was always the load-bearing half; the text was the part that could drift.
     expect(
-      screen.getAllByRole('button', { name: /Open telemetry/ }).map((b) => b.textContent),
-    ).toEqual(['Shown', 'Show', 'Shown']);
+      screen
+        .getAllByRole('button', { name: /Open telemetry/ })
+        .map((b) => b.getAttribute('aria-pressed')),
+    ).toEqual(['true', 'false', 'true']);
   });
 
   /**
-   * Clicking Show subscribes and then sits on a panel of em dashes until the first frame lands.
+   * Opening a driver subscribes and then sits on a panel of em dashes until the first frame lands.
    * On a LAN that is invisible; through a tunnel it is long enough to click twice and wonder
    * whether the first one registered.
    */
@@ -394,7 +458,8 @@ describe('TimingTower', () => {
     );
 
     const buttons = screen.getAllByRole('button', { name: /Open telemetry/ });
-    expect(buttons.map((b) => b.textContent)).toEqual(['Shown', 'Opening…']);
+    expect(buttons[1]!.className).toContain('focus-button--pending');
+    expect(buttons[0]!.className).not.toContain('focus-button--pending');
 
     // Still pressed while pending: the subscription is on, which is what the control toggles.
     // `aria-busy` is what says the data has not caught up.
@@ -410,7 +475,9 @@ describe('TimingTower', () => {
       pendingDriverKeys: new Set(['id:1']),
     });
 
-    expect(screen.getByRole('button', { name: /Open telemetry/ }).textContent).toBe('Show');
+    const button = screen.getByRole('button', { name: /Open telemetry/ });
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.className).not.toContain('focus-button--pending');
   });
 
   it('shows a car with no reported position last, not first', () => {

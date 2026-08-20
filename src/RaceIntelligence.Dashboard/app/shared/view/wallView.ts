@@ -21,15 +21,36 @@
  * mistake cannot be constructed. It is also what makes a wall portable without qualification — the
  * same file opens in any session, of any simulator, for anybody.
  */
-export interface WallWidget {
-  /** Unique per placement, so the same widget can be on the wall more than once. */
-  instanceId: string;
-  /** A catalogue entry's id. Resolved through `findPanel`, which may not find it. */
-  widgetId: string;
+/** Where one widget sits, in grid cells. */
+export interface WidgetGeometry {
   x: number;
   y: number;
   w: number;
   h: number;
+}
+
+export interface WallWidget extends WidgetGeometry {
+  /** Unique per placement, so the same widget can be on the wall more than once. */
+  instanceId: string;
+  /** A catalogue entry's id. Resolved through `findPanel`, which may not find it. */
+  widgetId: string;
+  /**
+   * Where this widget sits on monitors other than the one the wall is written for.
+   *
+   * **The `x`/`y`/`w`/`h` above are the canonical arrangement**, in the twelve columns every
+   * catalogue `defaultSize` is expressed in. A narrower wall has fewer columns, so the same
+   * arrangement cannot be the same numbers — and the grid, left to itself, rescales them and then
+   * hands the rescaled version back, which used to be written straight over the canonical ones.
+   * Opening the wall on a laptop once permanently squashed it into two thirds of the 4K screen it
+   * was arranged on, with no way back.
+   *
+   * Keyed by breakpoint name, and absent until the user has actually arranged something at that
+   * width — an untouched breakpoint is derived by the grid, which is the better first answer than
+   * anything stored here would be. The canonical numbers are what an exported file leads with and
+   * what a person hand-editing one would expect to edit, which is why this is a side table rather
+   * than a replacement for them.
+   */
+  at?: Readonly<Record<string, WidgetGeometry>>;
   /**
    * Channel ids this placement has turned off. Absent means every channel is drawn.
    *
@@ -80,25 +101,83 @@ export function wallViewKey(gameKey: string): string {
  * today would be one bug away from disagreeing about which walls are loadable depending on where
  * they came from.
  */
+/**
+ * Whether a value carries the four numbers a placement is.
+ *
+ * Returns a plain boolean rather than a type predicate on purpose. A predicate here narrows the
+ * *widget* being checked to a bare `WidgetGeometry` for the rest of the expression, and the fields
+ * checked after it — `at`, `hiddenChannels` — then stop existing on it.
+ */
+function isGeometry(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const item = value as Partial<WidgetGeometry>;
+  return (
+    typeof item.x === 'number' &&
+    typeof item.y === 'number' &&
+    typeof item.w === 'number' &&
+    typeof item.h === 'number'
+  );
+}
+
 export function isWallWidget(value: unknown): value is WallWidget {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
 
   const item = value as Partial<WallWidget>;
+  if (!isGeometry(item)) {
+    return false;
+  }
+
   return (
     typeof item.instanceId === 'string' &&
     typeof item.widgetId === 'string' &&
-    typeof item.x === 'number' &&
-    typeof item.y === 'number' &&
-    typeof item.w === 'number' &&
-    typeof item.h === 'number' &&
+    // Absent until the user arranges the wall at a second width. Values are checked but breakpoint
+    // *names* are not, because they belong to the grid rather than to this document: a file naming
+    // a breakpoint this build no longer has is a placement for a monitor nobody is using, which is
+    // worth ignoring rather than refusing a whole wall over.
+    (item.at === undefined ||
+      (typeof item.at === 'object' &&
+        item.at !== null &&
+        Object.values(item.at).every(isGeometry))) &&
     // Absent is the ordinary case, not a defect: every wall saved before channels had toggles, and
     // every widget that draws only one thing, has nothing to say here.
     (item.hiddenChannels === undefined ||
       (Array.isArray(item.hiddenChannels) &&
         item.hiddenChannels.every((id) => typeof id === 'string')))
   );
+}
+
+/**
+ * One position, coerced into a position the grid can actually place.
+ *
+ * `isWallWidget` proves the four fields are numbers and stops there, which was never enough: a
+ * hand-edited or corrupted file can carry `w: 9999`, a negative `x`, a fractional `h`, or `NaN` —
+ * `typeof NaN === 'number'` — and every one of those reaches the grid as a position. The file is
+ * *meant* to be hand-edited and shared, so malformed geometry is a normal input rather than an
+ * attack, and it should cost the user a moved tile rather than a wall they cannot repair.
+ *
+ * Deliberately knows nothing about the catalogue or the column count. Those live in `sims/`, and
+ * `shared/` reaching into a feature is the dependency inversion this directory exists to avoid —
+ * the same reason `readViewFile` is handed a `knowsWidget` predicate rather than importing one. The
+ * grid clamps to its own columns and to each widget's `minSize`; this is the floor underneath that,
+ * and it is the half that can be stated without asking anybody.
+ */
+function clampGeometry(geometry: WidgetGeometry): WidgetGeometry {
+  const whole = (value: number, lowest: number) =>
+    Number.isFinite(value) ? Math.max(lowest, Math.round(value)) : lowest;
+
+  return {
+    x: whole(geometry.x, 0),
+    y: whole(geometry.y, 0),
+    // One cell, not zero: a widget with no width is a widget that is on the wall and cannot be
+    // seen or grabbed, which is the state this whole function exists to make unreachable.
+    w: whole(geometry.w, 1),
+    h: whole(geometry.h, 1),
+  };
 }
 
 /**
@@ -112,13 +191,15 @@ export function isWallWidget(value: unknown): value is WallWidget {
  * files quietly carrying a reference to a car forever.
  */
 export function normaliseWidget(widget: WallWidget): WallWidget {
+  const at = Object.entries(widget.at ?? {}).map(
+    ([name, geometry]) => [name, clampGeometry(geometry)] as const,
+  );
+
   return {
     instanceId: widget.instanceId,
     widgetId: widget.widgetId,
-    x: widget.x,
-    y: widget.y,
-    w: widget.w,
-    h: widget.h,
+    ...clampGeometry(widget),
+    ...(at.length === 0 ? {} : { at: Object.fromEntries(at) }),
     // Spread rather than assigned, because `exactOptionalPropertyTypes` distinguishes an absent
     // property from one present and undefined. An empty list is dropped too: "nothing hidden" and
     // "no opinion" are the same wall, and writing `[]` into every widget on every save would put a

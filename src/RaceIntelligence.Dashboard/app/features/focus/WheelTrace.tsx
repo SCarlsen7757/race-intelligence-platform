@@ -53,7 +53,6 @@ interface WheelTraceProps {
    * nominal pressure would be this dashboard's opinion wearing the simulator's clothes.
    */
   window?: (frame: StintFrameMessage) => OperatingWindowValues | null;
-  height?: number;
 }
 
 /**
@@ -85,7 +84,6 @@ export function WheelTrace({
   unit,
   range,
   window: readWindow,
-  height = 112,
 }: WheelTraceProps) {
   const stint = useStint(driverKey);
 
@@ -122,7 +120,6 @@ export function WheelTrace({
         driverKey={driverKey}
         spec={spec}
         hidden={hiddenChannels}
-        height={height}
         className="wheel-chart__plot"
       />
 

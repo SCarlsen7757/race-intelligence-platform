@@ -86,7 +86,6 @@ interface InputsTraceProps {
   /** Channel ids this placement has turned off, and where a click on the legend goes. */
   hiddenChannels: readonly string[];
   onToggleChannel: (channelId: string) => void;
-  height?: number;
 }
 
 /**
@@ -116,7 +115,6 @@ export function InputsTrace({
   driverKey,
   hiddenChannels,
   onToggleChannel,
-  height = 180,
 }: InputsTraceProps) {
   // `tracesFor` creates the rings on demand, so it is reached from inside the buffer closures
   // rather than here: those are called when the chart is built, which keeps a store write out of a
@@ -218,8 +216,7 @@ export function InputsTrace({
         driverKey={driverKey}
         spec={spec}
         hidden={hiddenChannels}
-        height={height}
-        className="trace"
+        className="wheel-chart__plot"
       />
 
       {/* No readouts here: the car and pedal tiles beside this on the wall already carry the

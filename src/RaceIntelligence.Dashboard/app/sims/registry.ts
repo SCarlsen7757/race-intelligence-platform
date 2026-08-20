@@ -74,6 +74,56 @@ export interface WidgetSize {
  */
 export const WIDGET_GRID_COLUMNS = 12;
 
+/**
+ * The sizes a widget may open at, and the whole of that list.
+ *
+ * Nineteen entries used to nominate their own numbers, and between them they used widths of 2, 3,
+ * 4, 6 and 8 and heights of 2 through 7. Every one of those was a reasonable judgement about one
+ * widget alone, and together they were the reason the wall never packed: a three-wide beside a
+ * four-wide leaves five columns, and five columns fits nothing.
+ *
+ * So a widget still says how much room it wants — that part of #52 was right, and only the widget
+ * knows that a four-wheel stint chart is useless narrow — but it says it in a vocabulary that
+ * tiles. {@link WIDGET_UNIT} is three across a twelve-column wall and four across sixteen.
+ *
+ * **One height throughout**, and that is the part worth defending. A row of tiles that are all the
+ * same height is a row the eye reads across; mixed heights leave the ragged gaps that the grid then
+ * compacts into an arrangement nobody chose. A widget that genuinely wants to be twice as tall gets
+ * there by being dragged, which is what resizing is for.
+ */
+export const WIDGET_UNIT: WidgetSize = { w: 4, h: 6 };
+
+/** Readouts — a damage meter is four short bars and gains nothing from width. */
+export const WIDGET_HALF: WidgetSize = { w: 2, h: 6 };
+
+/** Things read left to right across a lap: a trace, a delta, a race. */
+export const WIDGET_WIDE: WidgetSize = { w: 8, h: 6 };
+
+/**
+ * Every size a catalogue entry may declare.
+ *
+ * Exported so `registry.test.ts` can hold the catalogue to it. A vocabulary nothing enforces is how
+ * the twentieth widget invents a twentieth size, which is exactly how the previous state came
+ * about.
+ */
+export const WIDGET_SIZES: readonly WidgetSize[] = [WIDGET_HALF, WIDGET_UNIT, WIDGET_WIDE];
+
+/**
+ * The floor below which a widget stops being worth reading, derived rather than declared.
+ *
+ * Half the size it opens at, and never below two cells by three. #54 made `minSize` the thing the
+ * grid clamps a drag to and called it a judgement only the widget can make — which was true of the
+ * *default* and never really true of the minimum. Nineteen separate opinions about how small is too
+ * small produced no information the default did not already carry, and one rule is one thing to be
+ * right about.
+ */
+export function minSizeFor(defaultSize: WidgetSize): WidgetSize {
+  return {
+    w: Math.max(2, Math.floor(defaultSize.w / 2)),
+    h: Math.max(3, Math.floor(defaultSize.h / 2)),
+  };
+}
+
 /** What every catalogue entry declares, whatever it is about. */
 interface WidgetBase {
   id: string;
@@ -98,15 +148,22 @@ interface WidgetBase {
    * Declared by the widget rather than by the grid, because the widget is what knows what it is
    * for. Four wheels of tyre temperature over a fifteen-minute stint needs width to be a stint and
    * not a smear; a damage meter is four short bars and gains nothing from more.
+   *
+   * One of {@link WIDGET_SIZES}, so that what a widget asks for tiles with what everything else
+   * asked for. `registry.test.ts` holds the catalogue to that.
    */
   defaultSize: WidgetSize;
   /**
    * The size below which the widget stops being worth reading.
    *
-   * This is what the grid clamps a drag to, and it is a judgement only the widget can make. It is
-   * deliberately a floor on *usefulness*, not on legibility of the frame: a chart squeezed to two
-   * columns still draws, which is exactly why something has to stop the user from getting there and
-   * concluding the chart is broken.
+   * This is what the grid clamps a drag to. Deliberately a floor on *usefulness*, not on legibility
+   * of the frame: a chart squeezed to two columns still draws, which is exactly why something has
+   * to stop the user from getting there and concluding the chart is broken.
+   *
+   * **Filled in at registration and not declarable** — see {@link minSizeFor} and
+   * {@link SimPanelDeclaration}. It is here rather than derived at every call site because the grid
+   * asks for it once per tile per layout, and every consumer would otherwise compute the same
+   * answer.
    */
   minSize: WidgetSize;
   /** Whether this panel has nothing to say for one driver, given that driver's latest extras. */
@@ -157,6 +214,20 @@ export interface RoomWidget extends WidgetBase {
  */
 export type SimPanel = DriverWidget | RoomWidget;
 
+/**
+ * A catalogue entry as it is written, which is one without a `minSize`.
+ *
+ * The minimum is {@link minSizeFor} of the default and is filled in at registration, so there is
+ * nowhere for a widget to state a floor that disagrees with the rule. Distributed over the union
+ * with a conditional type rather than a bare `Omit`, which would collapse the three variants into
+ * their common fields and throw away the discrimination the whole union exists for.
+ */
+export type SimPanelDeclaration = SimPanel extends infer Entry
+  ? Entry extends SimPanel
+    ? Omit<Entry, 'minSize'>
+    : never
+  : never;
+
 const registry = new Map<string, SimPanel[]>();
 
 /**
@@ -167,8 +238,11 @@ const registry = new Map<string, SimPanel[]>();
  * even where they share a capability flag. The capability check above governs whether a panel can
  * show at all; the game key governs which build of it.
  */
-export function registerSimPanels(gameKey: string, panels: SimPanel[]): void {
-  registry.set(gameKey, panels);
+export function registerSimPanels(gameKey: string, panels: SimPanelDeclaration[]): void {
+  registry.set(
+    gameKey,
+    panels.map((panel) => ({ ...panel, minSize: minSizeFor(panel.defaultSize) })),
+  );
 }
 
 /** The panels a room can show, given what its collectors report they can produce. */

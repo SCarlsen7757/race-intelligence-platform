@@ -30,6 +30,11 @@
   --accent: #a37bff;
   --accent-fill: rgba(163, 123, 255, 0.1);
   --status-live: #35c9d6;
+  /* Green for a control that is on — the telemetry mark on the row feeding the wall. Its own token
+     rather than --flag-personal-best, which is the same family and a different meaning: a flag is
+     the simulator telling you something about a lap, and this is the application telling you what
+     it is doing. Held a few degrees cooler than the flag so the two never read as one signal. */
+  --chrome-live: #34d17a;
 
   color-scheme: dark;
 }
@@ -146,6 +151,43 @@ body {
  */
 .app__main:has(.session--split) {
   max-width: none;
+}
+
+/*
+ * A wall that fits the glass, rather than a document that scrolls.
+ *
+ * The pit wall is the page a race engineer does not look away from, and a page that scrolls as a
+ * whole cannot keep two things in front of them: reading down to P24 in the tower takes the wall
+ * with it. So once the page has split, the *page* stops scrolling and the regions inside it start —
+ * the tower scrolls its rows, the wall scrolls its tiles, and the chrome stays where it was put.
+ *
+ * Only above the split breakpoint. Below it `.session--split` is still one column with the wall
+ * stacked under the tower, and that genuinely is a document you read downwards; bounding it there
+ * would put the wall somewhere the user cannot reach.
+ *
+ * `100dvh` rather than `100vh` because a mobile browser's chrome counts, and a page that is exactly
+ * as tall as the viewport minus a toolbar that is not there is a page with a scrollbar for nothing.
+ */
+@media (min-width: 1400px) {
+  .app:has(.session--split) {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* A flex column rather than a plain block, so the session can be given *what is left* after the
+     breadcrumb above it rather than the whole of `.app__main`. `height: 100%` on the session was
+     the obvious way to write this and was wrong by exactly the height of that one line, which is
+     enough to push the track map off the bottom of the screen.
+
+     `min-height: 0` because a flex child's default `min-height: auto` refuses to shrink below its
+     content, which is the whole reason a bounded ancestor is otherwise ignored. */
+  .app:has(.session--split) .app__main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
 }
 
 .status {
@@ -420,39 +462,55 @@ body {
  */
 @media (min-width: 1400px) {
   .session--split {
-    grid-template-columns: minmax(min(420px, 100%), 560px) minmax(0, 1fr);
+    /* 600 rather than the 560 this was: the tower is eleven columns of numbers and at 560 it could
+       not fit them, so it carried a horizontal scrollbar of its own. The forty pixels come out of a
+       wall that has upwards of a thousand and does not miss them. */
+    grid-template-columns: minmax(min(420px, 100%), 600px) minmax(0, 1fr);
+    /* Takes what is left of the bounded ancestor and hands it to the two regions. Stretch rather
+       than the `align-items: start` above, which would leave both columns content-tall inside a
+       full-height grid and defeat the whole arrangement. */
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: stretch;
   }
 }
 
-/* Timing and the comparison column, stacked. Its own box so the two regions can be laid out as a
-   grid without the tower, the map and the focus panel each becoming a grid item. */
+/*
+ * The timing region: the tower takes the slack, the map is pinned under it.
+ *
+ * Rows rather than the wrapping flex row this used to be. Side by side never happened — the tower
+ * asked for 520px inside a column capped at 560, so the map always wrapped underneath anyway — and
+ * wrapping put the map at the *bottom of the tower* rather than at the bottom of the column, which
+ * meant a thirty-car field pushed it off the screen. Pinned, it is always there.
+ */
 .session__left {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 16px;
-  align-items: start;
   min-width: 0;
+  min-height: 0;
 }
 
-/* Timing tower and track map side by side, wrapping to a stack when the window cannot hold both.
-   Wrap rather than a breakpoint, like everything else here. */
-.session__timing {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 20px;
-}
-
-/* Takes the slack; the map is a fixed square. `min-width: 0` because a flex item defaults to
-   min-content, and a table's min-content is wide enough to stop this ever wrapping.
-
-   The table then scrolls inside this box rather than pushing the page sideways. Eleven columns have
-   a floor below which they cannot be squeezed, and without this the whole document gets a
-   horizontal scrollbar — which moves the focus panel and the map out from under the pointer too. */
+/* The stamp above, the scrolling table below. A flex column so the one line explaining why the
+   tower is dim cannot scroll away from the tower it is explaining. */
 .session__tower {
-  flex: 1 1 520px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  overflow-x: auto;
+  min-height: 0;
+}
+
+/* Where the rows actually scroll.
+   `overflow-x` for the reason it has always been here: eleven columns have a floor below which they
+   cannot be squeezed, and without it the whole document gets a horizontal scrollbar, which moves
+   the map and the wall out from under the pointer too. `overflow-y` is the same argument on the
+   other axis, and was missing — a full field simply grew the page. */
+.session__tower-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* Two signals, never one. Opacity alone would read as a rendering glitch and colour alone would be
@@ -489,26 +547,28 @@ body {
 
 /* Track map */
 
+/* The panel spans the timing column, so its edges line up with the tower's above it. It used to be
+   `flex: 0 0 auto` at `clamp(180px, 20vw, 360px)` — a *viewport* measurement standing in for a
+   container measurement, which was wrong at every width and especially inside a column capped at
+   560px. */
 .track-map {
   margin: 0;
-  flex: 0 0 auto;
-  /* Was a hard 240px applied inline, which left the map a postage stamp beside a tower with width
-     to spare. A clamp grows it with the window and needs no breakpoint, which is the rule the rest
-     of this file follows. Capped, because past that the ring stops being a glance and becomes a
-     diagram. */
-  width: clamp(180px, 20vw, 360px);
+  width: 100%;
   background: var(--bg-raised);
   border: 1px solid var(--edge);
   border-radius: 6px;
   padding: 12px;
 }
 
-/* Fluid, so the square fits inside the figure's padding rather than pushing 26px past it — and so
-   the map still fits a phone, where the figure itself is the narrower of the two. */
+/* The ring is capped rather than the panel: the viewBox is square, so a figure spanning 560px would
+   be 560px tall and eat half the column. Past about 300px the ring stops being a glance and starts
+   being a diagram, which is the same judgement the old clamp's upper bound was making. */
 .track-map svg {
   display: block;
   width: 100%;
+  max-width: 300px;
   height: auto;
+  margin: 0 auto;
 }
 
 /* Stroke widths on this figure are in pixels, not user units: the viewBox is 0..1, so a bare `2`
@@ -605,10 +665,13 @@ body {
   overflow: hidden;
 }
 
+/* Cells are tight because there are eleven of them and the column they live in is 560px at its
+   widest. Every pixel of padding here is spent eleven times per row, and the thing being padded is
+   a four-character lap time. */
 .tower th {
   text-align: right;
-  padding: 6px 10px;
-  font-size: 11px;
+  padding: 6px 4px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -617,39 +680,62 @@ body {
 }
 
 .tower td {
-  padding: 5px 10px;
+  padding: 4px 4px;
   text-align: right;
   border-bottom: 1px solid var(--rule);
+  /* Two notches under the body's 14px. The timing columns are tabular numerals whose legibility
+     does not fall off the way prose does, and it is what buys the last of the width — eleven
+     columns of lap times do not otherwise fit a column narrow enough to leave the wall its glass. */
+  font-size: 12px;
 }
 
 .tower tr:last-child td {
   border-bottom: none;
 }
 
-.tower__pos,
-.tower__driver,
+/*
+ * The two columns that are identity rather than timing, left-aligned.
+ *
+ * `td.` and `th.` rather than the bare classes, and that is the fix rather than a style: `.tower td`
+ * above is a class *and* a type, which outranks a lone class — so the bare selectors only ever won
+ * on the headers, where `th.tower__driver` matched the same weight as `.tower th` and came later.
+ * The result was a header aligned one way and its column the other, with short driver names pushed
+ * out to the right where the lap times are and the eye having to hunt for the start of each one.
+ */
+td.tower__pos,
+td.tower__driver,
 th.tower__pos,
 th.tower__driver {
   text-align: left;
 }
 
 .tower__pos {
-  width: 40px;
+  width: 28px;
   color: var(--text);
   font-weight: 700;
 }
 
+/* A floor rather than a width, and low enough that a long name truncates instead of pushing the
+   timing columns off the edge. The name is the one thing on this row that can afford to be cut: it
+   is recognised from its first few characters, and a lap time is not.
+
+   The truncation is on the name itself rather than here, which is the correction: `text-overflow`
+   acts on a block's own inline content, and this cell's content is an inline-flex button — so an
+   ellipsis set here did nothing but clip the button mid-glyph, taking the car number with it. */
 .tower__driver {
-  min-width: 200px;
+  min-width: 96px;
+  /* Measured, not guessed: at 170 the eleven columns came to 591px inside a 585px box and the
+     tower carried a six-pixel horizontal scrollbar of its own. */
+  max-width: 155px;
 }
 
-/* Wide enough for the word rather than for TEL. `.tower th` uppercases its content, so the
-   abbreviation was already rendering as TEL — recasing it could not have made it less like the
-   abbreviation for telephone, and the only fix that changes what a reader sees is the whole word.
-   It costs twenty pixels. */
+/* Wide enough for the mark and nothing else. This used to be sized for the word "Telemetry" in the
+   header and SHOW / SHOWN / OPENING… in the cells — seventy-four pixels on every row, which was the
+   widest column in the tower for the least of what it says. The heading is still there for a screen
+   reader; it is simply not in the flow. */
 .tower__telemetry,
 th.tower__telemetry {
-  width: 84px;
+  width: 26px;
   text-align: center;
 }
 
@@ -700,9 +786,12 @@ th.tower__state {
   font: inherit;
   cursor: pointer;
   display: inline-flex;
-  align-items: center;
-  gap: 7px;
+  align-items: baseline;
+  gap: 6px;
   padding: 0;
+  /* Bounded by the cell, so the name inside it has something to shrink against. */
+  max-width: 100%;
+  text-align: left;
 }
 
 .driver-button:hover {
@@ -715,44 +804,85 @@ th.tower__state {
   flex-shrink: 0;
 }
 
-/* The only marker distinguishing a row with telemetry behind it from one with timing only — so it
-   has to look like a control. It was an 8px dot, which nobody found. */
+/*
+ * The mark saying a row has telemetry behind it, and whether it is open.
+ *
+ * It was a SHOW / SHOWN / OPENING… word in a bordered pill, which was the right answer to the 8px
+ * dot before it and the wrong answer once the tower had to fit eleven columns beside the wall: it
+ * was the widest column on the row, spelling out three states that a shape and a colour carry at a
+ * glance and that nobody re-reads after the first minute of a session.
+ *
+ * No border and no pill. The mark is the control — a target the size of the row's line height,
+ * which is a comfortable click and costs the column nothing but the glyph.
+ */
 .focus-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
-  border: 1px solid var(--status-live);
+  border: none;
   border-radius: 3px;
-  color: var(--status-live);
-  padding: 1px 6px;
+  color: var(--text-muted);
+  padding: 1px;
   font: inherit;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  line-height: 0;
   cursor: pointer;
 }
 
 .focus-button:hover {
-  background: color-mix(in srgb, var(--status-live) 15%, transparent);
+  color: var(--text);
 }
 
-.focus-button--open {
-  background: color-mix(in srgb, var(--status-live) 16%, transparent);
-  color: var(--status-live);
+/* Open. Green because it is the one row feeding the wall, and this is the only place on the tower
+   that says which. Deliberately `--chrome-live` and not `--flag-personal-best`: they are close
+   greens on purpose-built ramps that must be able to move apart, and a control borrowing a flag is
+   exactly the coupling the token split exists to prevent. */
+.focus-button--open,
+.focus-button--open:hover {
+  color: var(--chrome-live);
 }
 
 /* Subscribed, nothing arriving yet. Quieter than --open rather than louder: this is a state on the
    way to somewhere, and a control that shouted during the wait would make a fast connection flicker
    every time a row was opened. Reads as "not yet", which is what it means. */
-.focus-button--pending {
-  background: none;
-  border-color: var(--text-muted);
+.focus-button--pending,
+.focus-button--pending:hover {
   color: var(--text-muted);
   cursor: progress;
+  opacity: 0.6;
 }
 
+/* Arcs are strokes, the dot is a fill — see `TelemetryMark` for why the dot fills only when open.
+   `currentColor` throughout, so the three states above are the only place colour is decided. */
+.telemetry-mark {
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.telemetry-mark circle {
+  stroke-width: 1.2;
+}
+
+/* First, and never the part that gets cut. The number is how a car is called over the radio and
+   how it is picked out of a field of thirty; the name is what confirms it. `flex-shrink: 0` is what
+   makes that ordering mean something when the column runs out of room. */
 .car-number {
   color: var(--text-muted);
   font-size: 11px;
-  margin-left: 6px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The only elastic part of the row's identity. `min-width: 0` because a flex item will not shrink
+   below its content without it, which is what turns the ellipsis into a clip. */
+.driver-button__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Timing is the decision-making surface; names identify the car once the numbers have found it.
@@ -1021,14 +1151,38 @@ th.tower__state {
   color: var(--text-muted);
 }
 
-.trace {
+/*
+ * A plot takes whatever height is left once the readouts under it have had theirs.
+ *
+ * `min-height: 0` is what makes "whatever is left" able to be *less* than the canvas currently is —
+ * without it a flex item refuses to shrink below its content and the tile grows instead of the
+ * plot shrinking. `LiveChart` measures this box and sizes uPlot to it, so this rule is the whole
+ * mechanism by which dragging a tile taller draws a taller trace.
+ */
+.trace,
+.wheel-chart__plot,
+.race-timeline__plot,
+.lap-trend__plot {
+  flex: 1 1 auto;
   width: 100%;
+  min-height: 0;
+}
+
+/* A plot with a legend or a row of readouts under it. The two together are the widget; only the
+   plot is elastic. */
+.wheel-chart {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* Pedal bars */
 
 .pedals {
   width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   display: block;
 }
 
@@ -1319,13 +1473,19 @@ th.tower__state {
  * to ignore once you know where things are.
  */
 .wall {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
+/* Fixed, so the controls stay reachable however far down the grid is scrolled. `flex-shrink: 0`
+   rather than the default 1, which would squeeze the heading out before the grid gave up a pixel. */
 .wall__header {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
+  flex: 0 0 auto;
   gap: 16px;
   margin-bottom: 8px;
 }
@@ -1381,8 +1541,14 @@ th.tower__state {
   color: var(--text-muted);
 }
 
+/* The one part of the wall that scrolls. Everything above it — the heading, the picker, an import
+   complaint — is chrome that belongs to the wall as a whole and stays put; the tiles are the
+   content. */
 .wall__grid {
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .wall__widget {
@@ -1440,12 +1606,32 @@ th.tower__state {
 }
 
 /* `min-height: 0` so a chart inside a flex column can be shorter than its content wants, which is
-   what lets a tile resize down at all rather than growing to fit. */
+   what lets a tile resize down at all rather than growing to fit.
+
+   `overflow: hidden` rather than `auto`, which used to hide the problem this rule now prevents: a
+   widget taller than its tile grew a scrollbar, and the scrollbar sat exactly on top of the resize
+   handle. Nothing here should overflow now that every widget fills what it is given — and the two
+   that genuinely have a list to scroll do it inside themselves, where the scrollbar belongs to the
+   list rather than to the tile. */
 .wall__widget-body {
   flex: 1 1 auto;
   min-height: 0;
   padding: 10px;
-  overflow: auto;
+  overflow: hidden;
+}
+
+/*
+ * Every widget fills the tile it was put in.
+ *
+ * Stated once here rather than on each of the nineteen roots, because it is a fact about being on
+ * the wall rather than about any one widget: the user chose that size by dragging it, and a widget
+ * that ignored it and drew at some number chosen at its call site was the reason dragging a tile
+ * taller produced a band of empty space. The widget's own rule then says how it divides the height
+ * up — which part is the plot and which is the legend under it.
+ */
+.wall__widget-body > * {
+  height: 100%;
+  min-height: 0;
 }
 
 /*
@@ -1488,12 +1674,6 @@ th.tower__state {
   min-height: 0;
 }
 
-.lap-trend__plot {
-  flex: 1 1 auto;
-  width: 100%;
-  min-height: 0;
-}
-
 .lap-trend__band {
   opacity: 0.16;
 }
@@ -1529,12 +1709,66 @@ th.tower__state {
   text-align: center;
 }
 
-/* The grid's own placeholder, shown under a tile being dragged. Its default is a translucent red
-   that reads as an error here; the accent says "this is where it lands". */
-.react-grid-item.react-grid-placeholder {
+/*
+ * The grid's own chrome, restyled — and scoped under `.wall__grid` so that it wins.
+ *
+ * `react-grid-layout/css/styles.css` is imported by `PitWall` and lands in the route's own chunk,
+ * while this file is linked by the root document. Two separate stylesheets, so equal specificity is
+ * decided by which link the browser saw last — which is not something this file should be betting
+ * on. One extra class puts these rules above the library's regardless of load order.
+ */
+
+/* The placeholder shown under a tile being dragged. Its default is a translucent red that reads as
+   an error here; the accent says "this is where it lands". */
+.wall__grid .react-grid-item.react-grid-placeholder {
   background: var(--accent);
   opacity: 0.18;
   border-radius: 6px;
+}
+
+/*
+ * The resize handle, which the library ships invisible.
+ *
+ * Every tile has been resizable since the grid landed — `minW`/`minH` come off the catalogue and
+ * the drag stops where the widget says it should — and none of it was discoverable, because the
+ * library sets the handle to `opacity: 0` until hover and then draws it as a `rgba(0, 0, 0, 0.4)`
+ * chevron. A near-black mark on `--bg-raised` is a control nobody can find, which made the whole
+ * wall read as fixed.
+ *
+ * Quietly present at rest so the affordance exists before the pointer arrives, and the accent once
+ * it does. Stacked over the widget body, which otherwise paints across the corner it lives in.
+ */
+.wall__grid .react-grid-item > .react-resizable-handle {
+  opacity: 1;
+  z-index: 1;
+  /* Larger than the 20px default. This is a corner grabbed by aim rather than by reading, and the
+     bigger target costs nothing — the body under it has no interaction of its own. */
+  width: 24px;
+  height: 24px;
+}
+
+.wall__grid .react-grid-item > .react-resizable-handle::after {
+  right: 5px;
+  bottom: 5px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--edge);
+  border-bottom: 2px solid var(--edge);
+  transition: border-color 120ms ease;
+}
+
+/* Focus as well as hover, for the reason #43 gave every other control in this app a visible ring:
+   a control you cannot see focus on is a control you cannot use. */
+.wall__grid .react-grid-item:hover > .react-resizable-handle::after,
+.wall__grid .react-grid-item > .react-resizable-handle:focus-visible::after {
+  border-right-color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wall__grid .react-grid-item > .react-resizable-handle::after {
+    transition: none;
+  }
 }
 
 /*
@@ -1550,10 +1784,6 @@ th.tower__state {
   flex-direction: column;
   min-height: 0;
   gap: 8px;
-}
-
-.race-timeline__plot {
-  width: 100%;
 }
 
 .race-timeline__cars {
