@@ -531,7 +531,13 @@ interface DriverFocus {
    * stops when the game is paused and does not drift against the samples it stamps.
    */
   currentLapStartedAt: number;
-  /** Complete laps observed this session, keyed by lap number. */
+  /**
+   * Complete laps observed this session, keyed by lap number.
+   *
+   * This map deliberately grows with the number of laps completed while the driver is followed.
+   * Every 1,000-bin trace remains available for historical comparison until {@link resetFocus}; a
+   * later lap must never evict an earlier reference lap during the same room.
+   */
   readonly completedLaps: Map<number, LapTrace>;
 }
 
@@ -603,7 +609,9 @@ export class LiveStore {
    *
    * The whole field, not only the followed car: a gap chart is about where everyone is, and
    * standings cover every driver in the session rather than only those running a collector. That is
-   * also why this is keyed off tower snapshots rather than focus frames.
+   * also why this is keyed off tower snapshots rather than focus frames. The map deliberately grows
+   * with every participant seen in the room: a driver disappearing from a later snapshot does not
+   * discard their race rings, so their earlier race remains comparable until {@link resetFocus}.
    */
   private readonly raceTraces = new Map<string, RaceTraces>();
 
