@@ -83,6 +83,9 @@ public sealed class ViewerQueue
         new(StringComparer.Ordinal);
 
     /// <summary>The newest extras document per driver, following the focus slots.</summary>
+    private readonly ConcurrentDictionary<string, StintFrameMessage> _stints =
+        new(StringComparer.Ordinal);
+
     private readonly ConcurrentDictionary<string, ExtrasFrameMessage> _extras =
         new(StringComparer.Ordinal);
 
@@ -172,6 +175,15 @@ public sealed class ViewerQueue
         Wake();
     }
 
+    /// <summary>Offers a focused driver's tyre readings, replacing any of theirs not yet sent.</summary>
+    public void OfferStint(StintFrameMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        _stints[message.DriverKey] = message;
+        Wake();
+    }
+
     /// <summary>Offers a focused driver's extras document, replacing any of theirs not yet sent.</summary>
     public void OfferExtras(ExtrasFrameMessage message)
     {
@@ -237,8 +249,10 @@ public sealed class ViewerQueue
 
         _focusFrames.TryRemove(driverKey, out _);
 
-        // The extras slot follows the focus for the same reason. A damage panel showing a dropped
-        // driver's car is worse than one showing nothing, because it looks current.
+        // The extras and stint slots follow the focus for the same reason. A damage panel or a tyre
+        // chart showing a dropped driver's car is worse than one showing nothing, because it looks
+        // current.
+        _stints.TryRemove(driverKey, out _);
         _extras.TryRemove(driverKey, out _);
     }
 
@@ -246,13 +260,14 @@ public sealed class ViewerQueue
     public void ClearFocus()
     {
         _focusFrames.Clear();
+        _stints.Clear();
         _extras.Clear();
     }
 
     /// <summary>Takes the next message to send, waiting until one exists.</summary>
     /// <remarks>
     /// Priority is errors, then the room list, then the session state, then the tower, then lap
-    /// histories, then the focus stream, then extras. The ordering is by how replaceable each
+    /// histories, then the focus stream, then tyre readings, then extras. The ordering is by how replaceable each
     /// message is rather than by
     /// importance: a focus frame skipped now is replaced within milliseconds, a tower snapshot
     /// within a tenth of a second, and a lap history not until the driver finishes another lap — so
@@ -322,8 +337,18 @@ public sealed class ViewerQueue
             return focus;
         }
 
-        // Extras need no rotation: at roughly 1 Hz per driver there is never a backlog for a scan to
-        // be unfair about, and taking whichever is ready cannot starve the other.
+        // Above extras and below the focus stream, mirroring the collector's outbox. Both are
+        // roughly 1 Hz, and neither needs the focus stream's rotation: there is never a backlog for
+        // a scan to be unfair about, so taking whichever is ready cannot starve the other. Tyre
+        // readings sit above extras because a chart drawing them costs less than parsing a document.
+        foreach (var driverKey in _stints.Keys)
+        {
+            if (_stints.TryRemove(driverKey, out var stint))
+            {
+                return stint;
+            }
+        }
+
         foreach (var driverKey in _extras.Keys)
         {
             if (_extras.TryRemove(driverKey, out var extras))

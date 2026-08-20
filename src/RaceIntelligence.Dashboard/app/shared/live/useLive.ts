@@ -1,7 +1,12 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
-import type { ExtrasFrameMessage, LapHistoryMessage } from './contracts';
+import type { LapHistoryMessage, StintFrameMessage } from './contracts';
 import type { LiveConnection } from './connection';
-import type { LiveStore } from './store';
+import type { ExtrasSnapshot, LapSummary, LiveStore, RaceEvent } from './store';
+
+// A stable empty reference: useSyncExternalStore compares snapshots by identity, and a fresh [] per
+// read would look like a change on every emit and loop.
+const EMPTY_LAP_SUMMARIES: readonly LapSummary[] = [];
+const EMPTY_EVENTS: readonly RaceEvent[] = [];
 
 export interface LiveContextValue {
   store: LiveStore;
@@ -100,9 +105,52 @@ export function useLapHistory(driverKey: string): LapHistoryMessage | null {
  * Per driver for the same reason lap history is: two cars can be compared at once, and a single
  * slot would have both damage panels showing whichever frame arrived last.
  */
-export function useExtras(driverKey: string): ExtrasFrameMessage | null {
+export function useExtras(driverKey: string): ExtrasSnapshot | null {
   const { store } = useLive();
   const read = useCallback(() => store.getExtras()[driverKey] ?? null, [store, driverKey]);
+
+  return useStoreSlice(store, read);
+}
+
+/**
+ * One driver's latest tyre readings — pressure, wear, and the tread with its operating window.
+ *
+ * A hook rather than a paint-loop read, unlike the focus frame: these arrive at about 1 Hz on their
+ * own frame, so the render cost is irrelevant and the ergonomics are worth a great deal. The rolling
+ * traces behind them are still rings, read from `LiveChart` as always.
+ */
+export function useStint(driverKey: string): StintFrameMessage | null {
+  const { store } = useLive();
+  const read = useCallback(() => store.stintFor(driverKey), [store, driverKey]);
+
+  return useStoreSlice(store, read);
+}
+
+/**
+ * One driver's per-lap derived numbers — fuel used, lap time, validity.
+ *
+ * React state rather than a ring, and that is the line this whole store draws: these change once a
+ * lap, which is exactly what React is cheap for.
+ */
+export function useLapSummaries(driverKey: string): readonly LapSummary[] {
+  const { store } = useLive();
+  const read = useCallback(
+    () => store.getLapSummaries()[driverKey] ?? EMPTY_LAP_SUMMARIES,
+    [store, driverKey],
+  );
+
+  return useStoreSlice(store, read);
+}
+
+/**
+ * One driver's flags, activations and incidents, oldest first.
+ *
+ * React state for the same reason the lap summaries are: a race produces a few dozen of these,
+ * minutes apart.
+ */
+export function useRaceEvents(driverKey: string): readonly RaceEvent[] {
+  const { store } = useLive();
+  const read = useCallback(() => store.getEvents()[driverKey] ?? EMPTY_EVENTS, [store, driverKey]);
 
   return useStoreSlice(store, read);
 }
@@ -114,7 +162,7 @@ export function useExtras(driverKey: string): ExtrasFrameMessage | null {
  * record keeps that decision in one hook call; a per-driver hook in its section loop would make the
  * number of hooks depend on how many cars are compared.
  */
-export function useAllExtras(): Readonly<Record<string, ExtrasFrameMessage>> {
+export function useAllExtras(): Readonly<Record<string, ExtrasSnapshot>> {
   const { store } = useLive();
   return useStoreSlice(store, store.getExtras);
 }

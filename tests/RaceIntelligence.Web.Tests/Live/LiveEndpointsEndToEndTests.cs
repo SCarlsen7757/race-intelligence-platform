@@ -100,8 +100,8 @@ public sealed class LiveEndpointsEndToEndTests
         focus.ShouldNotBeNull();
         focus.DriverKey.ShouldBe("id:2");
         focus.Throttle.ShouldBe(1f);
-        focus.TyreWear.Count.ShouldBe(4);
-        focus.TyrePressureKpa[0].ShouldBe(180f);
+        focus.BrakePressureKiloNewtons.Count.ShouldBe(4);
+        focus.BrakePressureKiloNewtons[0].ShouldBe(3.1f);
     }
 
     /// <summary>

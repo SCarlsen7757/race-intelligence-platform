@@ -220,6 +220,64 @@ public sealed class LiveRoom
     }
 
     /// <summary>
+    /// Turns a publisher's stint frame into the message for the row it belongs to.
+    /// </summary>
+    /// <returns>
+    /// The message to broadcast, or <see langword="null"/> under the same conditions as
+    /// <see cref="ApplySelf"/>.
+    /// </returns>
+    public StintFrameMessage? ApplyStint(Guid clientId, LiveStintFrame frame, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        lock (_gate)
+        {
+            if (!_publishers.TryGetValue(clientId, out var state))
+            {
+                return null;
+            }
+
+            // Kept per publisher for the reason extras are: at roughly 1 Hz, a viewer focusing a
+            // driver would otherwise watch empty tyre charts for a second, which reads as a car
+            // with no tyre data rather than as one whose first reading has not arrived.
+            state.Stint = frame;
+            _lastUpdatedAtUtc = nowUtc;
+
+            string? driverKey = LocalDriverKeyFor(state, frame.SimDriverId);
+
+            return driverKey is null ? null : ToStintFrame(RoomId, driverKey, frame);
+        }
+    }
+
+    /// <summary>
+    /// The most recent tyre readings for a driver, for a viewer that has just focused them.
+    /// </summary>
+    public StintFrameMessage? LatestStintFor(string driverKey)
+    {
+        ArgumentNullException.ThrowIfNull(driverKey);
+
+        lock (_gate)
+        {
+            foreach (var state in _publishers.Values)
+            {
+                if (state.Stint is not { } frame)
+                {
+                    continue;
+                }
+
+                string? key = LocalDriverKeyFor(state, frame.SimDriverId);
+
+                if (string.Equals(key, driverKey, StringComparison.Ordinal))
+                {
+                    return ToStintFrame(RoomId, driverKey, frame);
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
     /// The most recent extras document for a driver, for a viewer that has just focused them.
     /// </summary>
     public ExtrasFrameMessage? LatestExtrasFor(string driverKey)
@@ -459,7 +517,27 @@ public sealed class LiveRoom
     private SessionStateMessage BuildSessionStateLocked(SessionStandings? standings) => new(
         RoomId,
         _layoutLengthMeters,
-        standings?.PitWindow is { Exists: true } window ? ToPitWindowState(window) : null);
+        standings?.PitWindow is { Exists: true } window ? ToPitWindowState(window) : null,
+        standings?.RaceLength is { Exists: true } length ? ToRaceLengthState(length) : null);
+
+    /// <summary>
+    /// Converts a canonical race length into the browser's view of it.
+    /// </summary>
+    /// <remarks>
+    /// Gated on <see cref="RaceLength.Exists"/> at the call site rather than sent regardless, so a
+    /// unit with no matching figure never reaches a browser looking like a length. Mapped member by
+    /// member for the reason <see cref="ToPitWindowState"/> gives — the two enums do not share a
+    /// numbering and a cast between them would be a silent mislabel.
+    /// </remarks>
+    private static RaceLengthState ToRaceLengthState(RaceLength length) => new(
+        length.Laps,
+        length.DurationSeconds,
+        length.Unit switch
+        {
+            RaceLengthUnit.Laps => RaceLengthUnitView.Laps,
+            RaceLengthUnit.Time => RaceLengthUnitView.Time,
+            _ => RaceLengthUnitView.Unknown,
+        });
 
     /// <summary>
     /// Converts a canonical pit window into the browser's view of it.
@@ -592,14 +670,20 @@ public sealed class LiveRoom
         frame.Gear,
         frame.EngineRpm,
         frame.FuelLeft,
-        ToWheelArray(frame.TyrePressure),
-        ToWheelArray(frame.TyreWear),
-        ToWheelArray(frame.TyreTemperature),
+        ToWheelArray(frame.BrakePressure),
         frame.AbsSetting,
         frame.AbsActive,
         frame.TractionControlSetting,
         frame.TractionControlActive,
         frame.BrakeBias);
+
+    private static StintFrameMessage ToStintFrame(string roomId, string driverKey, LiveStintFrame frame) => new(
+        roomId,
+        driverKey,
+        frame.CapturedAtUtc,
+        ToWheelArray(frame.TyrePressure),
+        ToWheelArray(frame.TyreWear),
+        ToTreadArray(frame.TyreTemperature));
 
     /// <summary>
     /// Flattens per-wheel values into the platform's FL, FR, RL, RR order.
@@ -611,6 +695,30 @@ public sealed class LiveRoom
     /// </remarks>
     private static IReadOnlyList<float?> ToWheelArray(LiveWheelValues values) =>
         [values.FrontLeft, values.FrontRight, values.RearLeft, values.RearRight];
+
+    /// <summary>
+    /// Flattens per-tyre tread temperatures into the same FL, FR, RL, RR order.
+    /// </summary>
+    /// <remarks>
+    /// The publish and view records are separate types carrying identical members, so this is a
+    /// rename rather than a translation — the same arrangement every other field on this frame has,
+    /// and the reason the two contracts can move independently at all.
+    /// </remarks>
+    private static IReadOnlyList<TreadTemperatures> ToTreadArray(LiveTyreTemperatures values) =>
+        [
+            ToTread(values.FrontLeft),
+            ToTread(values.FrontRight),
+            ToTread(values.RearLeft),
+            ToTread(values.RearRight),
+        ];
+
+    private static TreadTemperatures ToTread(LiveTreadTemperatures tread) => new(
+        tread.Inner,
+        tread.Middle,
+        tread.Outer,
+        tread.Optimal,
+        tread.Cold,
+        tread.Hot);
 }
 
 /// <summary>
@@ -692,6 +800,9 @@ internal sealed class LivePublisherState(LivePublisherIdentity identity)
     /// second of an empty damage panel, which reads as "no damage" rather than "not known yet".
     /// </remarks>
     public LiveExtrasFrame? Extras { get; set; }
+
+    /// <summary>The last tyre readings this publisher sent, for a viewer that focuses mid-stint.</summary>
+    public LiveStintFrame? Stint { get; set; }
 
     /// <summary>
     /// Server time <see cref="Standings"/> arrived.

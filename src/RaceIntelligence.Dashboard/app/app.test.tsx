@@ -202,40 +202,56 @@ describe('the dashboard', () => {
 
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
 
-    // The panels the collector's declared capabilities allow, and no others.
-    expect(screen.getByText('Tyres')).toBeDefined();
-    expect(screen.getByText('Brakes')).toBeDefined();
-    expect(screen.getByText('Pressure')).toBeDefined();
-    expect(screen.getAllByText('Temperature')).toHaveLength(2);
-    expect(screen.getByText('Wear')).toBeDefined();
+    // Opening a car opens the wall, headed by that car. There is no fixed per-driver region left
+    // on the page: what the car is doing, what the driver is doing and what it is set to are all
+    // widgets now, so a heading that reappeared here would be the regression this removed.
+    expect(screen.getByRole('heading', { name: 'Mark Carlsen' })).toBeDefined();
+
+    // What the collector's capabilities allow is what the wall offers to add.
+    await act(async () => {
+      screen.getByRole('button', { name: '+ Add widget' }).click();
+    });
+
+    expect(screen.getByText('Tyre pressure')).toBeDefined();
+    expect(screen.getByText('Brake temperature')).toBeDefined();
     expect(screen.queryByText('Damage')).toBeNull();
   });
 
   /**
-   * The reason room and driver moved into the URL at all. The previous dashboard held both in
-   * component state, so a refresh — or a link sent to whoever was asking about the tyres — landed
-   * on an empty session list.
+   * The room still comes from the URL; the cars no longer do. A refresh lands back on the same
+   * session, and which cars are being watched is state belonging to that room — the wall beside it
+   * is what carries an arrangement between sessions.
    */
-  it('restores the session and the driver from the URL alone', async () => {
-    await renderApp('/rooms/room-1/id:4242');
+  it('restores the session from the URL, and starts with no car open', async () => {
+    await renderApp('/rooms/room-1');
     await act(async () => {
       socket().deliver(roomList);
       socket().deliver(tower);
     });
 
     expect(allSent()).toContainEqual({ type: 'watchRoom', roomId: 'room-1' });
-    expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
+    expect(allSent()).not.toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
 
-    // Named from the tower rather than from the key in the path, so a link opens on a person
-    // rather than on an id.
-    expect(screen.getByRole('button', { name: 'Stop watching Mark Carlsen' })).toBeDefined();
+    // With nobody open the tower is the whole interface, so there is no wall beside it.
+    expect(screen.queryByRole('region', { name: 'Pit wall' })).toBeNull();
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Mark Carlsen' }).click();
+    });
+
+    // Named from the tower rather than from the key, so the wall opens on a person.
+    expect(screen.getByRole('region', { name: 'Pit wall' })).toBeDefined();
+    expect(screen.getByRole('heading', { name: 'Mark Carlsen' })).toBeDefined();
   });
 
   /**
-   * The comparison, end to end from the browser's side: two cars open at once, both streaming, and
-   * the pair written into the URL so it survives a refresh and pastes into a message.
+   * One car at a time. Opening a second replaces the first rather than joining it, and the swap is
+   * two named commands on the wire — the car being dropped is unfocused by name, never by clearing
+   * the focus and re-stating what is left. That distinction is what protects the ring buffers: a
+   * reset would take the departing car's rings, and at 60 Hz it would leave a window in which the
+   * arriving car sends nothing either.
    */
-  it('compares two drivers and says so in the URL', async () => {
+  it('replaces the open car when a second is opened', async () => {
     const app = await renderApp('/rooms/room-1');
     await act(async () => {
       socket().deliver(roomList);
@@ -249,50 +265,42 @@ describe('the dashboard', () => {
       screen.getByRole('button', { name: 'Open telemetry for Rival' }).click();
     });
 
-    expect(app.currentPath()).toBe('/rooms/room-1/id:4242,id:9');
+    // The URL names the room and nothing else.
+    expect(app.currentPath()).toBe('/rooms/room-1');
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:4242' });
     expect(allSent()).toContainEqual({ type: 'focusDriver', driverKey: 'id:9' });
-
-    // Both columns, and the same section titles in both — the alignment is the whole point.
-    expect(screen.getAllByText('Tyres')).toHaveLength(2);
-    expect(screen.getAllByText('Brakes')).toHaveLength(2);
-  });
-
-  /**
-   * Dropping one half of a comparison must leave the other half alone. The named `unfocusDriver` is
-   * what makes that true on the wire: clearing everything and re-stating the rest would leave a
-   * window at 60 Hz in which the driver still being watched sends nothing.
-   */
-  it('drops one driver of a comparison without disturbing the other', async () => {
-    const app = await renderApp('/rooms/room-1/id:4242,id:9');
-    await act(async () => {
-      socket().deliver(roomList);
-      socket().deliver(twoCollectorTower);
-    });
-
-    await act(async () => {
-      screen.getByRole('button', { name: 'Stop watching Mark Carlsen' }).click();
-    });
-
-    expect(app.currentPath()).toBe('/rooms/room-1/id:9');
     expect(allSent()).toContainEqual({ type: 'unfocusDriver', driverKey: 'id:4242' });
-    expect(allSent()).not.toContainEqual({ type: 'unfocusDriver', driverKey: 'id:9' });
     expect(allSent()).not.toContainEqual({ type: 'focusDriver', driverKey: null });
+
+    // One wall, headed by the car that replaced the first.
+    expect(screen.getByRole('heading', { name: 'Rival' })).toBeDefined();
+    expect(screen.queryByRole('heading', { name: 'Mark Carlsen' })).toBeNull();
   });
 
   /**
-   * In a session where one person runs a collector there is genuinely nobody to compare against.
-   * Saying so beats an empty second column, and beats a viewer hunting for a second button that
-   * does not exist.
+   * Closing the open car returns the page to its other state: the tower, and nothing else. The
+   * stream is given up by name at the same time, because the follow set is derived from the
+   * selection rather than tracked beside it.
    */
-  it('says why there is no second car when nobody else is publishing', async () => {
-    await renderApp('/rooms/room-1/id:4242');
+  it('closes the car and goes back to the tower alone', async () => {
+    await renderApp('/rooms/room-1');
     await act(async () => {
       socket().deliver(roomList);
       socket().deliver(tower);
     });
 
-    expect(screen.getByText(/no second car to compare against/)).toBeDefined();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Mark Carlsen' }).click();
+    });
+
+    expect(screen.getByRole('region', { name: 'Pit wall' })).toBeDefined();
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open telemetry for Mark Carlsen' }).click();
+    });
+
+    expect(screen.queryByRole('region', { name: 'Pit wall' })).toBeNull();
+    expect(allSent()).toContainEqual({ type: 'unfocusDriver', driverKey: 'id:4242' });
   });
 
   /**

@@ -50,6 +50,13 @@ function socket(): FakeWebSocket {
   return instance;
 }
 
+/**
+ * One tyre's temperatures, with a plausible window around the given middle-of-tread reading.
+ *
+ * Shoulders either side of the middle rather than three identical numbers, so a test that started
+ * reading the wrong one would fail rather than pass by coincidence.
+ */
+
 function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessage {
   return {
     type: 'focusFrame',
@@ -67,9 +74,7 @@ function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessa
     gear: 4,
     engineRpm: 7000,
     fuelLeftLiters: 40,
-    tyrePressureKpa: [180, 180, 175, 175],
-    tyreWear: [0.1, 0.1, 0.1, 0.1],
-    tyreTemperatureCelsius: [85, 85, 82, 82],
+    brakePressureKiloNewtons: [],
     ...overrides,
   };
 }

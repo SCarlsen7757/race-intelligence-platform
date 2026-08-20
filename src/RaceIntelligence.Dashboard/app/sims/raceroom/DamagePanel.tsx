@@ -1,8 +1,7 @@
-import { useMemo } from 'react';
 import { NOT_REPORTED } from '../../shared/format/format';
+import { reportedNumber } from '../../shared/live/extras';
 import { useExtras } from '../../shared/live/useLive';
 import type { SimPanelProps } from '../registry';
-import { parseExtras } from './extras';
 
 /**
  * The four damage channels RaceRoom reports, in the order a race engineer triages them.
@@ -20,21 +19,19 @@ const PARTS = [
 /**
  * Turns one raw RaceRoom damage value into a condition fraction, or null.
  *
- * **`-1` is "not available", not "destroyed".** Extras cross the wire exactly as the connector
- * wrote them, so nothing upstream has translated the simulator's sentinel — and rendering it as a
- * number would tell a race engineer the opposite of the truth twice over: once by claiming there
- * is a reading, and once by claiming the worst possible one.
+ * The sentinel judgement it used to make itself now lives in `reportedNumber`, which says the same
+ * thing for every extras channel: `-1` is "not available", not "destroyed", and rendering it would
+ * tell a race engineer the opposite of the truth twice over.
  *
- * RaceRoom's scale runs the other way from the word "damage": 1.0 is a pristine component and 0.0
- * is a broken one. This keeps the simulator's direction and calls it condition, rather than
- * inverting into a "damage" number that would then have to be inverted back to read a bar.
+ * What remains here is the part that is specific to damage. RaceRoom's scale runs the other way
+ * from the word: 1.0 is a pristine component and 0.0 is a broken one. This keeps the simulator's
+ * direction and calls it condition, rather than inverting into a "damage" number that would then
+ * have to be inverted back to read a bar.
  */
 export function toCondition(value: number | undefined): number | null {
-  if (value === undefined || Number.isNaN(value) || value < 0) {
-    return null;
-  }
+  const reported = reportedNumber(value);
 
-  return Math.min(1, value);
+  return reported === null ? null : Math.min(1, reported);
 }
 
 /**
@@ -50,8 +47,7 @@ export function toCondition(value: number | undefined): number | null {
  * about to end the race.
  */
 export function DamagePanel({ driverKey }: SimPanelProps) {
-  const extras = useExtras(driverKey);
-  const damage = useMemo(() => parseExtras(extras?.extras ?? null)?.damage, [extras]);
+  const damage = useExtras(driverKey)?.document?.damage;
 
   return (
     <div className="damage">

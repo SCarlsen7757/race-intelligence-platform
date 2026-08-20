@@ -1,171 +1,156 @@
-import { useEffect, useMemo, useRef } from 'react';
-import uPlot from 'uplot';
-import 'uplot/dist/uPlot.min.css';
-import { formatNumber, formatPercent, NOT_REPORTED } from '../../shared/format/format';
-import type { RaceRoomExtras } from '../../shared/live/contracts';
-import { WHEELS } from '../../shared/live/contracts';
-import { TraceBuffer, TYRE_TRACE_CAPACITY, type WheelTraces } from '../../shared/live/store';
-import { useExtras } from '../../shared/live/useLive';
-import { TRACE_COLOURS, WHEEL_COLOURS } from '../../features/focus/traceColours';
-import type { SimPanelProps } from '../registry';
+import { formatNumber, formatPercent } from '../../shared/format/format';
+import { TRACE_CAPACITY } from '../../shared/live/store';
+import { LiveReadout } from '../../shared/ui/LiveReadout';
+import { ChannelLegend, type LegendChannel } from '../../features/focus/ChannelLegend';
+import { LiveChart, type LiveChartSpec } from '../../features/focus/LiveChart';
+import { WHEEL_CHANNELS } from '../../features/focus/WheelTrace';
+import { TRACE_COLOURS } from '../../features/focus/traceColours';
+import { ExtrasWheelTrace, type ExtrasWheelChannel } from '../../features/focus/ExtrasWheelTrace';
+import { firstReportedWindow } from '../../features/focus/operatingWindow';
+import type { ChannelPanelProps } from '../registry';
 
-type BrakeChannel = (extras: RaceRoomExtras) => number[] | undefined;
+const TEMPERATURE: ExtrasWheelChannel = {
+  ring: (extras) => extras.brakeTemperatureCelsius,
+  // The reading, not the window. `optimal`, `cold` and `hot` ride alongside it on the same object
+  // and are what the band reads; the line and its readout stay the temperature.
+  read: (document, wheel) => document?.brakeTemperatureCelsius?.[wheel]?.current,
+  window: (document) => firstReportedWindow(document?.brakeTemperatureCelsius),
+};
 
-function parseExtras(extrasJson: string | null): RaceRoomExtras | null {
-  if (extrasJson === null) return null;
+const WEAR: ExtrasWheelChannel = {
+  ring: (extras) => extras.brakeWear,
+  read: (document, wheel) => document?.brakeWear?.[wheel],
+};
 
-  try {
-    return JSON.parse(extrasJson) as RaceRoomExtras;
-  } catch {
-    return null;
-  }
+/**
+ * The brake pedal, as a channel on the pressure chart.
+ *
+ * Its own entry rather than a wheel, because it is not one: it shares the plot and the legend but
+ * sits on a 0..1 axis while the corners are in kilonewtons.
+ */
+const PEDAL_CHANNEL: LegendChannel = {
+  id: 'pedal',
+  label: 'Pedal',
+  stroke: TRACE_COLOURS.brake,
+};
+
+const PRESSURE_CHANNELS: readonly LegendChannel[] = [...WHEEL_CHANNELS, PEDAL_CHANNEL];
+
+const formatTemperature = (value: number | null | undefined) => formatNumber(value, 0);
+const formatPressure = (value: number | null | undefined) => formatNumber(value, 1);
+const WEAR_RANGE = [0, 1] as const;
+
+/**
+ * Brake temperature per corner, against the window the simulator says the pads want.
+ *
+ * The band is the whole reason this panel is worth more than four numbers. **380 °C is cold on one
+ * car and cooking on another**, and an engineer who has not memorised the pad compound cannot read a
+ * raw temperature at all — with the window behind it, "climbing out of the top of the band" is
+ * legible to anybody.
+ */
+export function BrakeTemperaturePanel(props: ChannelPanelProps) {
+  return <ExtrasWheelTrace {...props} channel={TEMPERATURE} unit="°C" format={formatTemperature} />;
 }
 
-function newWheelTraces(): WheelTraces {
-  return [
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-    new TraceBuffer(TYRE_TRACE_CAPACITY),
-  ];
-}
-
-function BrakeTrace({
+/**
+ * Brake pressure per corner, in kilonewtons.
+ *
+ * Temperature says the discs are working; pressure says how they were *asked* to. Read together,
+ * the pair is how an imbalance shows up before it becomes a temperature: **a front left
+ * consistently taking less than the front right is a car that will be inconsistent under braking**
+ * long before it overheats anything, and that difference is a gap between two lines here and
+ * invisible in a single brake-pedal trace.
+ *
+ * No fixed range. Force has no natural ceiling to scale against — it depends on the car and on how
+ * hard this driver brakes — so the axis fits what arrived, and the shape of the stint is the
+ * message rather than the absolute height.
+ *
+ * ### And the pedal beside it
+ *
+ * Brake input is drawn on its own 0..1 axis as a fifth channel. This is only honest because pressure
+ * moved to the focus frame: the two now share a sample index, so a point on the pedal line and a
+ * point on a corner line are the same instant. While pressure rode the once-a-second extras
+ * document they shared no index at all, and drawing them together would have looked like a
+ * comparison while sampling a one-second braking event once — a chart that appears to show locking
+ * and cannot is worse than no chart.
+ *
+ * It is a channel like any other, so an engineer who wants only the corners turns it off.
+ */
+export function BrakePressurePanel({
+  store,
   driverKey,
-  read,
-  unit,
-  format,
-  range,
-}: SimPanelProps & {
-  read: BrakeChannel;
-  unit: string;
-  format: (value: number | null | undefined) => string;
-  range?: readonly [number, number];
-}) {
-  const frame = useExtras(driverKey);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const tracesRef = useRef<WheelTraces>(newWheelTraces());
-  const lastSampleRef = useRef<string | null>(null);
-  const values = useMemo(() => {
-    const extras = parseExtras(frame?.extras ?? null);
-    return extras === null ? undefined : read(extras);
-  }, [frame, read]);
-
-  useEffect(() => {
-    if (frame === null || frame.capturedAtUtc === lastSampleRef.current) return;
-    lastSampleRef.current = frame.capturedAtUtc;
-
-    for (let wheel = 0; wheel < 4; wheel++) {
-      const value = values?.[wheel];
-      tracesRef.current[wheel]!.push(
-        value === undefined || !Number.isFinite(value) || value < 0 ? Number.NaN : value,
-      );
-    }
-  }, [frame, values]);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (container === null) return;
-
-    const chart = new uPlot(
+  hiddenChannels,
+  onToggleChannel,
+}: ChannelPanelProps) {
+  const spec: LiveChartSpec = {
+    capacity: TRACE_CAPACITY,
+    scales: { pedal: { range: [0, 1] } },
+    series: [
+      ...WHEEL_CHANNELS.map((wheel, index) => ({
+        id: wheel.id,
+        label: wheel.label,
+        stroke: wheel.stroke,
+        // Resolved inside the closure so the on-demand ring creation stays out of a render pass.
+        buffer: () => store.tracesFor(driverKey).brakePressureKiloNewtons[index]!,
+      })),
       {
-        width: container.clientWidth,
-        height: 112,
-        scales: {
-          x: { time: false, range: [0, TYRE_TRACE_CAPACITY - 1] },
-          y: range === undefined ? {} : { range: [...range] },
-        },
-        axes: [
-          { show: false },
-          { stroke: TRACE_COLOURS.axis, grid: { stroke: TRACE_COLOURS.grid } },
-        ],
-        legend: { show: false },
-        cursor: { show: false },
-        series: [
-          {},
-          ...WHEELS.map((wheel, index) => ({
-            label: wheel,
-            stroke: WHEEL_COLOURS[index]!,
-            width: 1.5,
-            spanGaps: false,
-          })),
-        ],
+        id: PEDAL_CHANNEL.id,
+        label: PEDAL_CHANNEL.label,
+        stroke: PEDAL_CHANNEL.stroke,
+        scale: 'pedal',
+        buffer: () => store.tracesFor(driverKey).brake,
       },
-      [
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-      ],
-      container,
-    );
-
-    let xs = new Float64Array(0);
-    const series = WHEELS.map(() => new Float64Array(0));
-    let animationFrame = 0;
-
-    const paint = () => {
-      const count = tracesRef.current[0].length;
-      if (count !== xs.length) {
-        xs = new Float64Array(count);
-        for (let index = 0; index < count; index++) {
-          xs[index] = TYRE_TRACE_CAPACITY - count + index;
-        }
-      }
-      for (let wheel = 0; wheel < 4; wheel++) {
-        series[wheel] = tracesRef.current[wheel]!.toArray(series[wheel]);
-      }
-      chart.setData([xs, series[0]!, series[1]!, series[2]!, series[3]!], true);
-      animationFrame = requestAnimationFrame(paint);
-    };
-
-    animationFrame = requestAnimationFrame(paint);
-    const resize = () => chart.setSize({ width: container.clientWidth, height: 112 });
-    window.addEventListener('resize', resize);
-
-    return () => {
-      cancelAnimationFrame(animationFrame);
-      window.removeEventListener('resize', resize);
-      chart.destroy();
-    };
-  }, [range]);
+    ],
+  };
 
   return (
     <div className="wheel-chart">
-      <div ref={containerRef} className="wheel-chart__plot" />
-      <div className="wheel-chart__values">
-        {WHEELS.map((wheel, index) => {
-          const value = values?.[index];
-          const shown =
-            value === undefined || !Number.isFinite(value) || value < 0
-              ? NOT_REPORTED
-              : format(value);
-          return (
-            <div key={wheel} className="wheel-chart__value">
-              <span className="wheel-chart__key" style={{ background: WHEEL_COLOURS[index]! }} />
-              <span className="wheel-chart__wheel">{wheel}</span>
-              <span className="wheel-chart__number">{shown}</span>
-            </div>
-          );
-        })}
-        <span className="wheel-chart__unit">{unit}</span>
-      </div>
+      <LiveChart
+        store={store}
+        driverKey={driverKey}
+        spec={spec}
+        hidden={hiddenChannels}
+        className="wheel-chart__plot"
+      />
+
+      <ChannelLegend
+        channels={PRESSURE_CHANNELS}
+        hidden={hiddenChannels}
+        onToggle={onToggleChannel}
+        unit="kN"
+        renderValue={(channel, index) => (
+          <LiveReadout
+            store={store}
+            driverKey={driverKey}
+            className="wheel-chart__number"
+            render={(frame) =>
+              channel.id === PEDAL_CHANNEL.id
+                ? formatPercent(frame.brake)
+                : formatPressure(frame.brakePressureKiloNewtons[index])
+            }
+          />
+        )}
+      />
     </div>
   );
 }
 
-const readTemperature = (extras: RaceRoomExtras) => extras.brakeTemperatureCelsius;
-const readWear = (extras: RaceRoomExtras) => extras.brakeWear;
-const formatTemperature = (value: number | null | undefined) => formatNumber(value, 0);
-const WEAR_RANGE = [0, 1] as const;
-
-export function BrakeTemperaturePanel(props: SimPanelProps) {
-  return <BrakeTrace {...props} read={readTemperature} unit="°C" format={formatTemperature} />;
-}
-
-export function BrakeWearPanel(props: SimPanelProps) {
+/**
+ * Brake pad wear per corner.
+ *
+ * **Not registered in the catalogue**, and deliberately so: `SimCapabilities.BrakeWear` is set by
+ * nothing because RaceRoom's shared memory has no pad-wear member to set it from. The component
+ * stays because the flag and the `brakeWear` field stay — they are waiting on a connector that
+ * reports the channel, and re-registering is one entry. See the remark in `sims/raceroom/index.tsx`.
+ */
+export function BrakeWearPanel(props: ChannelPanelProps) {
   return (
-    <BrakeTrace {...props} read={readWear} unit="worn" format={formatPercent} range={WEAR_RANGE} />
+    <ExtrasWheelTrace
+      {...props}
+      channel={WEAR}
+      unit="worn"
+      format={formatPercent}
+      range={WEAR_RANGE}
+    />
   );
 }

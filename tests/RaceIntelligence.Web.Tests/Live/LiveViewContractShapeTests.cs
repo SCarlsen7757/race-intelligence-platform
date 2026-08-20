@@ -121,13 +121,49 @@ public sealed class LiveViewContractShapeTests
         var json = Serialize(new SessionStateMessage(
             "room-1",
             7004f,
-            new PitWindowState(PitWindowStatusView.Open, 12, 20, PitWindowUnitView.Laps)));
+            new PitWindowState(PitWindowStatusView.Open, 12, 20, PitWindowUnitView.Laps),
+            new RaceLengthState(30, 3600, RaceLengthUnitView.Laps)));
 
         json.GetProperty("type").GetString().ShouldBe("sessionState");
 
-        PropertyNames(json).ShouldBe(["type", "roomId", "layoutLengthMeters", "pitWindow"], ignoreOrder: true);
+        PropertyNames(json).ShouldBe(
+            ["type", "roomId", "layoutLengthMeters", "pitWindow", "raceLength"], ignoreOrder: true);
         PropertyNames(json.GetProperty("pitWindow")).ShouldBe(
             ["status", "start", "end", "unit"], ignoreOrder: true);
+        PropertyNames(json.GetProperty("raceLength")).ShouldBe(
+            ["laps", "durationSeconds", "unit"], ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// The unit crosses as a name for the reason the pit window's does, and it carries more weight
+    /// here: it is the only thing saying which of the two figures ends the race, and a browser that
+    /// read the lap count of a timed session would count down to a flag that is not there.
+    /// </summary>
+    [Fact]
+    public void The_race_length_unit_crosses_as_a_name_and_keeps_both_figures()
+    {
+        var length = Serialize(new SessionStateMessage(
+                "room-1",
+                null,
+                null,
+                new RaceLengthState(30, 3600, RaceLengthUnitView.Time)))
+            .GetProperty("raceLength");
+
+        length.GetProperty("unit").GetString().ShouldBe("Time");
+        length.GetProperty("laps").GetInt32().ShouldBe(30);
+        length.GetProperty("durationSeconds").GetDouble().ShouldBe(3600);
+    }
+
+    /// <summary>
+    /// A session nobody reported a length for omits it entirely, so a browser sees an absent
+    /// property rather than a length of zero laps.
+    /// </summary>
+    [Fact]
+    public void A_session_with_no_reported_length_omits_it()
+    {
+        var json = Serialize(new SessionStateMessage("room-1", null, null, null));
+
+        PropertyNames(json).ShouldNotContain("raceLength");
     }
 
     /// <summary>
@@ -216,8 +252,8 @@ public sealed class LiveViewContractShapeTests
     {
         var message = new FocusFrameMessage(
             "room-1", "id:1", DateTimeOffset.UnixEpoch, 1.0, 2, 1, 0.25f, 55f,
-            1f, 0f, 0.5f, 0.1f, 4, 7200f, 40f, [180f, 181f, 175f, 176f], [0.1f, 0.1f, 0.1f, 0.1f],
-            [85f, 86f, 82f, 83f], 3, true, 4, false, 0.43f);
+            1f, 0f, 0.5f, 0.1f, 4, 7200f, 40f, [3.1f, 3.2f, 1.4f, null],
+            3, true, 4, false, 0.43f);
 
         var json = Serialize(message);
         json.GetProperty("type").GetString().ShouldBe("focusFrame");
@@ -226,14 +262,67 @@ public sealed class LiveViewContractShapeTests
             [
                 "type", "roomId", "driverKey", "capturedAtUtc", "simulationTime", "lapNumber",
                 "sector", "trackPositionFraction", "speedMetersPerSecond", "throttle", "brake",
-                "clutch", "steering", "gear", "engineRpm", "fuelLeftLiters", "tyrePressureKpa",
-                "tyreWear", "tyreTemperatureCelsius", "absSetting", "absActive",
+                "clutch", "steering", "gear", "engineRpm", "fuelLeftLiters",
+                "brakePressureKiloNewtons", "absSetting", "absActive",
                 "tractionControlSetting", "tractionControlActive", "brakeBias",
             ],
             ignoreOrder: true);
 
         // FL, FR, RL, RR — the platform's wheel order, which the dashboard indexes positionally.
+        var pressure = json.GetProperty("brakePressureKiloNewtons");
+        pressure.GetArrayLength().ShouldBe(4);
+        pressure[0].GetSingle().ShouldBe(3.1f);
+
+        // An unreported corner is null, never zero: a brake drawn at zero reads as one that did
+        // nothing, which is a different and much more alarming fact.
+        pressure[3].ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    /// <summary>
+    /// The tyre channels have their own message now, at their own rate. On the focus frame they were
+    /// the majority of a payload sent sixty times a second, for readings the dashboard thinned back
+    /// to about 1 Hz the moment they arrived.
+    /// </summary>
+    [Fact]
+    public void A_stint_frame_carries_the_tyre_names_the_dashboard_reads()
+    {
+        var message = new StintFrameMessage(
+            "room-1", "id:1", DateTimeOffset.UnixEpoch,
+            [180f, 181f, 175f, 176f],
+            [0.1f, 0.1f, 0.1f, 0.1f],
+            [
+                new TreadTemperatures(84f, 85f, 86f, 90f, 70f, 110f),
+                new TreadTemperatures(85f, 86f, 87f, 90f, 70f, 110f),
+                new TreadTemperatures(81f, 82f, 83f, 90f, 70f, 110f),
+                new TreadTemperatures(82f, 83f, 84f, 90f, 70f, null),
+            ]);
+
+        var json = Serialize(message);
+        json.GetProperty("type").GetString().ShouldBe("stintFrame");
+
+        PropertyNames(json).ShouldBe(
+            [
+                "type", "roomId", "driverKey", "capturedAtUtc",
+                "tyrePressureKpa", "tyreWear", "tyreTemperatureCelsius",
+            ],
+            ignoreOrder: true);
+
         json.GetProperty("tyrePressureKpa").GetArrayLength().ShouldBe(4);
+
+        // A tyre temperature is an object per corner, not a number: three tread readings plus the
+        // window the simulator says they belong in. The live path used to send only the middle
+        // reading, which left the dashboard unable to draw either the shoulder spread or the band.
+        var frontLeft = json.GetProperty("tyreTemperatureCelsius")[0];
+        PropertyNames(frontLeft).ShouldBe(
+            ["inner", "middle", "outer", "optimal", "cold", "hot"],
+            ignoreOrder: true);
+        frontLeft.GetProperty("inner").GetSingle().ShouldBe(84f);
+        frontLeft.GetProperty("optimal").GetSingle().ShouldBe(90f);
+
+        // And a window bound the simulator did not report is absent rather than zero — the same
+        // rule as everywhere else here. A hot threshold of 0 °C would put every tyre on the car
+        // permanently over its limit.
+        PropertyNames(json.GetProperty("tyreTemperatureCelsius")[3]).ShouldNotContain("hot");
     }
 
     /// <summary>

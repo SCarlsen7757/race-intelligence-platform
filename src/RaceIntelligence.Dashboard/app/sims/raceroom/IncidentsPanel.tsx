@@ -1,8 +1,6 @@
-import { useMemo } from 'react';
 import { useExtras } from '../../shared/live/useLive';
-import type { ExtrasFrameMessage } from '../../shared/live/contracts';
+import type { ExtrasSnapshot } from '../../shared/live/store';
 import type { SimPanelProps } from '../registry';
-import { parseExtras } from './extras';
 
 /**
  * The share of the limit at which the readout starts asking to be looked at.
@@ -38,8 +36,8 @@ export function toIncidentCount(value: number | undefined): number | null {
  * directly: `FocusPanel` has to know before it renders the heading, and a panel that has already
  * returned null has already cost a section title.
  */
-export function incidentsPanelIsEmpty(extras: ExtrasFrameMessage | null): boolean {
-  return toIncidentCount(parseExtras(extras?.extras ?? null)?.incidentPoints) === null;
+export function incidentsPanelIsEmpty(extras: ExtrasSnapshot | null): boolean {
+  return toIncidentCount(extras?.document?.incidentPoints) === null;
 }
 
 /**
@@ -72,8 +70,7 @@ export function toIncidentLimit(value: number | undefined): number | null {
  *   and `0` would be the specific lie that the driver has a clean sheet.
  */
 export function IncidentsPanel({ driverKey }: SimPanelProps) {
-  const extras = useExtras(driverKey);
-  const parsed = useMemo(() => parseExtras(extras?.extras ?? null), [extras]);
+  const parsed = useExtras(driverKey)?.document ?? null;
 
   const points = toIncidentCount(parsed?.incidentPoints);
 

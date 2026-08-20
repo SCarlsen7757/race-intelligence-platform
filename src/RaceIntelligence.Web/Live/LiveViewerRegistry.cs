@@ -77,6 +77,17 @@ public sealed class LiveViewerRegistry
         }
     }
 
+    /// <summary>Offers a stint frame to every viewer following that driver in that room.</summary>
+    public void BroadcastStint(StintFrameMessage frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        foreach (var viewer in _viewers.Keys)
+        {
+            viewer.OfferStint(frame);
+        }
+    }
+
     /// <summary>Offers an extras document to every viewer following that driver in that room.</summary>
     public void BroadcastExtras(ExtrasFrameMessage frame)
     {

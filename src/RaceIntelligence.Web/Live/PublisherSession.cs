@@ -154,6 +154,10 @@ public sealed class PublisherSession(
                 rooms.ApplySelf(identity.ClientId, self);
                 break;
 
+            case LiveStintFrame stint:
+                rooms.ApplyStint(identity.ClientId, stint);
+                break;
+
             case LiveExtrasFrame extras:
                 rooms.ApplyExtras(identity.ClientId, extras);
                 break;

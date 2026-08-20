@@ -693,12 +693,23 @@ work can start before multi-simulator support is finished, and probably will.
 - Server-side lap history, so a race engineer sees a whole stint rather than the last lap *(built)*
 - A low-rate channel for slow-moving sim-specific values such as car damage *(built)*
 - Live hub: publisher and viewer sockets, room registry, timing tower *(built)*
-- Dashboard: TanStack Start on its own origin, room and driver in the URL, timing tower with
-  expandable per-lap rows, focus panel with pedal bars and a capability-gated damage panel *(built)*
+- Dashboard: TanStack Start on its own origin, the room in the URL, timing tower with expandable
+  per-lap rows *(built)*
+- The pit wall: one page the engineer arranges, out of a capability-gated widget catalogue, saved
+  per simulator and exportable as a file *(built)*
+- Three rate classes on the wire — the focus frame, a typed stint frame, and the connector's own
+  extras — each carrying what changes at its rate *(built)*
+- Charts whose channels can be toggled per tile, so one widget can be narrowed to a single corner
+  *(built)*
 - Merging several collectors in one session into one enriched view
-- Head-to-head comparison and a historical read API
-- RaceRoom-specific channels on the live wire: push-to-pass, DRS, virtual energy, cut-track
-  warnings, tyre subtype, pit menu state
+- Comparing several cars at once: the wall draws the selected car today, and the widgets are keyed
+  by driver so the overlay is additive. Needs the hub's focus cap raised and, at that point,
+  probably a viewer that asks for only the channels its wall shows
+- A historical read API, which is what the second half of the telemetry chart backlog waits on —
+  every scatter, histogram and cross-session view needs stored telemetry rather than a rolling
+  window
+- RaceRoom-specific channels not yet on the live wire: cut-track warnings, tyre subtype, pit menu
+  state
 
 ### In progress — analysis
 

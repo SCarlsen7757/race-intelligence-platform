@@ -33,6 +33,7 @@ namespace RaceIntelligence.Live.Contracts.View;
 [JsonDerivedType(typeof(TowerSnapshotMessage), "towerSnapshot")]
 [JsonDerivedType(typeof(FocusFrameMessage), "focusFrame")]
 [JsonDerivedType(typeof(LapHistoryMessage), "lapHistory")]
+[JsonDerivedType(typeof(StintFrameMessage), "stintFrame")]
 [JsonDerivedType(typeof(ExtrasFrameMessage), "extrasFrame")]
 [JsonDerivedType(typeof(LiveErrorMessage), "error")]
 public abstract record LiveViewMessage;
@@ -139,10 +140,55 @@ public sealed record LivePublisherSummary(
 /// <param name="PitWindow">
 /// The session's mandatory pit window, or <see langword="null"/> when no publisher reports one.
 /// </param>
+/// <param name="RaceLength">
+/// How long the race is, or <see langword="null"/> when no publisher reports it.
+/// <para>
+/// This is what turns a fuel readout into a decision. Litres remaining and litres per lap are both
+/// arithmetic a browser can do unaided; whether the fuel reaches the flag needs to know where the
+/// flag is, and nothing else on this wire says.
+/// </para>
+/// </param>
 public sealed record SessionStateMessage(
     string RoomId,
     float? LayoutLengthMeters,
-    PitWindowState? PitWindow) : LiveViewMessage;
+    PitWindowState? PitWindow,
+    RaceLengthState? RaceLength = null) : LiveViewMessage;
+
+/// <summary>How long the race is, as a browser sees it.</summary>
+/// <remarks>
+/// <para>
+/// <see cref="Unit"/> crosses as a <b>string</b> for the reason <see cref="PitWindowState"/> gives:
+/// this message is low-rate, so the bytes buy nothing back, and a browser matching on
+/// <c>"Laps"</c> cannot drift out of step with the server the way a hand-copied table of integers
+/// can.
+/// </para>
+/// <para>
+/// <b>Both figures are present and only <see cref="Unit"/> says which governs.</b> A consumer that
+/// picked whichever was non-null would divide fuel by a lap count in a session that ends on the
+/// clock, and report a comfortable margin in a race the car cannot finish.
+/// </para>
+/// </remarks>
+/// <param name="Laps">Total laps, or null when the race is not run to a lap count.</param>
+/// <param name="DurationSeconds">Total length in seconds, or null when not run to a clock.</param>
+/// <param name="Unit">Which of the two ends the race.</param>
+public sealed record RaceLengthState(
+    int? Laps,
+    double? DurationSeconds,
+    RaceLengthUnitView Unit);
+
+/// <summary>What a race's length is measured in. Mirrors <see cref="RaceIntelligence.Core.Sessions.RaceLengthUnit"/>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<RaceLengthUnitView>))]
+public enum RaceLengthUnitView
+{
+    /// <summary>The simulator did not say, so neither figure can be trusted to govern.</summary>
+    Unknown,
+
+    /// <summary>The race ends after a fixed number of laps.</summary>
+    Laps,
+
+    /// <summary>The race ends after a fixed duration.</summary>
+    Time,
+}
 
 /// <summary>The session's mandatory pit window, as a browser sees it.</summary>
 /// <remarks>
@@ -333,9 +379,10 @@ public sealed record TowerRow(
 /// <param name="Gear">-1 reverse, 0 neutral, positive forward gear.</param>
 /// <param name="EngineRpm">Revolutions per minute.</param>
 /// <param name="FuelLeftLiters">Fuel remaining.</param>
-/// <param name="TyrePressureKpa">Kilopascals, FL/FR/RL/RR.</param>
-/// <param name="TyreWear">0 (new) to 1 (fully worn), FL/FR/RL/RR.</param>
-/// <param name="TyreTemperatureCelsius">Core tread temperature, FL/FR/RL/RR.</param>
+/// <param name="BrakePressureKiloNewtons">
+/// Kilonewtons at each corner, FL/FR/RL/RR. Null members are unreported, never zero — a corner
+/// drawn at zero reads as a brake that did nothing.
+/// </param>
 public sealed record FocusFrameMessage(
     string RoomId,
     string DriverKey,
@@ -352,14 +399,47 @@ public sealed record FocusFrameMessage(
     int? Gear,
     float EngineRpm,
     float FuelLeftLiters,
-    IReadOnlyList<float?> TyrePressureKpa,
-    IReadOnlyList<float?> TyreWear,
-    IReadOnlyList<float?> TyreTemperatureCelsius,
+    IReadOnlyList<float?> BrakePressureKiloNewtons,
     int? AbsSetting = null,
     bool? AbsActive = null,
     int? TractionControlSetting = null,
     bool? TractionControlActive = null,
     float? BrakeBias = null) : LiveViewMessage;
+
+/// <summary>
+/// One tyre's tread temperatures and the operating window the simulator says they belong in, °C.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The viewer-facing mirror of <see cref="Publish.LiveTreadTemperatures"/>; see that type for why a
+/// tyre's temperature is three readings and a band rather than one number.
+/// </para>
+/// <para>
+/// <b>A null is not a reading and must never be drawn as one.</b> An unreported shoulder leaves a
+/// hole in the chart; an unreported window means the simulator named no band, and the dashboard
+/// draws none rather than inventing one from a nominal value. The same rule the rest of this
+/// contract states for throttle, pressure and wear.
+/// </para>
+/// <para>
+/// <paramref name="Optimal"/>, <paramref name="Cold"/> and <paramref name="Hot"/> are the three
+/// members a brake temperature carries too, under the same names in the extras document. That is
+/// deliberate: an operating window is one idea, and a reader who has learned it here should not have
+/// to learn it again for brakes.
+/// </para>
+/// </remarks>
+/// <param name="Inner">Inner tread temperature. Null when not reported.</param>
+/// <param name="Middle">Middle tread temperature. Null when not reported.</param>
+/// <param name="Outer">Outer tread temperature. Null when not reported.</param>
+/// <param name="Optimal">Where the simulator says this compound wants to be. Null when not reported.</param>
+/// <param name="Cold">Below this, the simulator considers the tyre cold. Null when not reported.</param>
+/// <param name="Hot">Above this, the simulator considers the tyre overheating. Null when not reported.</param>
+public sealed record TreadTemperatures(
+    float? Inner,
+    float? Middle,
+    float? Outer,
+    float? Optimal,
+    float? Cold,
+    float? Hot);
 
 /// <summary>
 /// The simulator-specific channels for the focused driver, at roughly 1 Hz.
@@ -396,6 +476,36 @@ public sealed record ExtrasFrameMessage(
     string DriverKey,
     DateTimeOffset CapturedAtUtc,
     string Extras) : LiveViewMessage;
+
+/// <summary>
+/// The focused driver's tyre channels, at roughly 1 Hz.
+/// </summary>
+/// <remarks>
+/// <para>
+/// These used to ride <see cref="FocusFrameMessage"/> at the collector's full poll rate, and they
+/// were the majority of it: twelve values a corner once the tread and its window travel whole.
+/// A tyre is read over a stint, so the dashboard thinned them straight back to about this rate on
+/// arrival — having already paid to receive fifty-nine samples out of sixty it then dropped.
+/// </para>
+/// <para>
+/// Typed and canonical, unlike <see cref="ExtrasFrameMessage"/>, which shares this cadence but is
+/// the connector's own untranslated document. A null here is a reading the simulator did not report
+/// and must never be drawn as a value — a pressure at zero reads as a flat tyre.
+/// </para>
+/// </remarks>
+/// <param name="RoomId">The room this belongs to.</param>
+/// <param name="DriverKey">Which driver, matching <see cref="TowerRow.DriverKey"/>.</param>
+/// <param name="CapturedAtUtc">Capture time on the publishing machine.</param>
+/// <param name="TyrePressureKpa">Kilopascals, FL/FR/RL/RR.</param>
+/// <param name="TyreWear">0 (new) to 1 (fully worn), FL/FR/RL/RR.</param>
+/// <param name="TyreTemperatureCelsius">Tread temperatures and the simulator's window, FL/FR/RL/RR.</param>
+public sealed record StintFrameMessage(
+    string RoomId,
+    string DriverKey,
+    DateTimeOffset CapturedAtUtc,
+    IReadOnlyList<float?> TyrePressureKpa,
+    IReadOnlyList<float?> TyreWear,
+    IReadOnlyList<TreadTemperatures> TyreTemperatureCelsius) : LiveViewMessage;
 
 /// <summary>
 /// Every completed lap the hub has watched one driver finish.

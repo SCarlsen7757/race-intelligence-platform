@@ -1,23 +1,131 @@
 import type { ComponentType } from 'react';
-import type { ExtrasFrameMessage } from '../shared/live/contracts';
+import type { ExtrasSnapshot } from '../shared/live/store';
 import type { LiveStore } from '../shared/live/store';
+import type { WallWidget } from '../shared/view/wallView';
 
 /**
- * Props every focus panel receives.
+ * Props a widget describing the session itself receives.
  *
- * The driver key is explicit rather than implied by the store because two drivers can be compared
- * side by side: the same panel type is mounted twice, against one store, and nothing about it may
- * assume there is only one car being watched.
+ * No driver key, and that absence is the point: a timing tower or a pit-window banner is about the
+ * room, and handing it a car would invite it to quietly become about that car instead.
  */
-export interface SimPanelProps {
+export interface RoomPanelProps {
   store: LiveStore;
+}
+
+/**
+ * Props every widget describing one car receives.
+ *
+ * The driver key is explicit rather than implied by the store because a widget must not assume
+ * there is only ever one car. Today the wall shows the selected driver and there is exactly one of
+ * those; the eventual shape is several cars overlaid on one chart, coloured per car, and a widget
+ * that reached into the store for "the" driver would have to be rewritten to get there. Taking the
+ * key as a prop keeps that additive.
+ */
+export interface SimPanelProps extends RoomPanelProps {
   driverKey: string;
 }
 
 /**
- * A panel the focus view can show, and what it needs in order to mean anything.
+ * One line a chart widget draws, as the catalogue describes it.
+ *
+ * The id is what a saved wall remembers, so it has to outlive a rebuild: the fourth entry in a
+ * series array is a position and positions get reordered, whereas `rr` is still the right rear next
+ * year. The label is what the legend shows, and exists so the toggle UI can be generated from the
+ * catalogue rather than hand-written once per widget.
  */
-export interface SimPanel {
+export interface WidgetChannel {
+  id: string;
+  label: string;
+}
+
+/**
+ * Props a chart widget receives on top of {@link SimPanelProps}.
+ *
+ * **Per placement, never per widget type.** Two tyre-wear tiles on the same wall are two separate
+ * answers to "which corners am I watching" — one narrowed to the front left and one to the rear
+ * right is the arrangement this whole feature exists for, and it only works if the visibility lives
+ * with the placement.
+ */
+export interface ChannelPanelProps extends SimPanelProps {
+  /** Channel ids the user has turned off here. Everything not named is drawn. */
+  hiddenChannels: readonly string[];
+  /** Turns one channel off, or back on, for this placement alone. */
+  onToggleChannel: (channelId: string) => void;
+}
+
+/**
+ * How much of the wall a widget asks for, in grid cells.
+ *
+ * Cells rather than pixels because the pit wall is a grid the user rearranges, and a widget that
+ * asked in pixels would be asking about a monitor it cannot see. The column count lives on
+ * {@link WIDGET_GRID_COLUMNS}; the row height is the grid's to decide.
+ */
+export interface WidgetSize {
+  w: number;
+  h: number;
+}
+
+/**
+ * How many columns the pit wall's grid is divided into.
+ *
+ * Twelve because it divides by two, three and four, so halves, thirds and quarters of the wall are
+ * all expressible without a widget having to ask for 4.5 of anything.
+ */
+export const WIDGET_GRID_COLUMNS = 12;
+
+/**
+ * The sizes a widget may open at, and the whole of that list.
+ *
+ * Nineteen entries used to nominate their own numbers, and between them they used widths of 2, 3,
+ * 4, 6 and 8 and heights of 2 through 7. Every one of those was a reasonable judgement about one
+ * widget alone, and together they were the reason the wall never packed: a three-wide beside a
+ * four-wide leaves five columns, and five columns fits nothing.
+ *
+ * So a widget still says how much room it wants — that part of #52 was right, and only the widget
+ * knows that a four-wheel stint chart is useless narrow — but it says it in a vocabulary that
+ * tiles. {@link WIDGET_UNIT} is three across a twelve-column wall and four across sixteen.
+ *
+ * **One height throughout**, and that is the part worth defending. A row of tiles that are all the
+ * same height is a row the eye reads across; mixed heights leave the ragged gaps that the grid then
+ * compacts into an arrangement nobody chose. A widget that genuinely wants to be twice as tall gets
+ * there by being dragged, which is what resizing is for.
+ */
+export const WIDGET_UNIT: WidgetSize = { w: 4, h: 6 };
+
+/** Readouts — a damage meter is four short bars and gains nothing from width. */
+export const WIDGET_HALF: WidgetSize = { w: 2, h: 6 };
+
+/** Things read left to right across a lap: a trace, a delta, a race. */
+export const WIDGET_WIDE: WidgetSize = { w: 8, h: 6 };
+
+/**
+ * Every size a catalogue entry may declare.
+ *
+ * Exported so `registry.test.ts` can hold the catalogue to it. A vocabulary nothing enforces is how
+ * the twentieth widget invents a twentieth size, which is exactly how the previous state came
+ * about.
+ */
+export const WIDGET_SIZES: readonly WidgetSize[] = [WIDGET_HALF, WIDGET_UNIT, WIDGET_WIDE];
+
+/**
+ * The floor below which a widget stops being worth reading, derived rather than declared.
+ *
+ * Half the size it opens at, and never below two cells by three. #54 made `minSize` the thing the
+ * grid clamps a drag to and called it a judgement only the widget can make — which was true of the
+ * *default* and never really true of the minimum. Nineteen separate opinions about how small is too
+ * small produced no information the default did not already carry, and one rule is one thing to be
+ * right about.
+ */
+export function minSizeFor(defaultSize: WidgetSize): WidgetSize {
+  return {
+    w: Math.max(2, Math.floor(defaultSize.w / 2)),
+    h: Math.max(3, Math.floor(defaultSize.h / 2)),
+  };
+}
+
+/** What every catalogue entry declares, whatever it is about. */
+interface WidgetBase {
   id: string;
   title: string;
   /** Optional visual stack shared with related panels (for example tyre channels). */
@@ -34,10 +142,91 @@ export interface SimPanel {
    * connector reporting an accurate capability set, with no change here.
    */
   requires: readonly string[];
-  component: ComponentType<SimPanelProps>;
+  /**
+   * The size the widget opens at when the user adds it to the wall.
+   *
+   * Declared by the widget rather than by the grid, because the widget is what knows what it is
+   * for. Four wheels of tyre temperature over a fifteen-minute stint needs width to be a stint and
+   * not a smear; a damage meter is four short bars and gains nothing from more.
+   *
+   * One of {@link WIDGET_SIZES}, so that what a widget asks for tiles with what everything else
+   * asked for. `registry.test.ts` holds the catalogue to that.
+   */
+  defaultSize: WidgetSize;
+  /**
+   * The size below which the widget stops being worth reading.
+   *
+   * This is what the grid clamps a drag to. Deliberately a floor on *usefulness*, not on legibility
+   * of the frame: a chart squeezed to two columns still draws, which is exactly why something has
+   * to stop the user from getting there and concluding the chart is broken.
+   *
+   * **Filled in at registration and not declarable** — see {@link minSizeFor} and
+   * {@link SimPanelDeclaration}. It is here rather than derived at every call site because the grid
+   * asks for it once per tile per layout, and every consumer would otherwise compute the same
+   * answer.
+   */
+  minSize: WidgetSize;
   /** Whether this panel has nothing to say for one driver, given that driver's latest extras. */
-  isEmpty?: (extras: ExtrasFrameMessage | null) => boolean;
+  isEmpty?: (extras: ExtrasSnapshot | null) => boolean;
 }
+
+/** A widget about one car, drawing a single thing. Mounted once per driver on screen. */
+export interface PlainDriverWidget extends WidgetBase {
+  scope: 'driver';
+  /** Absent, and that is what tells it apart from a {@link ChannelDriverWidget}. */
+  channels?: undefined;
+  component: ComponentType<SimPanelProps>;
+}
+
+/** A widget about one car, drawing several channels the user can turn on and off. */
+export interface ChannelDriverWidget extends WidgetBase {
+  scope: 'driver';
+  channels: readonly WidgetChannel[];
+  component: ComponentType<ChannelPanelProps>;
+}
+
+/**
+ * A widget about one car.
+ *
+ * Split on whether it has channels for the same reason {@link SimPanel} is split on scope: it makes
+ * the compiler enforce what would otherwise be a convention. A widget that declares channels is
+ * exactly the set of widgets that must accept somewhere to send a toggle, and one that declares
+ * none is never handed controls it would ignore. An optional pair of props on every widget, honoured
+ * by the ones that happen to need them, is the arrangement this avoids — the wall could then forget
+ * to pass them and the toggles would quietly do nothing.
+ */
+export type DriverWidget = PlainDriverWidget | ChannelDriverWidget;
+
+/** A widget about the session. Mounted once, however many cars are being watched. */
+export interface RoomWidget extends WidgetBase {
+  scope: 'room';
+  component: ComponentType<RoomPanelProps>;
+}
+
+/**
+ * One entry in the widget catalogue.
+ *
+ * A union discriminated on `scope` rather than one shape with an optional driver key, so that "a
+ * room widget is never bound to a car" holds by construction: there is no driver key in
+ * {@link RoomPanelProps} for a caller to pass, and no way to mount a {@link DriverWidget} without
+ * one. The alternative — an optional key that room widgets promise not to read — is a promise the
+ * compiler cannot keep.
+ */
+export type SimPanel = DriverWidget | RoomWidget;
+
+/**
+ * A catalogue entry as it is written, which is one without a `minSize`.
+ *
+ * The minimum is {@link minSizeFor} of the default and is filled in at registration, so there is
+ * nowhere for a widget to state a floor that disagrees with the rule. Distributed over the union
+ * with a conditional type rather than a bare `Omit`, which would collapse the three variants into
+ * their common fields and throw away the discrimination the whole union exists for.
+ */
+export type SimPanelDeclaration = SimPanel extends infer Entry
+  ? Entry extends SimPanel
+    ? Omit<Entry, 'minSize'>
+    : never
+  : never;
 
 const registry = new Map<string, SimPanel[]>();
 
@@ -49,8 +238,11 @@ const registry = new Map<string, SimPanel[]>();
  * even where they share a capability flag. The capability check above governs whether a panel can
  * show at all; the game key governs which build of it.
  */
-export function registerSimPanels(gameKey: string, panels: SimPanel[]): void {
-  registry.set(gameKey, panels);
+export function registerSimPanels(gameKey: string, panels: SimPanelDeclaration[]): void {
+  registry.set(
+    gameKey,
+    panels.map((panel) => ({ ...panel, minSize: minSizeFor(panel.defaultSize) })),
+  );
 }
 
 /** The panels a room can show, given what its collectors report they can produce. */
@@ -60,4 +252,108 @@ export function panelsFor(gameKey: string, capabilities: readonly string[]): Sim
   return (registry.get(gameKey) ?? []).filter((panel) =>
     panel.requires.every((capability) => available.has(capability)),
   );
+}
+
+/**
+ * One catalogue entry by id, whether or not this room can satisfy it.
+ *
+ * Deliberately not filtered by capability, which is the opposite of what {@link panelsFor} is for.
+ * A wall is a layout the user arranged and then saved, and it is opened against rooms whose
+ * publishers differ — so a widget that ran yesterday will regularly meet a session that cannot feed
+ * it. Dropping it silently would edit someone's layout on their behalf and give no reason; the wall
+ * needs the entry in hand to say which widget went quiet and what it was waiting for.
+ *
+ * Returns null only for an id the catalogue has never heard of, which is a different failure and
+ * gets a different message.
+ */
+export function findPanel(gameKey: string, id: string): SimPanel | null {
+  return (registry.get(gameKey) ?? []).find((panel) => panel.id === id) ?? null;
+}
+
+/**
+ * Narrows a catalogue entry to the ones a driver column can mount.
+ *
+ * A type predicate rather than a bare `scope === 'driver'` test at each call site, because the
+ * whole value of the union is that the compiler refuses to mount a room widget with a driver key —
+ * and a `filter` without a predicate hands back the union again and throws that away.
+ */
+export function isDriverWidget(panel: SimPanel): panel is DriverWidget {
+  return panel.scope === 'driver';
+}
+
+/**
+ * Narrows a driver widget to one that draws channels the user can toggle.
+ *
+ * A predicate rather than an inline test for the same reason {@link isDriverWidget} is one: the
+ * value of the union is that the compiler refuses to hand a plain widget the toggle props, and a
+ * bare `entry.channels !== undefined` at a call site inside JSX does not always narrow the component
+ * type along with it.
+ */
+export function hasChannels(panel: DriverWidget): panel is ChannelDriverWidget {
+  return panel.channels !== undefined;
+}
+
+const defaultWalls = new Map<string, readonly string[]>();
+
+/**
+ * What one simulator's wall holds before the user has arranged anything.
+ *
+ * A wall the user composes has an obvious first-run problem: an empty grid and a menu is a puzzle,
+ * not a dashboard, and the person who has just opened their first session wants to see their car
+ * rather than be asked what they would like to see. So a sim names a few widgets worth starting
+ * from, and the user rearranges from there.
+ *
+ * Ids rather than placements, because where they land depends on how wide they asked to be — which
+ * the catalogue already knows. A sim naming pixel positions would be a second opinion about layout
+ * that could disagree with the first.
+ */
+export function registerDefaultWall(gameKey: string, widgetIds: readonly string[]): void {
+  defaultWalls.set(gameKey, widgetIds);
+}
+
+/**
+ * The starting wall for a simulator, packed left to right and filtered to what this room can feed.
+ *
+ * Filtered, unlike a wall loaded from storage — and the difference is deliberate. A saved widget
+ * this session cannot feed stays and says so, because the user put it there and it is theirs. A
+ * *suggestion* this session cannot feed is just a tile explaining itself to somebody who has not
+ * asked for anything yet, which is a poor first impression and teaches nothing.
+ *
+ * Packed by running along the row and wrapping when the next widget will not fit. The grid will
+ * compact it vertically afterwards; this only has to avoid asking for a widget to start half off
+ * the edge.
+ */
+export function defaultWallFor(gameKey: string, capabilities: readonly string[]): WallWidget[] {
+  const available = new Map(panelsFor(gameKey, capabilities).map((panel) => [panel.id, panel]));
+  const widgets: WallWidget[] = [];
+  let x = 0;
+  let y = 0;
+  let rowHeight = 0;
+
+  for (const widgetId of defaultWalls.get(gameKey) ?? []) {
+    const entry = available.get(widgetId);
+    if (entry === undefined) {
+      continue;
+    }
+
+    if (x + entry.defaultSize.w > WIDGET_GRID_COLUMNS) {
+      x = 0;
+      y += rowHeight;
+      rowHeight = 0;
+    }
+
+    widgets.push({
+      instanceId: `default-${widgetId}`,
+      widgetId,
+      x,
+      y,
+      w: entry.defaultSize.w,
+      h: entry.defaultSize.h,
+    });
+
+    x += entry.defaultSize.w;
+    rowHeight = Math.max(rowHeight, entry.defaultSize.h);
+  }
+
+  return widgets;
 }

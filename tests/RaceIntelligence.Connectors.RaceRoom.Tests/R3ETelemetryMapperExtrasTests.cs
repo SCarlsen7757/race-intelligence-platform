@@ -71,7 +71,6 @@ public class R3ETelemetryMapperExtrasTests
         propertyNames.ShouldContain("drs");
         propertyNames.ShouldContain("damage");
         propertyNames.ShouldContain("brakeTemperatureCelsius");
-        propertyNames.ShouldContain("brakePressureKiloNewtons");
         propertyNames.ShouldContain("flags");
         propertyNames.ShouldContain("pit");
         propertyNames.ShouldContain("tyreGrip");
@@ -199,16 +198,42 @@ public class R3ETelemetryMapperExtrasTests
             raw.BrakeTemp[2].CurrentTemp = 303f;
             raw.BrakeTemp[3].CurrentTemp = 404f;
 
+            // The window rides beside the reading. Cold and hot differ per corner so a copied
+            // index would show, and the front left's hot bound is the sentinel: a pad the
+            // simulator named no ceiling for must not arrive as one at -1 degrees.
+            raw.BrakeTemp[0].OptimalTemp = 410f;
+            raw.BrakeTemp[1].OptimalTemp = 420f;
+            raw.BrakeTemp[2].OptimalTemp = 430f;
+            raw.BrakeTemp[3].OptimalTemp = 440f;
+            raw.BrakeTemp[0].ColdTemp = 201f;
+            raw.BrakeTemp[0].HotTemp = -1f;
+
             raw.BrakePressure[0] = 1f;
             raw.BrakePressure[1] = 2f;
             raw.BrakePressure[2] = 3f;
             raw.BrakePressure[3] = 4f;
         }));
 
-        extras.GetProperty("brakeTemperatureCelsius").EnumerateArray().Select(e => e.GetSingle())
+        var brakes = extras.GetProperty("brakeTemperatureCelsius").EnumerateArray().ToList();
+
+        brakes.Select(e => e.GetProperty("current").GetSingle())
             .ShouldBe([101f, 202f, 303f, 404f]);
-        extras.GetProperty("brakePressureKiloNewtons").EnumerateArray().Select(e => e.GetSingle())
-            .ShouldBe([1f, 2f, 3f, 4f]);
+
+        // The window the simulator names for these pads, which used to be dropped one line after
+        // the reading was written. 380 degrees is cold on one car and cooking on another.
+        brakes.Select(e => e.GetProperty("optimal").GetSingle())
+            .ShouldBe([410f, 420f, 430f, 440f]);
+        brakes[0].GetProperty("cold").GetSingle().ShouldBe(201f);
+
+        // Raw, sentinel and all — the same rule the whole document follows. A consumer runs these
+        // through its own sentinel check; the mapper does not decide for it.
+        brakes[0].GetProperty("hot").GetSingle().ShouldBe(-1f);
+
+        // Brake pressure is deliberately absent: it moved to the canonical sample, and so to the
+        // full-rate wire, because it changes as fast as the pedal does. This document is written
+        // once a second, which is one or two samples of a braking event.
+        extras.EnumerateObject().Select(property => property.Name)
+            .ShouldNotContain("brakePressureKiloNewtons");
     }
 
     [Fact]

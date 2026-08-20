@@ -139,6 +139,14 @@ internal static class R3ETelemetryMapper
             TreadRemainingToWear(raw.TireWear[2]),
             TreadRemainingToWear(raw.TireWear[3]));
 
+        // Promoted out of the extras document, where it was written raw and read once a second. It
+        // is a canonical channel now, so the -1 sentinel is translated here like every other one.
+        var brakePressure = new WheelData<float?>(
+            NullIfNegative(raw.BrakePressure[0]),
+            NullIfNegative(raw.BrakePressure[1]),
+            NullIfNegative(raw.BrakePressure[2]),
+            NullIfNegative(raw.BrakePressure[3]));
+
         return new TelemetrySample
         {
             SessionId = sessionId,
@@ -173,6 +181,7 @@ internal static class R3ETelemetryMapper
             TyreTemperature = tyreTemperature,
             TyrePressure = tyrePressure,
             TyreWear = tyreWear,
+            BrakePressure = brakePressure,
             TrackPositionFraction = NullIfNegative(raw.LapDistanceFraction),
             Extras = BuildSampleExtras(in raw),
         };
@@ -449,8 +458,39 @@ internal static class R3ETelemetryMapper
             LocalSimDriverId = (NullIfNotPositive(raw.VehicleInfo.UserId) ?? NullIfNotPositive(raw.Player.UserId))?.ToString(),
             Drivers = standings,
             PitWindow = ToPitWindow(in raw),
+            RaceLength = ToRaceLength(in raw),
         };
     }
+
+    /// <summary>
+    /// Maps RaceRoom's session-length fields into the canonical form.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same sentinel discipline <see cref="ToPitWindow"/> follows, and the same source for the
+    /// unit: <c>SessionLengthFormat</c>, not the session type. RaceRoom fills whichever of the two
+    /// length fields does not apply with <c>-1</c>, so reading the format is also what stops a
+    /// timed race being reported as lasting minus one laps.
+    /// </para>
+    /// <para>
+    /// Format <c>2</c> is "time plus an extra lap", which ends on the clock and then runs one more
+    /// lap. It is counted as time-based here, exactly as the pit window counts it, because the
+    /// duration is the figure that governs when the flag is in sight — but it does mean a fuel
+    /// projection against this length is one lap optimistic in that format, which is a thing for
+    /// the consumer to say rather than for this to smuggle into the number.
+    /// </para>
+    /// </remarks>
+    internal static RaceLength ToRaceLength(in R3ESharedRaw raw) => new()
+    {
+        Laps = NullIfNegative(raw.NumberOfLaps),
+        DurationSeconds = NullIfNegative(raw.SessionTimeDuration),
+        Unit = raw.SessionLengthFormat switch
+        {
+            0 or 2 => RaceLengthUnit.Time,
+            1 => RaceLengthUnit.Laps,
+            _ => RaceLengthUnit.Unknown,
+        },
+    };
 
     /// <summary>
     /// Maps RaceRoom's pit window fields into the canonical form.
@@ -566,19 +606,31 @@ internal static class R3ETelemetryMapper
         writer.WriteNumber("suspension", raw.CarDamage.Suspension);
         writer.WriteEndObject();
 
+        // An object per corner rather than a bare number, because `r3e_brake_temp` carries the
+        // operating window beside the reading and writing only the reading threw four fifths of it
+        // away. A brake at 380 °C is cold on one car and cooking on another, and the simulator is
+        // willing to say which — leaving an engineer to know it from memory was never the intent,
+        // it was just what fell out of writing the first member and moving on.
+        //
+        // `optimal`, `cold` and `hot` deliberately match the names a tyre temperature carries on
+        // the typed wire. An operating window is one idea and should read the same wherever it
+        // turns up. Sentinels are untranslated here as everywhere in this document: -1 is "not
+        // available" and a consumer must run these through its own sentinel rule.
         writer.WriteStartArray("brakeTemperatureCelsius");
         for (int i = 0; i < 4; i++)
         {
-            writer.WriteNumberValue(raw.BrakeTemp[i].CurrentTemp);
+            writer.WriteStartObject();
+            writer.WriteNumber("current", raw.BrakeTemp[i].CurrentTemp);
+            writer.WriteNumber("optimal", raw.BrakeTemp[i].OptimalTemp);
+            writer.WriteNumber("cold", raw.BrakeTemp[i].ColdTemp);
+            writer.WriteNumber("hot", raw.BrakeTemp[i].HotTemp);
+            writer.WriteEndObject();
         }
         writer.WriteEndArray();
 
-        writer.WriteStartArray("brakePressureKiloNewtons");
-        for (int i = 0; i < 4; i++)
-        {
-            writer.WriteNumberValue(raw.BrakePressure[i]);
-        }
-        writer.WriteEndArray();
+        // Brake pressure used to be written here. It moved to the canonical sample, and so to the
+        // full-rate wire, because it changes as fast as the pedal does — a braking event lasts about
+        // a second, and this document is written once a second.
 
         // Per-tyre channels with no canonical equivalent yet. tyreGrip is the reason this block
         // exists: it is grip loss measured directly, rather than inferred from lap time the way a

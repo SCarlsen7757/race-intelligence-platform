@@ -1,7 +1,4 @@
-import { useEffect, useRef } from 'react';
-import uPlot from 'uplot';
-import 'uplot/dist/uPlot.min.css';
-import type { FocusFrameMessage } from '../../shared/live/contracts';
+import type { StintFrameMessage } from '../../shared/live/contracts';
 import { WHEELS } from '../../shared/live/contracts';
 import {
   TYRE_TRACE_CAPACITY,
@@ -9,16 +6,35 @@ import {
   type TyreTraces,
   type WheelTraces,
 } from '../../shared/live/store';
-import { LiveReadout } from '../../shared/ui/LiveReadout';
-import { TRACE_COLOURS, WHEEL_COLOURS } from './traceColours';
+import { useStint } from '../../shared/live/useLive';
+import { ChannelLegend, type LegendChannel } from './ChannelLegend';
+import { LiveChart, type LiveChartSpec, type OperatingWindowValues } from './LiveChart';
+import { WHEEL_COLOURS } from './traceColours';
+
+/**
+ * The four corners as channels, in the wire's FL, FR, RL, RR order.
+ *
+ * Lower-case ids rather than the labels, because an id is written into somebody's saved wall and
+ * outlives however the label is later spelled. Shared by every four-wheel chart — tyres and brakes
+ * ask about the same four corners, and a wall that called them `fl` on one tile and `front-left` on
+ * another would be two vocabularies for one car.
+ */
+export const WHEEL_CHANNELS: readonly LegendChannel[] = WHEELS.map((wheel, index) => ({
+  id: wheel.toLowerCase(),
+  label: wheel,
+  stroke: WHEEL_COLOURS[index]!,
+}));
 
 interface WheelTraceProps {
   store: LiveStore;
   driverKey: string;
+  /** Channel ids this placement has turned off, and where a click on the legend goes. */
+  hiddenChannels: readonly string[];
+  onToggleChannel: (channelId: string) => void;
   /** Which of the tyre rings to plot. */
   channel: (tyres: TyreTraces) => WheelTraces;
-  /** The same channel read off a frame, for the current-value labels. */
-  read: (frame: FocusFrameMessage, wheel: number) => number | null | undefined;
+  /** The same channel read off a stint frame, for the current-value labels. */
+  read: (frame: StintFrameMessage, wheel: number) => number | null | undefined;
   format: (value: number | null | undefined) => string;
   unit: string;
   /**
@@ -29,7 +45,14 @@ interface WheelTraceProps {
    * temperature have no natural bounds and are left to scale to what arrived.
    */
   range?: readonly [number, number];
-  height?: number;
+  /**
+   * Reads the simulator's operating window off a frame, for the channels that have one.
+   *
+   * Only temperature does. Pressure and wear are deliberately left without a band: RaceRoom reports
+   * a window for tread temperature and nothing equivalent for the others, and a band drawn from a
+   * nominal pressure would be this dashboard's opinion wearing the simulator's clothes.
+   */
+  window?: (frame: StintFrameMessage) => OperatingWindowValues | null;
 }
 
 /**
@@ -44,151 +67,79 @@ interface WheelTraceProps {
  * a left front climbing away from the right front is a car that is about to understeer, and that is
  * visible as a gap between two lines and invisible in four separate charts.
  *
- * **This component renders once.** Like `PedalTrace`, everything after mount is a
- * `requestAnimationFrame` loop handing ring buffers to uPlot, and the labels are `LiveReadout`s
- * writing `textContent` from their own loop. No React render happens per frame.
+ * The rings behind it are the slow ones — a fifteen-minute window. Plotting tyres on the pedals'
+ * thirty-second one would show a flat line and call it information.
  *
- * The rings behind it are the slow ones — see `TYRE_SAMPLE_INTERVAL_MS`. Plotting tyres on the
- * pedals' sixty-second window would show a flat line and call it information.
+ * The painting is `LiveChart`'s. The labels are ordinary React, because tyre readings arrive on
+ * their own roughly 1 Hz frame: there is no per-frame render to avoid here.
  */
 export function WheelTrace({
   store,
   driverKey,
+  hiddenChannels,
+  onToggleChannel,
   channel,
   read,
   format,
   unit,
   range,
-  height = 112,
+  window: readWindow,
 }: WheelTraceProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const stint = useStint(driverKey);
 
-  useEffect(() => {
-    const container = containerRef.current;
-    if (container === null) {
-      return;
-    }
-
-    const wheels = channel(store.tracesFor(driverKey).tyres);
-
-    const chart = new uPlot(
-      {
-        width: container.clientWidth,
-        height,
-        // Sample index, not wall clock, for the same reason the pedal trace uses one: the rings are
-        // a rolling window of samples and a time axis would need them evenly spaced, which a poll
-        // on a busy machine is not.
-        scales: {
-          x: { time: false, range: [0, TYRE_TRACE_CAPACITY - 1] },
-          y: range === undefined ? {} : { range: [...range] },
-        },
-        axes: [
-          { show: false },
-          { stroke: TRACE_COLOURS.axis, grid: { stroke: TRACE_COLOURS.grid } },
-        ],
-        legend: { show: false },
-        cursor: { show: false },
-        series: [
-          {},
-          // spanGaps: false throughout. Tyre values are nullable on the wire and the store pushes
-          // NaN for an unreported wheel, so a hole stays a hole: bridging it would draw a confident
-          // line through a reading that was never taken.
-          ...WHEELS.map((wheel, index) => ({
-            label: wheel,
-            stroke: WHEEL_COLOURS[index]!,
-            width: 1.5,
-            spanGaps: false,
-          })),
-        ],
-      },
-      [
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-        new Float64Array(0),
-      ],
-      container,
-    );
-
-    // Reused across frames so the paint loop allocates nothing, exactly as the pedal trace does.
-    //
-    // Plain arrays for the wheels, not typed ones: an unreported wheel has to reach uPlot as null
-    // to draw as a gap, and a Float64Array cannot hold one — see `TraceBuffer.toNullableArray`.
-    // Drawn at zero instead, a missing pressure reads as a flat tyre. The x axis stays typed,
-    // because a sample index is never absent.
-    let xs = new Float64Array(0);
-    const series: (number | null)[][] = [[], [], [], []];
-
-    let frame = 0;
-
-    // Tyre rings are pushed once a second (TYRE_SAMPLE_INTERVAL_MS), but requestAnimationFrame
-    // runs up to sixty times a second, so redrawing on every frame copies four full rings into
-    // uPlot fifty-nine times more often than the data changes. -1 never matches a version, so the
-    // first frame after mount still paints even when the ring is empty.
-    let paintedVersion = -1;
-
-    const paint = () => {
-      // Every wheel is pushed in the same call, so one version describes all four.
-      const version = wheels[0].version;
-
-      if (version !== paintedVersion) {
-        const count = wheels[0].length;
-
-        if (count !== xs.length) {
-          xs = new Float64Array(count);
-          for (let i = 0; i < count; i++) {
-            xs[i] = TYRE_TRACE_CAPACITY - count + i;
-          }
-        }
-
-        for (let wheel = 0; wheel < series.length; wheel++) {
-          series[wheel] = wheels[wheel]!.toNullableArray(series[wheel]);
-        }
-
-        chart.setData([xs, series[0]!, series[1]!, series[2]!, series[3]!], true);
-        paintedVersion = version;
-      }
-
-      frame = requestAnimationFrame(paint);
-    };
-
-    frame = requestAnimationFrame(paint);
-
-    const resize = () => {
-      chart.setSize({ width: container.clientWidth, height });
-      // Otherwise the chart sits at the old width for up to a second, until the next sample
-      // happens to arrive and the version guard above lets a repaint through.
-      paintedVersion = -1;
-    };
-    window.addEventListener('resize', resize);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('resize', resize);
-      chart.destroy();
-    };
-  }, [store, driverKey, channel, range, height]);
+  const spec: LiveChartSpec = {
+    capacity: TYRE_TRACE_CAPACITY,
+    scales: { y: range === undefined ? {} : { range: [...range] } },
+    // Resolved inside the closures rather than here, so the on-demand ring creation in `tracesFor`
+    // stays out of a render pass. See the same note in `InputsTrace`.
+    series: WHEEL_CHANNELS.map((wheel, index) => ({
+      id: wheel.id,
+      label: wheel.label,
+      stroke: wheel.stroke,
+      buffer: () => channel(store.tracesFor(driverKey).tyres)[index]!,
+    })),
+    ...(readWindow === undefined
+      ? {}
+      : {
+          band: {
+            // Read from the store on every draw rather than from a captured frame. The chart is
+            // built before the first frame arrives, and a window captured then would be null for
+            // the life of the panel.
+            read: () => {
+              const frame = store.stintFor(driverKey);
+              return frame === null ? null : readWindow(frame);
+            },
+          },
+        }),
+  };
 
   return (
     <div className="wheel-chart">
-      <div ref={containerRef} className="wheel-chart__plot" />
+      <LiveChart
+        store={store}
+        driverKey={driverKey}
+        spec={spec}
+        hidden={hiddenChannels}
+        className="wheel-chart__plot"
+      />
 
-      <div className="wheel-chart__values">
-        {WHEELS.map((wheel, index) => (
-          <div key={wheel} className="wheel-chart__value">
-            <span className="wheel-chart__key" style={{ background: WHEEL_COLOURS[index]! }} />
-            <span className="wheel-chart__wheel">{wheel}</span>
-            <LiveReadout
-              store={store}
-              driverKey={driverKey}
-              className="wheel-chart__number"
-              render={(liveFrame) => format(read(liveFrame, index))}
-            />
-          </div>
-        ))}
-        <span className="wheel-chart__unit">{unit}</span>
-      </div>
+      <ChannelLegend
+        channels={WHEEL_CHANNELS}
+        hidden={hiddenChannels}
+        onToggle={onToggleChannel}
+        unit={unit}
+        // Kept live even for a hidden channel. The line going away is what the user asked for; the
+        // number is a reading they may still want, and blanking it would make hiding a corner look
+        // like losing it.
+        // Plain React, not a `LiveReadout`. These arrive on the stint frame at about 1 Hz, so
+        // there is no 60 Hz render to keep off the path — the machinery exists for the channels
+        // that do move that fast, and using it here would be ceremony.
+        renderValue={(_, index) => (
+          <span className="wheel-chart__number">
+            {format(stint === null ? null : read(stint, index))}
+          </span>
+        )}
+      />
     </div>
   );
 }

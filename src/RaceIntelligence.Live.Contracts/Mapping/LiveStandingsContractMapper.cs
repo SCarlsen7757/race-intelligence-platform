@@ -116,7 +116,38 @@ public static class LiveStandingsContractMapper
             standings.SimulationTime,
             standings.LocalSimDriverId,
             drivers,
-            standings.PitWindow is { } window ? ToDto(window) : null);
+            standings.PitWindow is { } window ? ToDto(window) : null,
+            standings.RaceLength is { } length ? ToDto(length) : null);
+    }
+
+    /// <summary>Converts a canonical race length into its wire form.</summary>
+    public static LiveRaceLengthDto ToDto(RaceLength length)
+    {
+        ArgumentNullException.ThrowIfNull(length);
+
+        return new LiveRaceLengthDto(length.Laps, length.DurationSeconds, (int)length.Unit);
+    }
+
+    /// <summary>Converts a wire race length back into its canonical form.</summary>
+    /// <remarks>
+    /// The unit is validated rather than cast, for the reason <see cref="ToCore(LivePitWindowDto)"/>
+    /// gives. An unrecognised unit becomes <see cref="RaceLengthUnit.Unknown"/>, which
+    /// <see cref="RaceLength.Exists"/> already reports as no usable length — so a build that has not
+    /// heard of some future session format declines to compute rather than dividing fuel by a figure
+    /// it cannot label.
+    /// </remarks>
+    public static RaceLength ToCore(LiveRaceLengthDto dto)
+    {
+        ArgumentNullException.ThrowIfNull(dto);
+
+        return new RaceLength
+        {
+            Laps = dto.Laps,
+            DurationSeconds = dto.DurationSeconds,
+            Unit = Enum.IsDefined((RaceLengthUnit)dto.Unit)
+                ? (RaceLengthUnit)dto.Unit
+                : RaceLengthUnit.Unknown,
+        };
     }
 
     /// <summary>Converts a canonical pit window into its wire form.</summary>
@@ -168,6 +199,7 @@ public static class LiveStandingsContractMapper
             LocalSimDriverId = frame.LocalSimDriverId,
             Drivers = drivers,
             PitWindow = frame.PitWindow is { } window ? ToCore(window) : null,
+            RaceLength = frame.RaceLength is { } length ? ToCore(length) : null,
         };
     }
 
@@ -206,6 +238,36 @@ public static class LiveStandingsContractMapper
             sample.EngineRpm,
             sample.FuelLeft,
             new LiveWheelValues(
+                sample.BrakePressure.FrontLeft,
+                sample.BrakePressure.FrontRight,
+                sample.BrakePressure.RearLeft,
+                sample.BrakePressure.RearRight),
+            sample.Clutch,
+            sample.AbsSetting,
+            sample.AbsActive,
+            sample.TractionControlSetting,
+            sample.TractionControlActive,
+            sample.BrakeBias);
+    }
+
+    /// <summary>
+    /// Builds the stint frame — the tyre channels, at their own slower rate.
+    /// </summary>
+    /// <remarks>
+    /// Takes the same <see cref="TelemetrySample"/> the self frame does, and the publisher decides
+    /// how often to call it. Nothing about the sample says which of its channels are fast and which
+    /// are slow; that judgement lives in the two mapping functions and in the interval the outbox
+    /// applies, which is the only place it can be changed once rather than in every consumer.
+    /// </remarks>
+    public static LiveStintFrame ToStintFrame(TelemetrySample sample, string? simDriverId)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+
+        return new LiveStintFrame(
+            sample.SessionId,
+            simDriverId,
+            sample.Timestamp,
+            new LiveWheelValues(
                 sample.TyrePressure.FrontLeft,
                 sample.TyrePressure.FrontRight,
                 sample.TyrePressure.RearLeft,
@@ -215,19 +277,30 @@ public static class LiveStandingsContractMapper
                 sample.TyreWear.FrontRight,
                 sample.TyreWear.RearLeft,
                 sample.TyreWear.RearRight),
-            // The middle-of-tread reading stands in for the tyre as a whole. Inner/middle/outer is
-            // a setup-analysis signal read across a stint, not something a race engineer watches
-            // move in real time.
-            new LiveWheelValues(
-                sample.TyreTemperature.FrontLeft.Middle,
-                sample.TyreTemperature.FrontRight.Middle,
-                sample.TyreTemperature.RearLeft.Middle,
-                sample.TyreTemperature.RearRight.Middle),
-            sample.Clutch,
-            sample.AbsSetting,
-            sample.AbsActive,
-            sample.TractionControlSetting,
-            sample.TractionControlActive,
-            sample.BrakeBias);
+            new LiveTyreTemperatures(
+                ToTreadTemperatures(sample.TyreTemperature.FrontLeft),
+                ToTreadTemperatures(sample.TyreTemperature.FrontRight),
+                ToTreadTemperatures(sample.TyreTemperature.RearLeft),
+                ToTreadTemperatures(sample.TyreTemperature.RearRight)));
     }
+
+    /// <summary>
+    /// Carries one tyre's readings onto the wire whole.
+    /// </summary>
+    /// <remarks>
+    /// This used to select <c>Middle</c> and drop the other five, on the reasoning that
+    /// inner/middle/outer is a setup signal read across a stint rather than something watched in
+    /// real time. The reasoning was sound about the tread and wrong about the consequence: the
+    /// archive kept all six, so the analysis the argument pointed at was possible — but only after
+    /// the session, and only for the person holding the database. A race engineer watching a stint
+    /// could not see the shoulder running away, and could not see the window the simulator was
+    /// perfectly willing to name. Five floats per tyre is a cheap price for both.
+    /// </remarks>
+    private static LiveTreadTemperatures ToTreadTemperatures(TyreTemperature temperature) => new(
+        temperature.Inner,
+        temperature.Middle,
+        temperature.Outer,
+        temperature.Optimal,
+        temperature.Cold,
+        temperature.Hot);
 }

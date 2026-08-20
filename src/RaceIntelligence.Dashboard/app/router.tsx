@@ -4,15 +4,13 @@ import { routeTree } from './routeTree.gen';
 /**
  * Router options the tests share with the real router.
  *
- * `pathParamsAllowedCharacters` is the one that matters: driver keys are `id:4242`, `slot:7` and
- * the like, and percent-encoding the colon turns a shareable URL into `/rooms/abc/id%3A4242`. It
- * still works, it just stops being something anyone would paste into a message. The comma is there
- * for the same reason — it separates the two drivers of a comparison, so
- * `/rooms/abc/id:4242,id:7` stays legible.
+ * Empty, and worth keeping as the seam rather than deleting: it held
+ * `pathParamsAllowedCharacters` for the colon and comma in `/rooms/abc/id:4242,id:7`, back when a
+ * path segment named the drivers. Nothing in a path needs unencoded punctuation now — a room id is
+ * a bare hex guid — and which cars are being watched is state belonging to the room rather than to
+ * the URL.
  */
-export const ROUTER_DEFAULTS = {
-  pathParamsAllowedCharacters: [':', ','] as Array<':' | ','>,
-};
+export const ROUTER_DEFAULTS = {};
 
 /**
  * The router TanStack Start boots, on the server and in the browser.

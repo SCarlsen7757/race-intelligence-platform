@@ -55,6 +55,36 @@ interface TimingTowerProps {
 /** Every column above, so an expanded row's detail cell can span the whole table. */
 const COLUMN_COUNT = 11;
 
+/**
+ * A car that is broadcasting, and whether anyone is listening.
+ *
+ * Two arcs over a dot — the shape a transmitter has had on every dashboard and radio for decades,
+ * which is what lets it replace a word without needing a legend. Drawn in `currentColor` so the
+ * button's own state rules colour it, and `aria-hidden` because the button already carries the
+ * name: an accessible name on both would make a screen reader say it twice.
+ *
+ * The dot fills when the telemetry is open and is hollow when it is not, so open and closed differ
+ * in shape as well as in colour. That is the same rule #42 applied to throttle and brake, and it is
+ * what stops the state disappearing for a reader who cannot separate grey from green.
+ */
+function TelemetryMark({ open }: { open: boolean }) {
+  return (
+    <svg
+      className="telemetry-mark"
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {/* Outer arcs, then inner arcs: the signal leaving the car. */}
+      <path d="M3.2 3.2a6.8 6.8 0 0 0 0 9.6M12.8 3.2a6.8 6.8 0 0 1 0 9.6" />
+      <path d="M5.6 5.6a3.4 3.4 0 0 0 0 4.8M10.4 5.6a3.4 3.4 0 0 1 0 4.8" />
+      <circle cx="8" cy="8" r="1.9" fill={open ? 'currentColor' : 'none'} />
+    </svg>
+  );
+}
+
 export function TimingTower({
   rows,
   focusedDriverKeys,
@@ -81,7 +111,15 @@ export function TimingTower({
         <tr>
           <th className="tower__pos">#</th>
           <th className="tower__driver">Driver</th>
-          <th className="tower__telemetry">Telemetry</th>
+          {/*
+            Named for a screen reader, blank on screen. A column of marks needs no heading — the
+            mark is its own legend — but a table column with no accessible name is a column a
+            screen reader announces as nothing at all, which is worse than the word ever was on
+            screen. The label costs no width because it is taken out of the flow entirely.
+          */}
+          <th className="tower__telemetry">
+            <span className="visually-hidden">Telemetry</span>
+          </th>
           <th>Laps</th>
           <th>Gap</th>
           <th>Last</th>
@@ -136,6 +174,11 @@ export function TimingTower({
                     Every driver expands, not only the ones running a collector: lap history comes
                     from standings, which the hub has for the whole field. A native button, so it
                     is keyboard operable without reinventing focus handling.
+
+                    Number before name, and both inside the button. The number is how a car is
+                    called over the radio and how it is read off the screen — it is the identifier,
+                    and the name is what confirms it — so it leads, and it is the part that must
+                    never be the bit that gets truncated. Only the name shrinks; see the stylesheet.
                   */}
                   <button
                     type="button"
@@ -147,18 +190,32 @@ export function TimingTower({
                     <span className="driver-button__chevron" aria-hidden="true">
                       {isExpanded ? '▾' : '▸'}
                     </span>
-                    {row.displayName}
+                    {row.carNumber != null && <span className="car-number">#{row.carNumber}</span>}
+                    <span className="driver-button__name">{row.displayName}</span>
                   </button>
-                  {row.carNumber != null && <span className="car-number">#{row.carNumber}</span>}
                 </td>
 
                 <td className="tower__telemetry">
                   {isRich && (
-                    // The only affordance saying which rows have full telemetry behind them, and
-                    // therefore one that has to read as a control rather than as decoration — an
-                    // unlabelled dot is invisible to anyone not already looking for it. A driver
-                    // not running a collector is not a broken row: there is simply nothing more to
-                    // show for them than the timing already on this line.
+                    /*
+                      Which rows have telemetry behind them, and which one is open.
+
+                      A broadcast mark rather than the SHOW / SHOWN / OPENING… words this used to
+                      spell out. Those cost the widest column in the tower for three states that a
+                      shape and a colour carry at a glance, and the tower has eleven columns to fit
+                      beside the wall — the words were being read once and then skipped over for
+                      the rest of the session.
+
+                      **The absence is a state too, and it is the one that costs nothing.** A driver
+                      with no collector gets no mark at all, which is not a broken row: there is
+                      simply nothing more to show for them than the timing already on this line.
+
+                      Colour is not the only signal, for the reason #42 stopped throttle and brake
+                      being told apart by hue: the mark also fills in when it is open and is drawn
+                      as an outline when it is not, so the state survives being read by someone who
+                      cannot separate the grey from the green. The name a screen reader gets is
+                      unchanged from when this was a word — see `aria-label` and `aria-pressed`.
+                    */
                     <button
                       type="button"
                       className={[
@@ -175,10 +232,16 @@ export function TimingTower({
                       // announcing an empty panel as though it were the answer.
                       aria-pressed={isFocused}
                       aria-busy={isPending}
-                      title="Pedals, tyres and damage — opens below the tower"
+                      title={
+                        isPending
+                          ? 'Opening telemetry…'
+                          : isFocused
+                            ? 'Telemetry open — click to close'
+                            : 'Pedals, tyres and damage — opens on the wall'
+                      }
                       onClick={() => onFocus(row.driverKey)}
                     >
-                      {isPending ? 'Opening…' : isFocused ? 'Shown' : 'Show'}
+                      <TelemetryMark open={isFocused} />
                     </button>
                   )}
                 </td>

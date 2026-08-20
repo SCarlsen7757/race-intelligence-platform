@@ -23,6 +23,11 @@ Rules:
   decode error mid-race.
 - Databases follow the same rule: prefer editing an existing EF Core migration and recreating the
   local database over stacking a corrective migration, unless there is data worth keeping.
+- **The dashboard's exported view file is the one exception**, and it is not really one. This rule
+  holds because every process is built from the same commit, so no older client can exist. A view
+  file is not a process — it lives on a disk, gets sent to other people, and genuinely can arrive
+  from a build that no longer exists. It carries a `version` for that reason. Nothing else on the
+  wire or in the database gets to make this argument.
 
 When the first `v1.0.0` tag exists, this section stops applying: from then on, deployed collectors
 have to keep talking to the hub, and both schema versions start stepping with real changelogs.

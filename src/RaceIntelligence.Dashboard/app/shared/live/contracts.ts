@@ -168,6 +168,69 @@ export interface SessionStateMessage {
   layoutLengthMeters?: number | null;
   /** Absent when the session has no mandatory window, or the simulator reports none. */
   pitWindow?: PitWindowState | null;
+  /** Absent when no publisher reports a race length. See `RaceLengthState`. */
+  raceLength?: RaceLengthState | null;
+}
+
+/**
+ * What ends the race.
+ *
+ * `'Time'` rather than `'Minutes'` — unlike a pit window's bounds, a duration crosses the wire in
+ * seconds, and naming the unit after a figure it is not expressed in is how a division ends up out
+ * by sixty.
+ */
+export type RaceLengthUnit = 'Unknown' | 'Laps' | 'Time';
+
+/**
+ * How long the race is.
+ *
+ * **Both figures may be present, and only `unit` says which one governs.** A simulator will happily
+ * report a lap count in a session that ends on the clock. Reading whichever is non-null would divide
+ * fuel by the wrong number and promise a margin in a race the car cannot finish, which is precisely
+ * the mistake `PitWindowUnit` exists to prevent one field further down.
+ */
+export interface RaceLengthState {
+  /** Total laps, or absent when the race is not run to a lap count. */
+  laps?: number | null;
+  /** Total length in seconds, or absent when not run to a clock. */
+  durationSeconds?: number | null;
+  unit: RaceLengthUnit;
+}
+
+/**
+ * The band a simulator says a temperature belongs in.
+ *
+ * Its own type because two different readings carry it — tyre tread and brake discs — and an
+ * operating window is one idea. A reader who has learned it in one place should not have to learn
+ * it again in the other, and a chart that draws the band can take either.
+ *
+ * **Every bound is optional and absent means the simulator named no band.** Draw nothing in that
+ * case. A window invented from a nominal value is worse than no window: it tells an engineer their
+ * tyres are cold with the same confidence the simulator would have used to tell them the truth.
+ */
+export interface OperatingWindow {
+  /** Where the simulator says this compound or pad wants to be. */
+  optimal?: number | null;
+  /** Below this, the simulator considers it cold. */
+  cold?: number | null;
+  /** Above this, the simulator considers it overheating. */
+  hot?: number | null;
+}
+
+/**
+ * One tyre's temperatures across the tread, plus the window they belong in. Celsius.
+ *
+ * Three readings rather than one because the spread across the tread is the question a temperature
+ * is usually being asked: **inner against outer is the camber and pressure story**, and a front left
+ * twenty degrees hotter on its inner shoulder is a setup that is wrong in a nameable way. The middle
+ * reading alone — which is all this wire used to carry — says only "warm".
+ *
+ * A null shoulder is a hole in the chart, never a zero.
+ */
+export interface TreadTemperatures extends OperatingWindow {
+  inner?: number | null;
+  middle?: number | null;
+  outer?: number | null;
 }
 
 /** The rich channels, for a driver whose own machine is publishing. Per-wheel arrays are FL, FR, RL, RR. */
@@ -197,9 +260,36 @@ export interface FocusFrameMessage {
   gear?: number | null;
   engineRpm: number;
   fuelLeftLiters: number;
+  /**
+   * Kilonewtons at each corner, FL/FR/RL/RR.
+   *
+   * On the fast frame, beside the pedal that caused it — the two share a sample index, which is what
+   * makes "what the driver asked for against what arrived at the corner" a comparison rather than
+   * two traces sampled at unrelated moments. A null is unreported, never zero: a corner drawn at
+   * zero reads as a brake that did nothing.
+   */
+  brakePressureKiloNewtons: (number | null)[];
+}
+
+/**
+ * The focused driver's tyre channels, at roughly 1 Hz.
+ *
+ * These used to ride `FocusFrameMessage` at the collector's full poll rate and were the majority of
+ * it — twelve values a corner, sixty times a second, for readings the store then thinned straight
+ * back to about this rate. The decimation was right and was simply happening three processes too
+ * late; the wire does it now.
+ *
+ * Typed and canonical, unlike `ExtrasFrameMessage`, which shares the cadence but is the connector's
+ * own untranslated document.
+ */
+export interface StintFrameMessage {
+  type: 'stintFrame';
+  roomId: string;
+  driverKey: string;
+  capturedAtUtc: string;
   tyrePressureKpa: (number | null)[];
   tyreWear: (number | null)[];
-  tyreTemperatureCelsius: (number | null)[];
+  tyreTemperatureCelsius: TreadTemperatures[];
 }
 
 /** One completed lap, as the hub's accumulator recorded it. */
@@ -268,6 +358,7 @@ export type LiveViewMessage =
   | TowerSnapshotMessage
   | FocusFrameMessage
   | LapHistoryMessage
+  | StintFrameMessage
   | ExtrasFrameMessage
   | LiveErrorMessage;
 
@@ -344,14 +435,127 @@ export interface RaceRoomDamage {
   suspension?: number;
 }
 
-/** The shape this dashboard reads out of RaceRoom's extras document. Every field is optional. */
+/** RaceRoom's flag state, as it appears under `flags`. Each is a count or a 0/1, raw. */
+export interface RaceRoomFlags {
+  yellow?: number;
+  blue?: number;
+  black?: number;
+  green?: number;
+  checkered?: number;
+  white?: number;
+  blackAndWhite?: number;
+}
+
+/** RaceRoom's DRS state, as it appears under `drs`. */
+export interface RaceRoomDrs {
+  equipped?: number;
+  available?: number;
+  numActivationsLeft?: number;
+  numActivationsTotal?: number;
+  engaged?: number;
+}
+
+/** RaceRoom's push-to-pass state, as it appears under `pushToPass`. */
+export interface RaceRoomPushToPass {
+  available?: number;
+  engaged?: number;
+  amountLeft?: number;
+  engagedTimeLeftSeconds?: number;
+  waitTimeLeftSeconds?: number;
+}
+
+/**
+ * RaceRoom's pit state, as it appears under `pit`.
+ *
+ * Distinct from `PitWindowState` on the session message, which is the hub's translated view. These
+ * are the simulator's own integers, sentinels and all.
+ */
+export interface RaceRoomPit {
+  windowStatus?: number;
+  windowStart?: number;
+  windowEnd?: number;
+  state?: number;
+  action?: number;
+  numPitstopsPerformed?: number;
+  totalDurationSeconds?: number;
+  elapsedTimeSeconds?: number;
+}
+
+/**
+ * One brake's temperature and the window the simulator says it belongs in.
+ *
+ * The same {@link OperatingWindow} a tyre carries, for the same reason and under the same names —
+ * 380 °C is cold on one car and cooking on another, and the simulator will say which. The
+ * difference is only that a brake has one reading where a tyre has three across its tread.
+ *
+ * **Raw, like everything in this document.** These are the simulator's own numbers, so `-1` is "not
+ * available" and not a reading; run them through {@link reportedNumber}.
+ */
+export interface BrakeTemperature {
+  current?: number;
+  optimal?: number;
+  cold?: number;
+  hot?: number;
+}
+
+/**
+ * The shape this dashboard reads out of RaceRoom's extras document.
+ *
+ * **Every field is optional and every value is raw.** Nothing upstream translates the simulator's
+ * sentinels — `R3ETelemetryMapper` says so at each block it writes — so `-1` here means "not
+ * available" and is emphatically not a reading. Run numbers through {@link reportedNumber} rather
+ * than trusting them; the alternative is a panel that reports a brake at minus one degree.
+ *
+ * Mirrors what the mapper actually writes, and deliberately not more: a field typed here that no
+ * connector produces is a promise the UI cannot keep.
+ */
 export interface RaceRoomExtras {
   damage?: RaceRoomDamage;
   /** This driver's accumulated incident points. `-1` is the simulator's "not available". */
   incidentPoints?: number;
   /** The server's disqualification limit. `-1` when there is none, e.g. offline. */
   maxIncidentPoints?: number;
-  brakeTemperatureCelsius?: number[];
-  /** Optional future channel; shown only when the collector declares BrakeWear. */
+
+  // Per-wheel channels, in the platform's FL, FR, RL, RR order.
+  brakeTemperatureCelsius?: BrakeTemperature[];
+  /**
+   * Grip loss measured directly rather than inferred from lap time.
+   *
+   * The mapper singles this one out as the reason its per-tyre block exists: a degradation model
+   * built without it can only see the symptom.
+   */
+  tyreGrip?: number[];
+  tyreLoadNewtons?: number[];
+  tyreDirt?: number[];
+  tyreFlatspot?: number[];
+  tyreRotationRadiansPerSecond?: number[];
+  tyreSurfaceMaterial?: number[];
+
+  // Engine and drivetrain health. Trends rather than instants — an oil temperature that has climbed
+  // for ten laps is information, and the same number seen once is not.
+  engineTempCelsius?: number;
+  engineOilTempCelsius?: number;
+  engineOilPressureKpa?: number;
+  fuelPressureKpa?: number;
+  turboPressureBar?: number;
+
+  // Energy, for the cars that have it.
+  batteryStateOfChargePercent?: number;
+  virtualEnergyLeftMj?: number;
+  virtualEnergyCapacityMj?: number;
+  virtualEnergyPerLapMj?: number;
+
+  flags?: RaceRoomFlags;
+  drs?: RaceRoomDrs;
+  pushToPass?: RaceRoomPushToPass;
+  pit?: RaceRoomPit;
+
+  /**
+   * Per-wheel brake-pad wear.
+   *
+   * **No connector writes this today**, and none declares `SimCapabilities.BrakeWear` either, so the
+   * brake-wear widget that requires it cannot currently appear. Kept because the widget and the
+   * capability flag both exist and are waiting on the connector, not on this type.
+   */
   brakeWear?: number[];
 }
