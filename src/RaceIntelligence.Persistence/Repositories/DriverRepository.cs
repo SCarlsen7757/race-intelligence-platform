@@ -70,7 +70,6 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
     /// caller has nothing to attribute the session to and should leave <c>sessions.driver_id</c> null.
     /// </summary>
     public async Task<Driver?> ResolveOrCreateAsync(
-        Guid gameId,
         string? simDriverId,
         string? displayName,
         CancellationToken ct = default)
@@ -84,13 +83,13 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
         }
 
         return hasSimId
-            ? await ResolveBySimIdAsync(gameId, simDriverId!, hasName ? displayName : null, ct).ConfigureAwait(false)
-            : await ResolveByNameAsync(gameId, displayName!, ct).ConfigureAwait(false);
+            ? await ResolveBySimIdAsync(simDriverId!, hasName ? displayName : null, ct).ConfigureAwait(false)
+            : await ResolveByNameAsync(displayName!, ct).ConfigureAwait(false);
     }
 
-    private async Task<Driver> ResolveBySimIdAsync(Guid gameId, string simDriverId, string? displayName, CancellationToken ct)
+    private async Task<Driver> ResolveBySimIdAsync(string simDriverId, string? displayName, CancellationToken ct)
     {
-        var existing = await FindBySimIdAsync(gameId, simDriverId, ct).ConfigureAwait(false);
+        var existing = await FindBySimIdAsync(simDriverId, ct).ConfigureAwait(false);
         if (existing is not null)
         {
             // The rename case: the sim id is the identity, the name is just the latest label.
@@ -108,7 +107,7 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
         // keeps their history in one place; inserting alongside it would fork them permanently.
         if (displayName is not null)
         {
-            var nameOnly = await FindByNameAsync(gameId, displayName, ct).ConfigureAwait(false);
+            var nameOnly = await FindByNameAsync(displayName, ct).ConfigureAwait(false);
             if (nameOnly is not null)
             {
                 nameOnly.SimDriverId = simDriverId;
@@ -123,7 +122,7 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
                     // abandon the adoption and use it, leaving the name-only row to be adopted (or
                     // not) by whoever it really belongs to.
                     await db.Entry(nameOnly).ReloadAsync(ct).ConfigureAwait(false);
-                    return await FindBySimIdAsync(gameId, simDriverId, ct).ConfigureAwait(false)
+                    return await FindBySimIdAsync(simDriverId, ct).ConfigureAwait(false)
                         ?? throw new InvalidOperationException(
                             "Unique-constraint violation on drivers was reported while adopting a name-only row, but the conflicting row could not be re-selected.");
                 }
@@ -135,18 +134,17 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
         var driver = new Driver
         {
             Id = Guid.CreateVersion7(),
-            GameId = gameId,
             SimDriverId = simDriverId,
             DisplayName = displayName ?? simDriverId,
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
-        return await db.InsertRowAsync(driver, token => FindBySimIdAsync(gameId, simDriverId, token), "drivers", ct).ConfigureAwait(false);
+        return await db.InsertRowAsync(driver, token => FindBySimIdAsync(simDriverId, token), "drivers", ct).ConfigureAwait(false);
     }
 
-    private async Task<Driver> ResolveByNameAsync(Guid gameId, string displayName, CancellationToken ct)
+    private async Task<Driver> ResolveByNameAsync(string displayName, CancellationToken ct)
     {
-        var existing = await FindByNameAsync(gameId, displayName, ct).ConfigureAwait(false);
+        var existing = await FindByNameAsync(displayName, ct).ConfigureAwait(false);
         if (existing is not null)
         {
             return existing;
@@ -158,7 +156,7 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
         // than one driver in this game there is nothing to distinguish them by, and guessing would
         // silently attribute a session to the wrong person. A separate row is the honest answer.
         var byName = await db.Drivers
-            .Where(d => d.GameId == gameId && d.DisplayName == displayName)
+            .Where(d => d.DisplayName == displayName)
             .OrderBy(d => d.CreatedAt)
             .Take(2)
             .ToListAsync(ct)
@@ -172,21 +170,20 @@ public sealed class DriverRepository(RaceIntelligenceDbContext db)
         var driver = new Driver
         {
             Id = Guid.CreateVersion7(),
-            GameId = gameId,
             SimDriverId = null,
             DisplayName = displayName,
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
-        return await db.InsertRowAsync(driver, token => FindByNameAsync(gameId, displayName, token), "drivers", ct).ConfigureAwait(false);
+        return await db.InsertRowAsync(driver, token => FindByNameAsync(displayName, token), "drivers", ct).ConfigureAwait(false);
     }
 
-    private Task<Driver?> FindBySimIdAsync(Guid gameId, string simDriverId, CancellationToken ct) =>
-        db.Drivers.FirstOrDefaultAsync(d => d.GameId == gameId && d.SimDriverId == simDriverId, ct);
+    private Task<Driver?> FindBySimIdAsync(string simDriverId, CancellationToken ct) =>
+        db.Drivers.FirstOrDefaultAsync(d => d.SimDriverId == simDriverId, ct);
 
     // The null literal (rather than a captured null variable) is deliberate: it is what makes EF
     // emit `sim_driver_id IS NULL`, matching the partial unique index's filter exactly.
-    private Task<Driver?> FindByNameAsync(Guid gameId, string displayName, CancellationToken ct) =>
+    private Task<Driver?> FindByNameAsync(string displayName, CancellationToken ct) =>
         db.Drivers.FirstOrDefaultAsync(
-            d => d.GameId == gameId && d.SimDriverId == null && d.DisplayName == displayName, ct);
+            d => d.SimDriverId == null && d.DisplayName == displayName, ct);
 }

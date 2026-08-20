@@ -6,11 +6,6 @@ public sealed class Track
     /// <summary>Primary key. Generated in application code via <see cref="Guid.CreateVersion7"/>, never by the database.</summary>
     public Guid Id { get; set; }
 
-    /// <summary>The game this track belongs to.</summary>
-    public Guid GameId { get; set; }
-
-    public Game? Game { get; set; }
-
     /// <summary>Track name, unique within its game.</summary>
     public required string Name { get; set; }
 

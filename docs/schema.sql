@@ -11,12 +11,22 @@ CREATE TABLE car_classes (
     CONSTRAINT "PK_car_classes" PRIMARY KEY (id)
 );
 
-CREATE TABLE games (
+CREATE TABLE drivers (
     id uuid NOT NULL,
-    key text NOT NULL,
-    name text NOT NULL,
+    sim_driver_id text,
+    display_name text NOT NULL,
     created_at timestamp with time zone NOT NULL,
-    CONSTRAINT "PK_games" PRIMARY KEY (id)
+    CONSTRAINT "PK_drivers" PRIMARY KEY (id)
+);
+
+CREATE TABLE game_versions (
+    id uuid NOT NULL,
+    game_version text,
+    api_version_major integer NOT NULL,
+    api_version_minor integer NOT NULL,
+    connector_version text NOT NULL,
+    first_seen_at timestamp with time zone NOT NULL,
+    CONSTRAINT "PK_game_versions" PRIMARY KEY (id)
 );
 
 CREATE TABLE manufacturers (
@@ -25,34 +35,10 @@ CREATE TABLE manufacturers (
     CONSTRAINT "PK_manufacturers" PRIMARY KEY (id)
 );
 
-CREATE TABLE drivers (
-    id uuid NOT NULL,
-    game_id uuid NOT NULL,
-    sim_driver_id text,
-    display_name text NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    CONSTRAINT "PK_drivers" PRIMARY KEY (id),
-    CONSTRAINT "FK_drivers_games_game_id" FOREIGN KEY (game_id) REFERENCES games (id) ON DELETE RESTRICT
-);
-
-CREATE TABLE game_versions (
-    id uuid NOT NULL,
-    game_id uuid NOT NULL,
-    game_version text,
-    api_version_major integer NOT NULL,
-    api_version_minor integer NOT NULL,
-    connector_version text NOT NULL,
-    first_seen_at timestamp with time zone NOT NULL,
-    CONSTRAINT "PK_game_versions" PRIMARY KEY (id),
-    CONSTRAINT "FK_game_versions_games_game_id" FOREIGN KEY (game_id) REFERENCES games (id) ON DELETE RESTRICT
-);
-
 CREATE TABLE tracks (
     id uuid NOT NULL,
-    game_id uuid NOT NULL,
     name text NOT NULL,
-    CONSTRAINT "PK_tracks" PRIMARY KEY (id),
-    CONSTRAINT "FK_tracks_games_game_id" FOREIGN KEY (game_id) REFERENCES games (id) ON DELETE RESTRICT
+    CONSTRAINT "PK_tracks" PRIMARY KEY (id)
 );
 
 CREATE TABLE cars (
@@ -60,11 +46,9 @@ CREATE TABLE cars (
     name text NOT NULL,
     manufacturer_id uuid,
     car_class_id uuid,
-    game_id uuid NOT NULL,
     sim_car_id text NOT NULL,
     CONSTRAINT "PK_cars" PRIMARY KEY (id),
     CONSTRAINT "FK_cars_car_classes_car_class_id" FOREIGN KEY (car_class_id) REFERENCES car_classes (id) ON DELETE RESTRICT,
-    CONSTRAINT "FK_cars_games_game_id" FOREIGN KEY (game_id) REFERENCES games (id) ON DELETE RESTRICT,
     CONSTRAINT "FK_cars_manufacturers_manufacturer_id" FOREIGN KEY (manufacturer_id) REFERENCES manufacturers (id) ON DELETE RESTRICT
 );
 
@@ -127,6 +111,7 @@ CREATE TABLE telemetry_samples (
     speed real NOT NULL,
     throttle real,
     brake real,
+    clutch real,
     steering real NOT NULL,
     gear smallint,
     engine_rpm real NOT NULL,
@@ -147,17 +132,15 @@ CREATE UNIQUE INDEX "IX_car_classes_name" ON car_classes (name);
 
 CREATE INDEX "IX_cars_car_class_id" ON cars (car_class_id);
 
-CREATE UNIQUE INDEX "IX_cars_game_id_sim_car_id" ON cars (game_id, sim_car_id);
-
 CREATE INDEX "IX_cars_manufacturer_id" ON cars (manufacturer_id);
 
-CREATE UNIQUE INDEX "IX_drivers_game_id_display_name" ON drivers (game_id, display_name) WHERE sim_driver_id IS NULL;
+CREATE UNIQUE INDEX "IX_cars_sim_car_id" ON cars (sim_car_id);
 
-CREATE UNIQUE INDEX "IX_drivers_game_id_sim_driver_id" ON drivers (game_id, sim_driver_id);
+CREATE UNIQUE INDEX "IX_drivers_display_name" ON drivers (display_name) WHERE sim_driver_id IS NULL;
 
-CREATE UNIQUE INDEX "IX_game_versions_game_id_game_version_api_version_major_api_ve~" ON game_versions (game_id, game_version, api_version_major, api_version_minor, connector_version);
+CREATE UNIQUE INDEX "IX_drivers_sim_driver_id" ON drivers (sim_driver_id);
 
-CREATE UNIQUE INDEX "IX_games_key" ON games (key);
+CREATE UNIQUE INDEX "IX_game_versions_game_version_api_version_major_api_version_mi~" ON game_versions (game_version, api_version_major, api_version_minor, connector_version);
 
 CREATE UNIQUE INDEX "IX_manufacturers_name" ON manufacturers (name);
 
@@ -175,18 +158,10 @@ CREATE INDEX ix_telemetry_timestamp_brin ON telemetry_samples USING brin (timest
 
 CREATE UNIQUE INDEX "IX_track_layouts_track_id_name" ON track_layouts (track_id, name);
 
-CREATE UNIQUE INDEX "IX_tracks_game_id_name" ON tracks (game_id, name);
+CREATE UNIQUE INDEX "IX_tracks_name" ON tracks (name);
 
 INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20260806232140_InitialCreate', '10.0.11');
-
-COMMIT;
-
-START TRANSACTION;
-ALTER TABLE telemetry_samples ADD clutch real;
-
-INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20260817112344_AddClutch', '10.0.11');
+VALUES ('20260820171502_InitialCreate', '10.0.11');
 
 COMMIT;
 

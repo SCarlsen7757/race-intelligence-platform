@@ -36,7 +36,6 @@ public sealed class CarRepository(RaceIntelligenceDbContext db)
     /// name has been renamed and its label has to be rewritten.
     /// </remarks>
     public async Task<Car?> ResolveOrCreateCarAsync(
-        Guid gameId,
         string? simCarId,
         string? name,
         string? manufacturerName = null,
@@ -56,7 +55,7 @@ public sealed class CarRepository(RaceIntelligenceDbContext db)
         // limit DriverRepository's name-only path documents, and for the same reason: the source
         // gave nothing stabler to key on.
         var identity = hasSimId ? simCarId! : name!;
-        var existing = await FindCarAsync(gameId, identity, ct).ConfigureAwait(false);
+        var existing = await FindCarAsync(identity, ct).ConfigureAwait(false);
         if (existing is not null)
         {
             // The rename case: the sim id is the identity, the name is just the latest label.
@@ -85,13 +84,12 @@ public sealed class CarRepository(RaceIntelligenceDbContext db)
             Name = hasName ? name! : identity,
             ManufacturerId = manufacturerId,
             CarClassId = carClassId,
-            GameId = gameId,
             SimCarId = identity,
         };
 
-        return await db.InsertRowAsync(car, token => FindCarAsync(gameId, identity, token), "cars", ct).ConfigureAwait(false);
+        return await db.InsertRowAsync(car, token => FindCarAsync(identity, token), "cars", ct).ConfigureAwait(false);
     }
 
-    private Task<Car?> FindCarAsync(Guid gameId, string simCarId, CancellationToken ct) =>
-        db.Cars.FirstOrDefaultAsync(c => c.GameId == gameId && c.SimCarId == simCarId, ct);
+    private Task<Car?> FindCarAsync(string simCarId, CancellationToken ct) =>
+        db.Cars.FirstOrDefaultAsync(c => c.SimCarId == simCarId, ct);
 }

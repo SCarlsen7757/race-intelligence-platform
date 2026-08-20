@@ -1,10 +1,14 @@
 namespace RaceIntelligence.Persistence.Entities;
 
-/// <summary>A car as identified by a specific game.</summary>
+/// <summary>A car, as this simulator identifies it.</summary>
 /// <remarks>
-/// Identity is <c>(<see cref="GameId"/>, <see cref="SimCarId"/>)</c>, the same convention
-/// <see cref="Driver"/> follows and scoped by game for the same reason: two sims can hand out the
-/// same numeric id to different cars. <see cref="Name"/> is <i>not</i> an identity — see its remarks.
+/// Identity is <see cref="SimCarId"/> alone, the same convention <see cref="Driver"/> follows.
+/// It used to be scoped by game, because two simulators can hand out the same numeric id to
+/// different cars — that scoping is gone because the *database* is the simulator now, so there is
+/// no second simulator in here to collide with. See ADR 0001.
+/// <para>
+/// <see cref="Name"/> is <i>not</i> an identity — see its remarks.
+/// </para>
 /// </remarks>
 public sealed class Car
 {
@@ -26,11 +30,6 @@ public sealed class Car
     public Guid? CarClassId { get; set; }
 
     public CarClass? CarClass { get; set; }
-
-    /// <summary>The game this car belongs to.</summary>
-    public Guid GameId { get; set; }
-
-    public Game? Game { get; set; }
 
     /// <summary>
     /// The simulator's own internal identifier for this car. Unique within its game. Falls back to

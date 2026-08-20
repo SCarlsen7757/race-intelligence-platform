@@ -16,10 +16,9 @@ public sealed class CarConfiguration : IEntityTypeConfiguration<Car>
         builder.Property(c => c.Name).HasColumnName("name").IsRequired();
         builder.Property(c => c.ManufacturerId).HasColumnName("manufacturer_id");
         builder.Property(c => c.CarClassId).HasColumnName("car_class_id");
-        builder.Property(c => c.GameId).HasColumnName("game_id").IsRequired();
         builder.Property(c => c.SimCarId).HasColumnName("sim_car_id").IsRequired();
 
-        builder.HasIndex(c => new { c.GameId, c.SimCarId }).IsUnique();
+        builder.HasIndex(c => c.SimCarId).IsUnique();
 
         builder.HasMany(c => c.Sessions)
             .WithOne(s => s.Car)

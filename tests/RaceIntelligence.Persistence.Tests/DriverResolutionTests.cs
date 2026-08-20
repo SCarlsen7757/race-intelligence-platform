@@ -9,8 +9,8 @@ namespace RaceIntelligence.Persistence.Tests;
 /// Verifies <see cref="DriverRepository"/> keeps one person on one row.
 /// </summary>
 /// <remarks>
-/// One database holds sessions from several people, and telling their driving apart is the entire
-/// point of the analysis layer — so a driver silently splitting into two rows does not surface as an
+/// One database holds one simulator's sessions from several people, and telling their driving apart
+/// is the entire point of the analysis layer — so a driver silently splitting into two rows does not surface as an
 /// error, it surfaces as a model trained on half of someone's laps. Every test here is about a way
 /// that split can happen: a rename, a session recorded before the sim id was ever captured, or a
 /// session from a source that reported no id at all.
@@ -27,15 +27,14 @@ public sealed class DriverResolutionTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var gameId = await CreateGameAsync(db);
         var repo = new DriverRepository(db);
         var simDriverId = UniqueSimDriverId();
 
-        var first = await repo.ResolveOrCreateAsync(gameId, simDriverId, "Mark");
-        var second = await repo.ResolveOrCreateAsync(gameId, simDriverId, "Mark");
+        var first = await repo.ResolveOrCreateAsync(simDriverId, "Mark");
+        var second = await repo.ResolveOrCreateAsync(simDriverId, "Mark");
 
         first!.Id.ShouldBe(second!.Id);
-        (await db.Drivers.CountAsync(d => d.GameId == gameId)).ShouldBe(1);
+        (await db.Drivers.CountAsync(d => d.SimDriverId == simDriverId)).ShouldBe(1);
     }
 
     [Fact]
@@ -47,16 +46,15 @@ public sealed class DriverResolutionTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var gameId = await CreateGameAsync(db);
         var repo = new DriverRepository(db);
         var simDriverId = UniqueSimDriverId();
 
-        var before = await repo.ResolveOrCreateAsync(gameId, simDriverId, "Old Name");
-        var after = await repo.ResolveOrCreateAsync(gameId, simDriverId, "New Name");
+        var before = await repo.ResolveOrCreateAsync(simDriverId, "Old Name");
+        var after = await repo.ResolveOrCreateAsync(simDriverId, "New Name");
 
         after!.Id.ShouldBe(before!.Id, "the sim driver id is the identity; the name is only a label");
         after.DisplayName.ShouldBe("New Name");
-        (await db.Drivers.CountAsync(d => d.GameId == gameId)).ShouldBe(1);
+        (await db.Drivers.CountAsync(d => d.SimDriverId == simDriverId)).ShouldBe(1);
     }
 
     [Fact]
@@ -72,19 +70,18 @@ public sealed class DriverResolutionTests(PostgresFixture fixture)
         // usable account id then. If the sim-id path could not see these rows, the person's first
         // online session would start a second row and split their history permanently.
         await using var db = fixture.CreateContext();
-        var gameId = await CreateGameAsync(db);
         var repo = new DriverRepository(db);
         var simDriverId = UniqueSimDriverId();
         var name = UniqueName();
 
-        var nameOnly = await repo.ResolveOrCreateAsync(gameId, simDriverId: null, name);
+        var nameOnly = await repo.ResolveOrCreateAsync(simDriverId: null, name);
         nameOnly!.SimDriverId.ShouldBeNull();
 
-        var withId = await repo.ResolveOrCreateAsync(gameId, simDriverId, name);
+        var withId = await repo.ResolveOrCreateAsync(simDriverId, name);
 
         withId!.Id.ShouldBe(nameOnly.Id, "the existing name-only row must be adopted, not duplicated");
         withId.SimDriverId.ShouldBe(simDriverId);
-        (await db.Drivers.CountAsync(d => d.GameId == gameId)).ShouldBe(1);
+        (await db.Drivers.CountAsync(d => d.SimDriverId == simDriverId)).ShouldBe(1);
     }
 
     [Fact]
@@ -98,15 +95,16 @@ public sealed class DriverResolutionTests(PostgresFixture fixture)
         // The reverse crossing: an online session established the id, then an offline one reports
         // only the name. Growing a name-only twin beside the real row splits the same person again.
         await using var db = fixture.CreateContext();
-        var gameId = await CreateGameAsync(db);
         var repo = new DriverRepository(db);
         var name = UniqueName();
 
-        var withId = await repo.ResolveOrCreateAsync(gameId, UniqueSimDriverId(), name);
-        var nameOnly = await repo.ResolveOrCreateAsync(gameId, simDriverId: null, name);
+        var simDriverId = UniqueSimDriverId();
+
+        var withId = await repo.ResolveOrCreateAsync(simDriverId, name);
+        var nameOnly = await repo.ResolveOrCreateAsync(simDriverId: null, name);
 
         nameOnly!.Id.ShouldBe(withId!.Id);
-        (await db.Drivers.CountAsync(d => d.GameId == gameId)).ShouldBe(1);
+        (await db.Drivers.CountAsync(d => d.SimDriverId == simDriverId)).ShouldBe(1);
     }
 
     [Fact]
@@ -121,44 +119,46 @@ public sealed class DriverResolutionTests(PostgresFixture fixture)
         // could belong to either, so attaching it to one of them would silently misattribute laps.
         // Keeping it separate is the honest outcome.
         await using var db = fixture.CreateContext();
-        var gameId = await CreateGameAsync(db);
         var repo = new DriverRepository(db);
         var name = UniqueName();
 
-        var one = await repo.ResolveOrCreateAsync(gameId, UniqueSimDriverId(), name);
-        var two = await repo.ResolveOrCreateAsync(gameId, UniqueSimDriverId(), name);
+        var one = await repo.ResolveOrCreateAsync(UniqueSimDriverId(), name);
+        var two = await repo.ResolveOrCreateAsync(UniqueSimDriverId(), name);
         one!.Id.ShouldNotBe(two!.Id, "different sim driver ids are different people");
 
-        var ambiguous = await repo.ResolveOrCreateAsync(gameId, simDriverId: null, name);
+        var ambiguous = await repo.ResolveOrCreateAsync(simDriverId: null, name);
 
         ambiguous!.Id.ShouldNotBe(one.Id);
         ambiguous.Id.ShouldNotBe(two.Id);
         ambiguous.SimDriverId.ShouldBeNull();
-        (await db.Drivers.CountAsync(d => d.GameId == gameId)).ShouldBe(3);
+        (await db.Drivers.CountAsync(d => d.DisplayName == name)).ShouldBe(3);
     }
 
     [Fact]
-    public async Task The_same_sim_driver_id_in_two_games_is_two_drivers()
+    public async Task The_same_sim_driver_id_is_one_driver_because_the_database_is_one_simulator()
     {
         if (!fixture.IsAvailable)
         {
             Assert.Skip(fixture.SkipReason ?? "Postgres container unavailable.");
         }
 
-        // Sim driver ids share a numeric namespace across sims: RaceRoom user 4711 and some future
-        // sim's user 4711 are unrelated people. That is why identity is scoped by game.
+        // This replaces a test that asserted the opposite: that one sim driver id in two games was
+        // two drivers, scoped by game_id. Sim driver ids do still share a numeric namespace across
+        // simulators — that fact has not changed — but there is no longer a second simulator inside
+        // this database for one to collide with, which is exactly what ADR 0001 traded away.
+        //
+        // Recognising one human across simulators is a different question with a different answer,
+        // and deliberately not this row's job: it belongs to the identity registry in ADR 0002,
+        // which is asserted by a person rather than derived from an id.
         await using var db = fixture.CreateContext();
-        var firstGameId = await CreateGameAsync(db);
-        var secondGameId = await CreateGameAsync(db);
         var repo = new DriverRepository(db);
         var simDriverId = UniqueSimDriverId();
 
-        var first = await repo.ResolveOrCreateAsync(firstGameId, simDriverId, "Mark");
-        var second = await repo.ResolveOrCreateAsync(secondGameId, simDriverId, "Mark");
+        var first = await repo.ResolveOrCreateAsync(simDriverId, "Mark");
+        var second = await repo.ResolveOrCreateAsync(simDriverId, "Mark");
 
-        first!.Id.ShouldNotBe(second!.Id);
-        first.GameId.ShouldBe(firstGameId);
-        second.GameId.ShouldBe(secondGameId);
+        second!.Id.ShouldBe(first!.Id);
+        (await db.Drivers.CountAsync(d => d.SimDriverId == simDriverId)).ShouldBe(1);
     }
 
     [Fact]
@@ -170,21 +170,13 @@ public sealed class DriverResolutionTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var gameId = await CreateGameAsync(db);
         var repo = new DriverRepository(db);
 
-        (await repo.ResolveOrCreateAsync(gameId, simDriverId: null, displayName: null)).ShouldBeNull();
-        (await repo.ResolveOrCreateAsync(gameId, simDriverId: "   ", displayName: "  ")).ShouldBeNull(
+        (await repo.ResolveOrCreateAsync(simDriverId: null, displayName: null)).ShouldBeNull();
+        (await repo.ResolveOrCreateAsync(simDriverId: "   ", displayName: "  ")).ShouldBeNull(
             "whitespace is not an identity any more than null is");
 
-        (await db.Drivers.CountAsync(d => d.GameId == gameId)).ShouldBe(0);
-    }
-
-    /// <summary>Creates a real <c>games</c> row, since <c>drivers.game_id</c> is a foreign key onto it.</summary>
-    private static async Task<Guid> CreateGameAsync(RaceIntelligenceDbContext db)
-    {
-        var (game, _) = await new GameRepository(db).ResolveOrCreateAsync(SampleFactory.UniqueGameVersion());
-        return game.Id;
+        (await db.Drivers.CountAsync(d => d.DisplayName == "  ")).ShouldBe(0);
     }
 
     private static string UniqueSimDriverId() => $"sim-{Guid.NewGuid():N}";

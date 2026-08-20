@@ -6,12 +6,28 @@ namespace RaceIntelligence.Ingest.Api.Tests.Support;
 /// <summary>Builders for wire DTOs, kept small and explicit for test readability. Mirrors <c>RaceIntelligence.Persistence.Tests.Support.SampleFactory</c>.</summary>
 internal static class DtoFactory
 {
-    /// <summary>Builds a <see cref="GameVersionDto"/> for a uniquely-keyed test game, so tests never collide over the shared database's <c>games.key</c> uniqueness constraint.</summary>
-    public static GameVersionDto UniqueGameVersion(string connectorVersion = "1.0.0")
+    /// <summary>
+    /// Builds a <see cref="GameVersionDto"/> that this ingest API will accept, unique enough that
+    /// tests never share a <c>game_versions</c> row.
+    /// </summary>
+    /// <remarks>
+    /// The game key has to be the real one now. It used to be a per-test invention, because the key
+    /// only had to be unique within a <c>games</c> table that no longer exists; the ingest API now
+    /// checks it against the simulator it is configured for and refuses anything else (ADR 0001).
+    /// Uniqueness therefore moves to the connector version, which is part of what actually keys a
+    /// version row.
+    /// </remarks>
+    public static GameVersionDto UniqueGameVersion(string? connectorVersion = null)
     {
-        var key = $"test-{Guid.NewGuid():N}";
-        return new GameVersionDto(key, $"Test Game {key}", "1.2.3", 1, 0, connectorVersion);
+        var version = connectorVersion ?? $"test-{Guid.NewGuid():N}";
+        return new GameVersionDto(GameKey, "RaceRoom Racing Experience", "1.2.3", 1, 0, version);
     }
+
+    /// <summary>
+    /// The simulator this ingest API is configured for, matching <c>Ingest__GameKey</c> in the
+    /// AppHost. A session claiming anything else is refused — see <c>SessionEndpoints</c>.
+    /// </summary>
+    public const string GameKey = "raceroom";
 
     /// <summary>Builds a well-formed <see cref="SessionCreateRequest"/>, optionally for a specific session id.</summary>
     public static SessionCreateRequest SessionCreateRequest(Guid? sessionId = null, int? schemaVersion = null) => new(

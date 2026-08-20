@@ -10,7 +10,7 @@ namespace RaceIntelligence.Persistence.Tests;
 public sealed class ResolveOrCreateTests(PostgresFixture fixture)
 {
     [Fact]
-    public async Task Resolving_the_same_identity_twice_yields_one_game_row_and_one_version_row()
+    public async Task Resolving_the_same_identity_twice_yields_one_version_row()
     {
         if (!fixture.IsAvailable)
         {
@@ -19,20 +19,17 @@ public sealed class ResolveOrCreateTests(PostgresFixture fixture)
 
         await using var db = fixture.CreateContext();
         var identity = SampleFactory.UniqueGameVersion();
-        var repo = new GameRepository(db);
+        var repo = new GameVersionRepository(db);
 
-        var (game1, version1) = await repo.ResolveOrCreateAsync(identity);
-        var (game2, version2) = await repo.ResolveOrCreateAsync(identity);
+        var version1 = await repo.ResolveOrCreateAsync(identity);
+        var version2 = await repo.ResolveOrCreateAsync(identity);
 
-        game1.Id.ShouldBe(game2.Id);
         version1.Id.ShouldBe(version2.Id);
-
-        (await db.Games.CountAsync(g => g.Key == identity.Game.Key)).ShouldBe(1);
-        (await db.GameVersions.CountAsync(v => v.GameId == game1.Id)).ShouldBe(1);
+        (await db.GameVersions.CountAsync(v => v.ConnectorVersion == identity.ConnectorVersion)).ShouldBe(1);
     }
 
     [Fact]
-    public async Task Changing_only_connector_version_creates_a_second_version_but_reuses_the_game()
+    public async Task Changing_only_the_connector_version_records_a_second_version_row()
     {
         if (!fixture.IsAvailable)
         {
@@ -40,19 +37,18 @@ public sealed class ResolveOrCreateTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var identity = SampleFactory.UniqueGameVersion(connectorVersion: "1.0.0");
-        var repo = new GameRepository(db);
+        var identity = SampleFactory.UniqueGameVersion(SampleFactory.Unique("connector"));
+        var repo = new GameVersionRepository(db);
 
-        var (game1, version1) = await repo.ResolveOrCreateAsync(identity);
+        var version1 = await repo.ResolveOrCreateAsync(identity);
 
-        var updatedIdentity = identity with { ConnectorVersion = "1.0.1" };
-        var (game2, version2) = await repo.ResolveOrCreateAsync(updatedIdentity);
+        var updatedIdentity = identity with { ConnectorVersion = identity.ConnectorVersion + "-next" };
+        var version2 = await repo.ResolveOrCreateAsync(updatedIdentity);
 
-        game1.Id.ShouldBe(game2.Id, "the game itself did not change, only the connector version");
         version1.Id.ShouldNotBe(version2.Id, "a new connector version must be recorded as a new game_versions row");
 
-        (await db.Games.CountAsync(g => g.Key == identity.Game.Key)).ShouldBe(1);
-        (await db.GameVersions.CountAsync(v => v.GameId == game1.Id)).ShouldBe(2);
+        (await db.GameVersions.CountAsync(v => v.ConnectorVersion == identity.ConnectorVersion)).ShouldBe(1);
+        (await db.GameVersions.CountAsync(v => v.ConnectorVersion == updatedIdentity.ConnectorVersion)).ShouldBe(1);
     }
 
     [Fact]
@@ -64,15 +60,17 @@ public sealed class ResolveOrCreateTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var (game, _) = await new GameRepository(db).ResolveOrCreateAsync(SampleFactory.UniqueGameVersion());
         var trackRepo = new TrackRepository(db);
+        // Unique because tracks are no longer scoped by game, so two tests both resolving "Suzuka"
+        // would legitimately share one row — which is correct behaviour and useless for counting.
+        var trackName = SampleFactory.Unique("Suzuka");
 
-        var (track1, layout1) = await trackRepo.ResolveOrCreateAsync(game.Id, "Suzuka", "Grand Prix", 5807);
-        var (track2, layout2) = await trackRepo.ResolveOrCreateAsync(game.Id, "Suzuka", "Grand Prix", 5807);
+        var (track1, layout1) = await trackRepo.ResolveOrCreateAsync(trackName, "Grand Prix", 5807);
+        var (track2, layout2) = await trackRepo.ResolveOrCreateAsync(trackName, "Grand Prix", 5807);
 
         track1.Id.ShouldBe(track2.Id);
         layout1.Id.ShouldBe(layout2.Id);
-        (await db.Tracks.CountAsync(t => t.GameId == game.Id)).ShouldBe(1);
+        (await db.Tracks.CountAsync(t => t.Name == trackName)).ShouldBe(1);
         (await db.TrackLayouts.CountAsync(l => l.TrackId == track1.Id)).ShouldBe(1);
     }
 
@@ -85,16 +83,16 @@ public sealed class ResolveOrCreateTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var (game, _) = await new GameRepository(db).ResolveOrCreateAsync(SampleFactory.UniqueGameVersion());
         var carRepo = new CarRepository(db);
+        var simCarId = SampleFactory.Unique("sim-car");
 
-        var car1 = await carRepo.ResolveOrCreateCarAsync(game.Id, "sim-car-1", "GT3 Car", "Acme Motors", "GT3");
-        var car2 = await carRepo.ResolveOrCreateCarAsync(game.Id, "sim-car-1", "GT3 Car", "Acme Motors", "GT3");
+        var car1 = await carRepo.ResolveOrCreateCarAsync(simCarId, "GT3 Car", "Acme Motors", "GT3");
+        var car2 = await carRepo.ResolveOrCreateCarAsync(simCarId, "GT3 Car", "Acme Motors", "GT3");
 
         car1.ShouldNotBeNull();
         car2.ShouldNotBeNull();
         car1.Id.ShouldBe(car2.Id);
-        (await db.Cars.CountAsync(c => c.GameId == game.Id)).ShouldBe(1);
+        (await db.Cars.CountAsync(c => c.SimCarId == simCarId)).ShouldBe(1);
         (await db.Manufacturers.CountAsync(m => m.Name == "Acme Motors")).ShouldBe(1);
         (await db.CarClasses.CountAsync(c => c.Name == "GT3")).ShouldBe(1);
     }
@@ -108,13 +106,13 @@ public sealed class ResolveOrCreateTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var (game, _) = await new GameRepository(db).ResolveOrCreateAsync(SampleFactory.UniqueGameVersion());
 
         // The id and the name must differ, or a call that passes the name for both looks correct.
-        var car = await new CarRepository(db).ResolveOrCreateCarAsync(game.Id, "1234", "Audi R8 LMS GT3");
+        var simCarId = SampleFactory.Unique("sim-car");
+        var car = await new CarRepository(db).ResolveOrCreateCarAsync(simCarId, "Audi R8 LMS GT3");
 
         car.ShouldNotBeNull();
-        car.SimCarId.ShouldBe("1234", "sim_car_id must carry the sim's own identifier, never the display name");
+        car.SimCarId.ShouldBe(simCarId, "sim_car_id must carry the sim's own identifier, never the display name");
         car.Name.ShouldBe("Audi R8 LMS GT3");
     }
 
@@ -127,17 +125,17 @@ public sealed class ResolveOrCreateTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var (game, _) = await new GameRepository(db).ResolveOrCreateAsync(SampleFactory.UniqueGameVersion());
         var carRepo = new CarRepository(db);
+        var simCarId = SampleFactory.Unique("sim-car");
 
-        var before = await carRepo.ResolveOrCreateCarAsync(game.Id, "1234", "Old Car Name");
-        var after = await carRepo.ResolveOrCreateCarAsync(game.Id, "1234", "New Car Name");
+        var before = await carRepo.ResolveOrCreateCarAsync(simCarId, "Old Car Name");
+        var after = await carRepo.ResolveOrCreateCarAsync(simCarId, "New Car Name");
 
         before.ShouldNotBeNull();
         after.ShouldNotBeNull();
         after.Id.ShouldBe(before.Id, "the sim id is the identity, so a renamed car must not become a second row");
         after.Name.ShouldBe("New Car Name");
-        (await db.Cars.CountAsync(c => c.GameId == game.Id)).ShouldBe(1);
+        (await db.Cars.CountAsync(c => c.SimCarId == simCarId)).ShouldBe(1);
     }
 
     [Fact]
@@ -149,15 +147,15 @@ public sealed class ResolveOrCreateTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var (game, _) = await new GameRepository(db).ResolveOrCreateAsync(SampleFactory.UniqueGameVersion());
         var carRepo = new CarRepository(db);
+        var simCarId = SampleFactory.Unique("sim-car");
 
-        var unnamed = await carRepo.ResolveOrCreateCarAsync(game.Id, "1234", null);
+        var unnamed = await carRepo.ResolveOrCreateCarAsync(simCarId, null);
         unnamed.ShouldNotBeNull();
-        unnamed.Name.ShouldBe("1234");
+        unnamed.Name.ShouldBe(simCarId);
 
         // A later session that does report the name relabels the same row, exactly as for drivers.
-        var named = await carRepo.ResolveOrCreateCarAsync(game.Id, "1234", "Discovered Name");
+        var named = await carRepo.ResolveOrCreateCarAsync(simCarId, "Discovered Name");
         named.ShouldNotBeNull();
         named.Id.ShouldBe(unnamed.Id);
         named.Name.ShouldBe("Discovered Name");
@@ -172,9 +170,8 @@ public sealed class ResolveOrCreateTests(PostgresFixture fixture)
         }
 
         await using var db = fixture.CreateContext();
-        var (game, _) = await new GameRepository(db).ResolveOrCreateAsync(SampleFactory.UniqueGameVersion());
 
-        (await new CarRepository(db).ResolveOrCreateCarAsync(game.Id, null, "  ")).ShouldBeNull();
-        (await db.Cars.CountAsync(c => c.GameId == game.Id)).ShouldBe(0);
+        (await new CarRepository(db).ResolveOrCreateCarAsync(null, "  ")).ShouldBeNull();
+        (await db.Cars.CountAsync(c => c.Name == "  ")).ShouldBe(0);
     }
 }

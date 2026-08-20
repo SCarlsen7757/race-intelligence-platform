@@ -32,6 +32,56 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
         second.StatusCode.ShouldBe(HttpStatusCode.OK, "a repeated create with the same SessionId must succeed, not conflict or duplicate");
     }
 
+    /// <summary>
+    /// The check the per-simulator split turns on.
+    /// </summary>
+    /// <remarks>
+    /// This database holds one simulator's telemetry and its unique keys no longer scope by game,
+    /// so accepting a session from another simulator would merge two simulators' cars and drivers
+    /// into shared rows — silently, and unrecoverably once telemetry hangs off them. A misconfigured
+    /// collector pointed at the wrong ingest API is the way that actually happens.
+    /// </remarks>
+    [Fact]
+    public async Task A_session_from_another_simulator_is_refused()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var elsewhere = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = DtoFactory.UniqueGameVersion() with { GameKey = "assetto-corsa-competizione" },
+        };
+
+        var response = await PostAsync("/api/v1/sessions", elsewhere);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // Both keys, because the useful question is which end is misconfigured and neither one
+        // answers it alone.
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        body.ShouldContain(DtoFactory.GameKey);
+        body.ShouldContain("assetto-corsa-competizione");
+    }
+
+    /// <summary>Capitalisation is a convention on a game key, not a constraint worth refusing over.</summary>
+    [Fact]
+    public async Task The_simulator_check_ignores_case()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
+        }
+
+        var shouted = DtoFactory.SessionCreateRequest() with
+        {
+            GameVersion = DtoFactory.UniqueGameVersion() with { GameKey = DtoFactory.GameKey.ToUpperInvariant() },
+        };
+
+        (await PostAsync("/api/v1/sessions", shouted)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
     [Fact]
     public async Task Unsupported_schema_version_is_rejected_with_400()
     {
@@ -203,20 +253,28 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
             .ShouldBe("Name After Rename");
     }
 
+    /// <summary>
+    /// The counterpart of the persistence-layer test of the same name, updated for the same reason:
+    /// this database is one simulator, so one sim driver id is one driver.
+    /// </summary>
+    /// <remarks>
+    /// It used to assert the opposite — two sessions from two different game keys producing two
+    /// driver rows scoped by <c>game_id</c>. That could not happen now even in principle, because a
+    /// session claiming a second simulator is refused at the door. Sim driver ids do still share a
+    /// numeric namespace across simulators; recognising one human across them is the identity
+    /// registry's job (ADR 0002), not this row's.
+    /// </remarks>
     [Fact]
-    public async Task The_same_sim_driver_id_in_two_different_games_resolves_to_two_drivers()
+    public async Task The_same_sim_driver_id_across_two_sessions_is_one_driver()
     {
         if (!fixture.IsAvailable)
         {
             Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
         }
 
-        // DtoFactory mints a fresh game key per call, so these two sessions come from two games that
-        // happen to have handed out the same numeric driver id to different people.
         var simDriverId = UniqueSimDriverId();
-        var first = DtoFactory.SessionCreateRequest() with { SimDriverId = simDriverId, PlayerName = "Driver In Game One" };
-        var second = DtoFactory.SessionCreateRequest() with { SimDriverId = simDriverId, PlayerName = "Driver In Game Two" };
-        first.GameVersion.GameKey.ShouldNotBe(second.GameVersion.GameKey);
+        var first = DtoFactory.SessionCreateRequest() with { SimDriverId = simDriverId, PlayerName = "First Session" };
+        var second = DtoFactory.SessionCreateRequest() with { SimDriverId = simDriverId, PlayerName = "Second Session" };
 
         (await PostAsync("/api/v1/sessions", first)).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await PostAsync("/api/v1/sessions", second)).StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -224,10 +282,7 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
         await using var db = await OpenDatabaseAsync();
 
         (await CountAsync(db, "SELECT count(*) FROM drivers WHERE sim_driver_id = @simDriverId", ("simDriverId", simDriverId)))
-            .ShouldBe(2, "sim driver ids share a numeric namespace across sims, so identity is scoped per game");
-
-        (await CountAsync(db, "SELECT count(DISTINCT game_id) FROM drivers WHERE sim_driver_id = @simDriverId", ("simDriverId", simDriverId)))
-            .ShouldBe(2);
+            .ShouldBe(1, "one simulator, one id, one person");
     }
 
     [Theory]
@@ -393,8 +448,8 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
 
         (await CountAsync(db, "SELECT count(*) FROM sessions WHERE id = @id", ("id", doomed.SessionId)))
             .ShouldBe(0);
-        (await CountAsync(db, "SELECT count(*) FROM games WHERE key = @key", ("key", gameVersion.GameKey)))
-            .ShouldBe(0, "the game resolved on the way to the failed insert must be rolled back with it");
+        (await CountAsync(db, "SELECT count(*) FROM game_versions WHERE connector_version = @v", ("v", gameVersion.ConnectorVersion)))
+            .ShouldBe(0, "the game version resolved on the way to the failed insert must be rolled back with it");
         (await CountAsync(db, "SELECT count(*) FROM drivers WHERE display_name = @name", ("name", playerName)))
             .ShouldBe(0, "an orphan driver row is exactly the residue this transaction exists to prevent");
         (await CountAsync(db, "SELECT count(*) FROM tracks WHERE name = @name", ("name", trackName)))
@@ -420,7 +475,7 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
 
         // Rejected before the transaction opens, so nothing was written on the way to the failure.
         await using var db = await OpenDatabaseAsync();
-        (await CountAsync(db, "SELECT count(*) FROM games WHERE key = @key", ("key", gameVersion.GameKey))).ShouldBe(0);
+        (await CountAsync(db, "SELECT count(*) FROM game_versions WHERE connector_version = @v", ("v", gameVersion.ConnectorVersion))).ShouldBe(0);
     }
 
     [Theory]
@@ -452,7 +507,7 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
             .ShouldContain(field, Case.Insensitive);
 
         await using var db = await OpenDatabaseAsync();
-        (await CountAsync(db, "SELECT count(*) FROM games WHERE key = @key", ("key", gameVersion.GameKey))).ShouldBe(0);
+        (await CountAsync(db, "SELECT count(*) FROM game_versions WHERE connector_version = @v", ("v", gameVersion.ConnectorVersion))).ShouldBe(0);
     }
 
     [Fact]

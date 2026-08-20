@@ -47,7 +47,8 @@ public static class SessionEndpoints
     private static async Task<IResult> CreateSessionAsync(
         SessionCreateRequest request,
         RaceIntelligenceDbContext db,
-        GameRepository gameRepo,
+        GameVersionRepository versionRepo,
+        IConfiguration configuration,
         TrackRepository trackRepo,
         CarRepository carRepo,
         DriverRepository driverRepo,
@@ -94,25 +95,41 @@ public static class SessionEndpoints
             return ProblemResults.MalformedJson(nameof(SessionCreateRequest.ExtrasJson), ex.Message);
         }
 
+        // This database holds one simulator's telemetry and nothing else (ADR 0001), so a post from
+        // another one is not a row to store — it is a misconfigured collector, and the only useful
+        // thing to do with it is say so. Accepting it would put two simulators' cars and drivers in
+        // a schema whose unique keys no longer scope by game, which silently merges them.
+        var expectedGameKey = configuration["Ingest:GameKey"];
+        var gameVersion = request.GameVersion;
+
+        // Case-insensitive because a game key is a lowercase convention rather than a constraint,
+        // and refusing a session over the capitalisation of "RaceRoom" would be a check that costs
+        // more than the mistake it catches.
+        if (gameVersion is null
+            || !string.Equals(expectedGameKey, gameVersion.GameKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return ProblemResults.WrongSimulator(expectedGameKey, gameVersion?.GameKey);
+        }
+
         await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
 
-        var (game, gameVersion) = await gameRepo.ResolveOrCreateAsync(
-            GameVersionContractMapper.ToCore(request.GameVersion), ct).ConfigureAwait(false);
+        var versionRow = await versionRepo.ResolveOrCreateAsync(
+            GameVersionContractMapper.ToCore(gameVersion), ct).ConfigureAwait(false);
 
         // The repository decides for itself whether there is anything to resolve — it returns null
         // when neither a sim driver id nor a name was reported — so there is no pre-check here.
         Guid? driverId = (await driverRepo.ResolveOrCreateAsync(
-            game.Id, request.SimDriverId, request.PlayerName, ct).ConfigureAwait(false))?.Id;
+            request.SimDriverId, request.PlayerName, ct).ConfigureAwait(false))?.Id;
 
         var (_, layout) = await trackRepo.ResolveOrCreateAsync(
-            game.Id, request.TrackName, request.LayoutName, request.LayoutLengthMeters ?? 0, ct: ct).ConfigureAwait(false);
+            request.TrackName, request.LayoutName, request.LayoutLengthMeters ?? 0, ct: ct).ConfigureAwait(false);
 
         // As with the driver above, the repository decides for itself whether there is anything to
         // resolve. SimCarId is the identity; CarName is only the label shown for it.
         Guid? carId = (await carRepo.ResolveOrCreateCarAsync(
-            game.Id, request.SimCarId, request.CarName, request.ManufacturerName, request.CarClassName, ct).ConfigureAwait(false))?.Id;
+            request.SimCarId, request.CarName, request.ManufacturerName, request.CarClassName, ct).ConfigureAwait(false))?.Id;
 
-        var entity = SessionMapper.ToEntity(sessionInfo, gameVersion.Id, driverId, layout.Id, carId, request.SchemaVersion);
+        var entity = SessionMapper.ToEntity(sessionInfo, versionRow.Id, driverId, layout.Id, carId, request.SchemaVersion);
 
         db.Sessions.Add(entity);
         try

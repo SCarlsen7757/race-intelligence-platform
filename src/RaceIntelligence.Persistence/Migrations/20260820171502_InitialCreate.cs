@@ -24,17 +24,33 @@ namespace RaceIntelligence.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "games",
+                name: "drivers",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    key = table.Column<string>(type: "text", nullable: false),
-                    name = table.Column<string>(type: "text", nullable: false),
+                    sim_driver_id = table.Column<string>(type: "text", nullable: true),
+                    display_name = table.Column<string>(type: "text", nullable: false),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_games", x => x.id);
+                    table.PrimaryKey("PK_drivers", x => x.id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "game_versions",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    game_version = table.Column<string>(type: "text", nullable: true),
+                    api_version_major = table.Column<int>(type: "integer", nullable: false),
+                    api_version_minor = table.Column<int>(type: "integer", nullable: false),
+                    connector_version = table.Column<string>(type: "text", nullable: false),
+                    first_seen_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_game_versions", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -50,66 +66,15 @@ namespace RaceIntelligence.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "drivers",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    game_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    sim_driver_id = table.Column<string>(type: "text", nullable: true),
-                    display_name = table.Column<string>(type: "text", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_drivers", x => x.id);
-                    table.ForeignKey(
-                        name: "FK_drivers_games_game_id",
-                        column: x => x.game_id,
-                        principalTable: "games",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "game_versions",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    game_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    game_version = table.Column<string>(type: "text", nullable: true),
-                    api_version_major = table.Column<int>(type: "integer", nullable: false),
-                    api_version_minor = table.Column<int>(type: "integer", nullable: false),
-                    connector_version = table.Column<string>(type: "text", nullable: false),
-                    first_seen_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_game_versions", x => x.id);
-                    table.ForeignKey(
-                        name: "FK_game_versions_games_game_id",
-                        column: x => x.game_id,
-                        principalTable: "games",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "tracks",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    game_id = table.Column<Guid>(type: "uuid", nullable: false),
                     name = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_tracks", x => x.id);
-                    table.ForeignKey(
-                        name: "FK_tracks_games_game_id",
-                        column: x => x.game_id,
-                        principalTable: "games",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -120,7 +85,6 @@ namespace RaceIntelligence.Persistence.Migrations
                     name = table.Column<string>(type: "text", nullable: false),
                     manufacturer_id = table.Column<Guid>(type: "uuid", nullable: true),
                     car_class_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    game_id = table.Column<Guid>(type: "uuid", nullable: false),
                     sim_car_id = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
@@ -130,12 +94,6 @@ namespace RaceIntelligence.Persistence.Migrations
                         name: "FK_cars_car_classes_car_class_id",
                         column: x => x.car_class_id,
                         principalTable: "car_classes",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_cars_games_game_id",
-                        column: x => x.game_id,
-                        principalTable: "games",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
@@ -256,6 +214,7 @@ namespace RaceIntelligence.Persistence.Migrations
                     speed = table.Column<float>(type: "real", nullable: false),
                     throttle = table.Column<float>(type: "real", nullable: true),
                     brake = table.Column<float>(type: "real", nullable: true),
+                    clutch = table.Column<float>(type: "real", nullable: true),
                     steering = table.Column<float>(type: "real", nullable: false),
                     gear = table.Column<short>(type: "smallint", nullable: true),
                     engine_rpm = table.Column<float>(type: "real", nullable: false),
@@ -292,39 +251,33 @@ namespace RaceIntelligence.Persistence.Migrations
                 column: "car_class_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_cars_game_id_sim_car_id",
-                table: "cars",
-                columns: new[] { "game_id", "sim_car_id" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
                 name: "IX_cars_manufacturer_id",
                 table: "cars",
                 column: "manufacturer_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_drivers_game_id_display_name",
+                name: "IX_cars_sim_car_id",
+                table: "cars",
+                column: "sim_car_id",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_drivers_display_name",
                 table: "drivers",
-                columns: new[] { "game_id", "display_name" },
+                column: "display_name",
                 unique: true,
                 filter: "sim_driver_id IS NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_drivers_game_id_sim_driver_id",
+                name: "IX_drivers_sim_driver_id",
                 table: "drivers",
-                columns: new[] { "game_id", "sim_driver_id" },
+                column: "sim_driver_id",
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_game_versions_game_id_game_version_api_version_major_api_ve~",
+                name: "IX_game_versions_game_version_api_version_major_api_version_mi~",
                 table: "game_versions",
-                columns: new[] { "game_id", "game_version", "api_version_major", "api_version_minor", "connector_version" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_games_key",
-                table: "games",
-                column: "key",
+                columns: new[] { "game_version", "api_version_major", "api_version_minor", "connector_version" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -371,9 +324,9 @@ namespace RaceIntelligence.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_tracks_game_id_name",
+                name: "IX_tracks_name",
                 table: "tracks",
-                columns: new[] { "game_id", "name" },
+                column: "name",
                 unique: true);
         }
 
@@ -409,9 +362,6 @@ namespace RaceIntelligence.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "tracks");
-
-            migrationBuilder.DropTable(
-                name: "games");
         }
     }
 }

@@ -12,8 +12,8 @@ using RaceIntelligence.Persistence;
 namespace RaceIntelligence.Persistence.Migrations
 {
     [DbContext(typeof(RaceIntelligenceDbContext))]
-    [Migration("20260817112344_AddClutch")]
-    partial class AddClutch
+    [Migration("20260820171502_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -35,10 +35,6 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("car_class_id");
 
-                    b.Property<Guid>("GameId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("game_id");
-
                     b.Property<Guid?>("ManufacturerId")
                         .HasColumnType("uuid")
                         .HasColumnName("manufacturer_id");
@@ -59,7 +55,7 @@ namespace RaceIntelligence.Persistence.Migrations
 
                     b.HasIndex("ManufacturerId");
 
-                    b.HasIndex("GameId", "SimCarId")
+                    b.HasIndex("SimCarId")
                         .IsUnique();
 
                     b.ToTable("cars", (string)null);
@@ -99,52 +95,20 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("display_name");
 
-                    b.Property<Guid>("GameId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("game_id");
-
                     b.Property<string>("SimDriverId")
                         .HasColumnType("text")
                         .HasColumnName("sim_driver_id");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("GameId", "DisplayName")
+                    b.HasIndex("DisplayName")
                         .IsUnique()
                         .HasFilter("sim_driver_id IS NULL");
 
-                    b.HasIndex("GameId", "SimDriverId")
+                    b.HasIndex("SimDriverId")
                         .IsUnique();
 
                     b.ToTable("drivers", (string)null);
-                });
-
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Game", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("key");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Key")
-                        .IsUnique();
-
-                    b.ToTable("games", (string)null);
                 });
 
             modelBuilder.Entity("RaceIntelligence.Persistence.Entities.GameVersion", b =>
@@ -170,17 +134,13 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("first_seen_at");
 
-                    b.Property<Guid>("GameId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("game_id");
-
                     b.Property<string>("GameVersionText")
                         .HasColumnType("text")
                         .HasColumnName("game_version");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("GameId", "GameVersionText", "ApiVersionMajor", "ApiVersionMinor", "ConnectorVersion")
+                    b.HasIndex("GameVersionText", "ApiVersionMajor", "ApiVersionMinor", "ConnectorVersion")
                         .IsUnique();
 
                     b.ToTable("game_versions", (string)null);
@@ -451,10 +411,6 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("GameId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("game_id");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -462,7 +418,7 @@ namespace RaceIntelligence.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("GameId", "Name")
+                    b.HasIndex("Name")
                         .IsUnique();
 
                     b.ToTable("tracks", (string)null);
@@ -502,12 +458,6 @@ namespace RaceIntelligence.Persistence.Migrations
                         .HasForeignKey("CarClassId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Game", "Game")
-                        .WithMany("Cars")
-                        .HasForeignKey("GameId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("RaceIntelligence.Persistence.Entities.Manufacturer", "Manufacturer")
                         .WithMany("Cars")
                         .HasForeignKey("ManufacturerId")
@@ -515,31 +465,7 @@ namespace RaceIntelligence.Persistence.Migrations
 
                     b.Navigation("CarClass");
 
-                    b.Navigation("Game");
-
                     b.Navigation("Manufacturer");
-                });
-
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Driver", b =>
-                {
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Game", "Game")
-                        .WithMany()
-                        .HasForeignKey("GameId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Game");
-                });
-
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.GameVersion", b =>
-                {
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Game", "Game")
-                        .WithMany("Versions")
-                        .HasForeignKey("GameId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Game");
                 });
 
             modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Lap", b =>
@@ -596,17 +522,6 @@ namespace RaceIntelligence.Persistence.Migrations
                     b.Navigation("Session");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Track", b =>
-                {
-                    b.HasOne("RaceIntelligence.Persistence.Entities.Game", "Game")
-                        .WithMany("Tracks")
-                        .HasForeignKey("GameId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Game");
-                });
-
             modelBuilder.Entity("RaceIntelligence.Persistence.Entities.TrackLayout", b =>
                 {
                     b.HasOne("RaceIntelligence.Persistence.Entities.Track", "Track")
@@ -631,15 +546,6 @@ namespace RaceIntelligence.Persistence.Migrations
             modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Driver", b =>
                 {
                     b.Navigation("Sessions");
-                });
-
-            modelBuilder.Entity("RaceIntelligence.Persistence.Entities.Game", b =>
-                {
-                    b.Navigation("Cars");
-
-                    b.Navigation("Tracks");
-
-                    b.Navigation("Versions");
                 });
 
             modelBuilder.Entity("RaceIntelligence.Persistence.Entities.GameVersion", b =>
