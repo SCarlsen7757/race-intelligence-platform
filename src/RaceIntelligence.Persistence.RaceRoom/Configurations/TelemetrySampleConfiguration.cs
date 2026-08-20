@@ -49,6 +49,23 @@ public sealed class TelemetrySampleConfiguration : IEntityTypeConfiguration<Tele
             .HasColumnType("jsonb")
             .IsRequired();
 
+        // RaceRoom-owned promoted extras. These are shadow properties on the canonical entity on
+        // purpose: Persistence.Core owns no simulator schema, while this store can query the values
+        // RaceRoom exposes without repeatedly parsing jsonb. Negative simulator sentinels are
+        // translated to null by RaceRoomExtrasProjector before the bulk write path reaches Postgres.
+        builder.Property<int?>("PushToPassAvailable").HasColumnName("push_to_pass_available");
+        builder.Property<int?>("PushToPassEngaged").HasColumnName("push_to_pass_engaged");
+        builder.Property<int?>("PushToPassAmountLeft").HasColumnName("push_to_pass_amount_left");
+        builder.Property<float?>("PushToPassEngagedTimeLeftSeconds").HasColumnName("push_to_pass_engaged_time_left_seconds");
+        builder.Property<float?>("PushToPassWaitTimeLeftSeconds").HasColumnName("push_to_pass_wait_time_left_seconds");
+        builder.Property<int?>("TyreSubtypeFront").HasColumnName("tyre_subtype_front");
+        builder.Property<int?>("TyreSubtypeRear").HasColumnName("tyre_subtype_rear");
+        builder.Property<int?>("CutTrackWarnings").HasColumnName("cut_track_warnings");
+        builder.Property<float?>("DamageEngine").HasColumnName("damage_engine");
+        builder.Property<float?>("DamageTransmission").HasColumnName("damage_transmission");
+        builder.Property<float?>("DamageAerodynamics").HasColumnName("damage_aerodynamics");
+        builder.Property<float?>("DamageSuspension").HasColumnName("damage_suspension");
+
         // BRIN over the future TimescaleDB partitioning column: cheap, effective on
         // naturally time-ordered inserts, and a fraction of a B-tree's size on this table.
         builder.HasIndex(t => t.Timestamp)

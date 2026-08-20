@@ -107,7 +107,11 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
         var efSessionId = await SampleFactory.CreateSessionAsync(db);
 
         var timestamp = DateTimeOffset.UtcNow;
-        var sample = SampleFactory.TelemetrySample(copySessionId, sequenceNumber: 7, timestamp: timestamp, extras: SampleFactory.NonTrivialExtrasText)
+        var sample = SampleFactory.TelemetrySample(
+            copySessionId,
+            sequenceNumber: 7,
+            timestamp: timestamp,
+            extras: """{"tags":["yellow-flag","traffic"],"correctionFactor":1.0625,"note":null}""")
             with
             {
                 // One wheel unreported on each nullable array, and an all-null array, so the
@@ -156,6 +160,75 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
         viaCopy.TyreWear.ShouldBeNull("an all-unreported wheel array is a null column, not an array of nulls");
         viaCopy.TyreTemperature.GetRawText().ShouldBe(viaEf.TyreTemperature.GetRawText());
         viaCopy.Extras.ShouldBe(viaEf.Extras);
+    }
+
+    [Fact]
+    public async Task Copy_path_projects_all_raceroom_columns_and_keeps_only_unpromoted_extras()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Postgres container unavailable.");
+        }
+
+        await using var db = fixture.CreateContext();
+        var sessionId = await SampleFactory.CreateSessionAsync(db);
+        const string extras =
+            """
+            {
+              "pushToPass": {
+                "available": 1, "engaged": 0, "amountLeft": -1,
+                "engagedTimeLeftSeconds": 2.5, "waitTimeLeftSeconds": -1.0,
+                "boostMode": "attack"
+              },
+              "tireSubtypeFront": 3, "tireSubtypeRear": -1,
+              "cutTrackWarnings": 0,
+              "damage": {
+                "engine": 0.0, "transmission": 0.25, "aerodynamics": -1.0,
+                "suspension": 1.0, "chassis": 0.75
+              },
+              "unknown": [1, 2, 3]
+            }
+            """;
+
+        var sample = SampleFactory.TelemetrySample(sessionId, 901, extras: extras);
+        await new NpgsqlTelemetryWriter(fixture.DataSource).WriteAsync(sessionId, [sample]);
+
+        await using var connection = await fixture.DataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT push_to_pass_available, push_to_pass_engaged, push_to_pass_amount_left,
+                   push_to_pass_engaged_time_left_seconds, push_to_pass_wait_time_left_seconds,
+                   tyre_subtype_front, tyre_subtype_rear, cut_track_warnings,
+                   damage_engine, damage_transmission, damage_aerodynamics, damage_suspension,
+                   extras::text
+            FROM telemetry_samples
+            WHERE session_id = @session_id AND sequence_number = 901
+            """;
+        command.Parameters.AddWithValue("session_id", sessionId);
+
+        await using var reader = await command.ExecuteReaderAsync();
+        (await reader.ReadAsync()).ShouldBeTrue();
+        reader.GetInt32(0).ShouldBe(1);
+        reader.GetInt32(1).ShouldBe(0, "a real zero must survive sentinel conversion");
+        (await reader.IsDBNullAsync(2)).ShouldBeTrue();
+        reader.GetFloat(3).ShouldBe(2.5f);
+        (await reader.IsDBNullAsync(4)).ShouldBeTrue();
+        reader.GetInt32(5).ShouldBe(3);
+        (await reader.IsDBNullAsync(6)).ShouldBeTrue();
+        reader.GetInt32(7).ShouldBe(0, "zero cut-track warnings is a reported value");
+        reader.GetFloat(8).ShouldBe(0f);
+        reader.GetFloat(9).ShouldBe(0.25f);
+        (await reader.IsDBNullAsync(10)).ShouldBeTrue();
+        reader.GetFloat(11).ShouldBe(1f);
+
+        using var storedExtras = System.Text.Json.JsonDocument.Parse(reader.GetString(12));
+        var root = storedExtras.RootElement;
+        root.GetProperty("unknown").GetArrayLength().ShouldBe(3);
+        root.GetProperty("pushToPass").GetProperty("boostMode").GetString().ShouldBe("attack");
+        root.GetProperty("damage").GetProperty("chassis").GetSingle().ShouldBe(0.75f);
+        root.TryGetProperty("tireSubtypeFront", out _).ShouldBeFalse();
+        root.TryGetProperty("cutTrackWarnings", out _).ShouldBeFalse();
     }
 
     /// <summary>
