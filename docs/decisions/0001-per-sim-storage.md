@@ -1,10 +1,11 @@
 # 0001 — Per-simulator storage
 
-**Status:** Accepted. **Steps 1, 2 and 4 of the migration path are built**, and the per-simulator
+**Status:** Accepted. **All four steps of the migration path are built**, and the per-simulator
 project split they imply has landed: `Persistence.Core` holds the canonical types and declares no
 schema, `Persistence.RaceRoom` owns RaceRoom's tables, migrations and bulk writer, and
-`Ingest.RaceRoom` hosts the shared endpoints against it. **Step 3 — promoting a simulator's
-first-class channels out of `extras` — is not built.**
+`Ingest.RaceRoom` hosts the shared endpoints against it. RaceRoom's push-to-pass, tyre subtype,
+cut-track warning and damage channels are promoted into typed nullable columns while unrecognised
+data remains in `extras`.
 **Supersedes:** the "one database holds every simulator" assumption in [architecture.md](../architecture.md).
 **Depends on:** [0002 — the cross-simulator translator](0002-cross-sim-translator.md), which is what makes this decision survivable.
 
@@ -12,10 +13,11 @@ first-class channels out of `extras` — is not built.**
 
 ## Context
 
-Storage today is one PostgreSQL database for every simulator. `games` is a reference table, and
-`drivers`, `tracks`, `cars` and `game_versions` all carry a `game_id` foreign key. Anything a
+Storage originally used one PostgreSQL database for every simulator. `games` was a reference table,
+and `drivers`, `tracks`, `cars` and `game_versions` all carried a `game_id` foreign key. Anything a
 simulator exposes that the canonical model does not name — push-to-pass, tyre subtype, cut-track
-warnings, car damage — goes into a JSONB `extras` column.
+warnings, car damage — crossed the shared wire in a JSONB `extras` document and remained there in
+storage.
 
 That design bought one thing above all: a driver is `(game_id, sim_driver_id)`, so one database can
 hold the same human's laps from several simulators and tell them apart from each other and from
@@ -109,15 +111,19 @@ Today's database is RaceRoom-only in practice, which makes the first step cheap:
    from `Ingest:GameKey`; a session claiming another one is refused with a 400 naming both keys,
    rather than stored.
 2. ~~Drop `games`, drop the `game_id` columns and re-point the unique indexes.~~ **Done.**
-3. Promote RaceRoom's `extras` channels into typed columns, backfilling from the JSON already stored.
+3. ~~Promote RaceRoom's `extras` channels into typed columns.~~ **Done.** Push-to-pass, tyre subtype,
+   cut-track warnings and damage are projected once at the storage boundary. Negative simulator
+   sentinels become `NULL`, zero remains zero, and promoted leaves are removed from stored `extras`.
+   The pre-v1 local database was recreated instead of backfilled because it held no data worth
+   preserving.
 4. ~~Stand up the identity registry (0002) *before* the second simulator, not after — retrofitting
    identity across two populated databases is materially harder than seeding it with one.~~
    **Done.** `person` and `person_sim_alias` live in their own database, with a small service in
    front of them for the hand-curation — see 0002 §1.
 
-Step 4 was the one with a deadline, and it has been met while there is still exactly one simulator
-to seed from. Step 3 is what remains, and it is the one that makes the rest of this decision worth
-its bill.
+Step 4 was the one with a deadline, and it was met while there was still exactly one simulator to
+seed from. Step 3 completes the simulator-owned storage shape that makes the rest of this decision
+worth its bill.
 
 ## Open questions
 

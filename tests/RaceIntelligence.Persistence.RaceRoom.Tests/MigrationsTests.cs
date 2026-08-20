@@ -65,6 +65,65 @@ public sealed class MigrationsTests(PostgresFixture fixture)
         (await PrimaryKeyColumnsAsync(connection, "telemetry_samples")).ShouldBe(["session_id", "timestamp", "sequence_number"]);
     }
 
+    [Fact]
+    public async Task RaceRoom_promoted_telemetry_columns_are_nullable_and_have_expected_types()
+    {
+        if (!fixture.IsAvailable)
+        {
+            Assert.Skip(fixture.SkipReason ?? "Postgres container unavailable.");
+        }
+
+        await using var db = fixture.CreateContext();
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync();
+
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT column_name, data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'telemetry_samples'
+              AND column_name = ANY(@columns)
+            """;
+        var parameter = cmd.CreateParameter();
+        parameter.ParameterName = "columns";
+        parameter.Value = new[]
+        {
+            "push_to_pass_available",
+            "push_to_pass_engaged",
+            "push_to_pass_amount_left",
+            "push_to_pass_engaged_time_left_seconds",
+            "push_to_pass_wait_time_left_seconds",
+            "tyre_subtype_front",
+            "tyre_subtype_rear",
+            "cut_track_warnings",
+            "damage_engine",
+            "damage_transmission",
+            "damage_aerodynamics",
+            "damage_suspension",
+        };
+        cmd.Parameters.Add(parameter);
+
+        var actual = new Dictionary<string, (string DataType, string IsNullable)>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            actual.Add(reader.GetString(0), (reader.GetString(1), reader.GetString(2)));
+        }
+
+        actual.Count.ShouldBe(12);
+        foreach (var (column, metadata) in actual)
+        {
+            metadata.IsNullable.ShouldBe("YES", $"{column} must preserve RaceRoom's unavailable sentinel as null");
+            metadata.DataType.ShouldBe(
+                column.StartsWith("damage_", StringComparison.Ordinal)
+                || column.EndsWith("_seconds", StringComparison.Ordinal)
+                    ? "real"
+                    : "integer");
+        }
+    }
+
     private static async Task<List<string>> PrimaryKeyColumnsAsync(System.Data.Common.DbConnection connection, string table)
     {
         await using var cmd = connection.CreateCommand();

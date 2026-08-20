@@ -903,6 +903,32 @@ describe('LiveStore lap traces', () => {
     expect(store.referenceLapFor('id:2')?.lapNumber).toBe(2);
   });
 
+  it('retains an early completed lap after a long sequence without notifying per focus frame', () => {
+    const store = following(['id:2']);
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    let at = 0;
+    for (let lapNumber = 1; lapNumber <= 120; lapNumber++) {
+      at = driveLap(store, lapNumber, 90 + lapNumber / 10, at);
+    }
+
+    // Move to the next lap to close lap 120 as well. The only focus-path notification remains the
+    // first-frame readiness announcement; retaining completed traces does not introduce React
+    // updates at frame rate.
+    store.apply(focusFrame({ lapNumber: 121, trackPositionFraction: 0, simulationTime: at }));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    store.apply(
+      lapHistoryFor([
+        { lapNumber: 1, lapTimeMs: 90_100, valid: true },
+        { lapNumber: 120, lapTimeMs: 102_000, valid: true },
+      ]),
+    );
+
+    expect(store.referenceLapFor('id:2')?.lapNumber).toBe(1);
+  });
+
   it('refuses a lap the simulator invalidated, but not one it said nothing about', () => {
     const store = following(['id:2']);
 
@@ -1029,6 +1055,50 @@ describe('LiveStore race timeline and per-lap series', () => {
     // Ten snapshots inside one second is one sample. A race lasts hours and the tower arrives ten
     // times a second; without this the ring would hold four minutes of it.
     expect(store.raceTracesFor('id:1').position.length).toBe(1);
+  });
+
+  it("retains a departed driver's race history after later snapshots", () => {
+    const clock = { now: 0 };
+    const store = new LiveStore(() => clock.now);
+
+    store.apply({
+      ...tower,
+      drivers: [
+        towerRow('id:1', { position: 1 }),
+        towerRow('id:2', { position: 2, gapToCarAheadMs: 1_500 }),
+      ],
+    });
+
+    clock.now = 1_000;
+    store.apply({ ...tower, drivers: [towerRow('id:1', { position: 1 })] });
+
+    const departed = store.raceTracesFor('id:2');
+    expect([...departed.position.toArray()]).toEqual([2]);
+    expect([...departed.gapToLeaderSeconds.toArray()]).toEqual([1.5]);
+  });
+
+  it('clears completed laps and departed-driver race history when the room resets', () => {
+    const store = following(['id:2'], () => 0);
+    for (let step = 0; step <= 100; step++) {
+      store.apply(
+        focusFrame({
+          lapNumber: 1,
+          trackPositionFraction: step / 100,
+          simulationTime: (step / 100) * 90,
+        }),
+      );
+    }
+    store.apply(focusFrame({ lapNumber: 2, trackPositionFraction: 0, simulationTime: 90 }));
+    store.apply(lapHistoryFor([{ lapNumber: 1, lapTimeMs: 90_000, valid: true }]));
+    store.apply({ ...tower, drivers: [towerRow('id:9', { position: 1 })] });
+
+    expect(store.referenceLapFor('id:2')?.lapNumber).toBe(1);
+    expect(store.raceTracesFor('id:9').position.length).toBe(1);
+
+    store.resetFocus();
+
+    expect(store.referenceLapFor('id:2')).toBeNull();
+    expect(store.raceTracesFor('id:9').position.length).toBe(0);
   });
 
   it('derives fuel used per lap, and replaces the summaries rather than mutating them', () => {

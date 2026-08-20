@@ -3,6 +3,7 @@ using RaceIntelligence.Persistence.Core.Bulk;
 using NpgsqlTypes;
 using RaceIntelligence.Persistence.Core.Converters;
 using RaceIntelligence.Persistence.Core.Mapping;
+using RaceIntelligence.Persistence.RaceRoom.Mapping;
 using CoreTelemetry = RaceIntelligence.Core.Telemetry;
 
 namespace RaceIntelligence.Persistence.RaceRoom.Bulk;
@@ -63,7 +64,11 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource) : ITeleme
         "session_id", "timestamp", "sequence_number", "simulation_time", "lap_number", "sector",
         "speed", "throttle", "brake", "clutch", "steering", "gear", "engine_rpm", "fuel_left", "position",
         "track_position_fraction", "wheel_speed", "suspension_travel", "tyre_pressure", "tyre_wear",
-        "tyre_temperature", "extras",
+        "tyre_temperature", "push_to_pass_available", "push_to_pass_engaged",
+        "push_to_pass_amount_left", "push_to_pass_engaged_time_left_seconds",
+        "push_to_pass_wait_time_left_seconds", "tyre_subtype_front", "tyre_subtype_rear",
+        "cut_track_warnings", "damage_engine", "damage_transmission", "damage_aerodynamics",
+        "damage_suspension", "extras",
     ];
 
     private static readonly string ColumnList = string.Join(", ", Columns);
@@ -159,6 +164,10 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource) : ITeleme
         RowBuffers buffers,
         CancellationToken ct)
     {
+        // Parse the simulator document exactly once per sample. The projection owns sentinel
+        // conversion and gives the jsonb column only the unpromoted remainder.
+        var extras = RaceRoomExtrasProjector.Project(sample.Extras);
+
         await importer.StartRowAsync(ct).ConfigureAwait(false);
 
         await importer.WriteAsync(sample.SessionId, NpgsqlDbType.Uuid, ct).ConfigureAwait(false);
@@ -191,7 +200,19 @@ public sealed class NpgsqlTelemetryWriter(NpgsqlDataSource dataSource) : ITeleme
         await WriteNullableArrayAsync(importer, Fill(buffers.TyreWear, sample.TyreWear), ct).ConfigureAwait(false);
         await importer.WriteAsync(
             TelemetrySampleMapper.SerializeTyreTemperatureText(sample.TyreTemperature), NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
-        await importer.WriteAsync(sample.Extras, NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.PushToPassAvailable, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.PushToPassEngaged, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.PushToPassAmountLeft, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.PushToPassEngagedTimeLeftSeconds, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.PushToPassWaitTimeLeftSeconds, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.TyreSubtypeFront, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.TyreSubtypeRear, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.CutTrackWarnings, NpgsqlDbType.Integer, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.DamageEngine, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.DamageTransmission, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.DamageAerodynamics, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await WriteNullableAsync(importer, extras.DamageSuspension, NpgsqlDbType.Real, ct).ConfigureAwait(false);
+        await importer.WriteAsync(extras.Extras, NpgsqlDbType.Jsonb, ct).ConfigureAwait(false);
     }
 
     private static float[] Fill(float[] buffer, CoreTelemetry.WheelData<float> wheelData)

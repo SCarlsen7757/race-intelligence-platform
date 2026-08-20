@@ -317,6 +317,26 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                         .HasColumnType("real")
                         .HasColumnName("clutch");
 
+                    b.Property<int?>("CutTrackWarnings")
+                        .HasColumnType("integer")
+                        .HasColumnName("cut_track_warnings");
+
+                    b.Property<float?>("DamageAerodynamics")
+                        .HasColumnType("real")
+                        .HasColumnName("damage_aerodynamics");
+
+                    b.Property<float?>("DamageEngine")
+                        .HasColumnType("real")
+                        .HasColumnName("damage_engine");
+
+                    b.Property<float?>("DamageSuspension")
+                        .HasColumnType("real")
+                        .HasColumnName("damage_suspension");
+
+                    b.Property<float?>("DamageTransmission")
+                        .HasColumnType("real")
+                        .HasColumnName("damage_transmission");
+
                     b.Property<float>("EngineRpm")
                         .HasColumnType("real")
                         .HasColumnName("engine_rpm");
@@ -341,6 +361,26 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.Property<short?>("Position")
                         .HasColumnType("smallint")
                         .HasColumnName("position");
+
+                    b.Property<int?>("PushToPassAmountLeft")
+                        .HasColumnType("integer")
+                        .HasColumnName("push_to_pass_amount_left");
+
+                    b.Property<int?>("PushToPassAvailable")
+                        .HasColumnType("integer")
+                        .HasColumnName("push_to_pass_available");
+
+                    b.Property<float?>("PushToPassEngagedTimeLeftSeconds")
+                        .HasColumnType("real")
+                        .HasColumnName("push_to_pass_engaged_time_left_seconds");
+
+                    b.Property<int?>("PushToPassEngaged")
+                        .HasColumnType("integer")
+                        .HasColumnName("push_to_pass_engaged");
+
+                    b.Property<float?>("PushToPassWaitTimeLeftSeconds")
+                        .HasColumnType("real")
+                        .HasColumnName("push_to_pass_wait_time_left_seconds");
 
                     b.Property<int>("Sector")
                         .HasColumnType("integer")
@@ -379,6 +419,14 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("tyre_temperature");
+
+                    b.Property<int?>("TyreSubtypeFront")
+                        .HasColumnType("integer")
+                        .HasColumnName("tyre_subtype_front");
+
+                    b.Property<int?>("TyreSubtypeRear")
+                        .HasColumnType("integer")
+                        .HasColumnName("tyre_subtype_rear");
 
                     b.PrimitiveCollection<float?[]>("TyreWear")
                         .HasColumnType("real[]")

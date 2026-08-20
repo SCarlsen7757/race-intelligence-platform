@@ -226,6 +226,18 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     tyre_pressure = table.Column<float?[]>(type: "real[]", nullable: true),
                     tyre_wear = table.Column<float?[]>(type: "real[]", nullable: true),
                     tyre_temperature = table.Column<string>(type: "jsonb", nullable: false),
+                    push_to_pass_available = table.Column<int>(type: "integer", nullable: true),
+                    push_to_pass_engaged = table.Column<int>(type: "integer", nullable: true),
+                    push_to_pass_amount_left = table.Column<int>(type: "integer", nullable: true),
+                    push_to_pass_engaged_time_left_seconds = table.Column<float>(type: "real", nullable: true),
+                    push_to_pass_wait_time_left_seconds = table.Column<float>(type: "real", nullable: true),
+                    tyre_subtype_front = table.Column<int>(type: "integer", nullable: true),
+                    tyre_subtype_rear = table.Column<int>(type: "integer", nullable: true),
+                    cut_track_warnings = table.Column<int>(type: "integer", nullable: true),
+                    damage_engine = table.Column<float>(type: "real", nullable: true),
+                    damage_transmission = table.Column<float>(type: "real", nullable: true),
+                    damage_aerodynamics = table.Column<float>(type: "real", nullable: true),
+                    damage_suspension = table.Column<float>(type: "real", nullable: true),
                     extras = table.Column<string>(type: "jsonb", nullable: false)
                 },
                 constraints: table =>
