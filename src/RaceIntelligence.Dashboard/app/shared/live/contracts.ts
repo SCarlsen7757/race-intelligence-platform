@@ -368,7 +368,6 @@ export type LiveErrorCode =
   | 'roomClosed'
   | 'unknownDriver'
   | 'noTelemetryForDriver'
-  | 'tooManyFocusDrivers'
   | 'notWatchingRoom'
   | 'malformedCommand';
 
@@ -382,10 +381,8 @@ export interface WatchRoomCommand {
  * Adds a driver to the set whose full-rate channels this viewer receives, or drops **all** of them
  * with `driverKey: null`.
  *
- * Additive and capped, following the same pattern `subscribeLapHistory` does — two cars on screen at
- * once is what a comparison is. The cap lives on the hub (`LiveViewer.MaxFocusDrivers`) because
- * focus frames are the 60 Hz channel and the viewing endpoint is open; asking for one too many is
- * answered with `tooManyFocusDrivers` rather than by evicting a driver already being watched.
+ * Additive and uncapped, following the same pattern `subscribeLapHistory` does — a race engineer
+ * comparing several cars at once needs all of them on screen, not just two.
  */
 export interface FocusDriverCommand {
   type: 'focusDriver';

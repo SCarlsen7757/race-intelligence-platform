@@ -218,15 +218,7 @@ public sealed class ViewerSession(
         switch (room.GetFocusAvailability(driverKey))
         {
             case DriverFocusAvailability.Available:
-                // Refused rather than answered by evicting one of the drivers already open. A
-                // comparison silently losing half of itself is worse than being told it cannot start.
-                if (!viewer.Focus(driverKey))
-                {
-                    viewer.Queue.OfferError(new LiveErrorMessage(
-                        LiveErrorCodes.TooManyFocusDrivers,
-                        $"Only {LiveViewer.MaxFocusDrivers} drivers can be followed at full rate at once."));
-                    return;
-                }
+                viewer.Focus(driverKey);
 
                 // Answered from what the hub already holds rather than waiting out an extras
                 // interval. At roughly 1 Hz that is a second of an empty damage panel, which a race

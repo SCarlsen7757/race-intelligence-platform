@@ -30,19 +30,11 @@ public sealed record WatchRoomCommand(string? RoomId) : LiveViewCommand;
 /// Adds a driver to the set whose full-rate channels this viewer receives.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <b>Additive, and capped.</b> A race engineer answering "why is he quicker than me through the
+/// <b>Additive, and uncapped.</b> A race engineer answering "why is he quicker than me through the
 /// infield" needs both cars on screen at once, so this follows the
-/// <see cref="SubscribeLapHistoryCommand"/> precedent rather than replacing the previous focus.
-/// </para>
-/// <para>
-/// The cap is the part worth stating out loud. Focus frames are the 60 Hz channel, and the whole
-/// two-rate design exists so they are not broadcast widely; allowing an unbounded set would let one
-/// browser ask for a full field's telemetry and quietly multiply the hub's send cost by twenty. Two
-/// is what a comparison needs, and <see cref="LiveViewer.MaxFocusDrivers"/> is where that number
-/// lives. Asking for one more is refused with <c>tooManyFocusDrivers</c> rather than silently
-/// evicting a driver the viewer is still watching.
-/// </para>
+/// <see cref="SubscribeLapHistoryCommand"/> precedent rather than replacing the previous focus, and
+/// the same way that command is uncapped, so is this one — a viewer may follow as many drivers at
+/// full rate as the room has.
 /// </remarks>
 /// <param name="DriverKey">
 /// The driver to follow, matching <see cref="TowerRow.DriverKey"/>, or <see langword="null"/> to
@@ -72,11 +64,10 @@ public sealed record UnfocusDriverCommand(string DriverKey) : LiveViewCommand;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Additive, and uncapped where <see cref="FocusDriverCommand"/> is capped.</b> A viewer may hold
-/// as many of these as it has rows expanded, because comparing stints side by side is the whole
-/// point of expanding rows. The cost scale is what makes the two answers different: a lap history is
-/// sent when a lap finishes, roughly once a minute per driver, so a dozen subscriptions is still far
-/// less traffic than one focus stream.
+/// <b>Additive and uncapped</b>, the same as <see cref="FocusDriverCommand"/>. A viewer may hold as
+/// many of these as it has rows expanded, because comparing stints side by side is the whole point
+/// of expanding rows. A lap history is sent when a lap finishes, roughly once a minute per driver, so
+/// a dozen subscriptions is still far less traffic than one focus stream.
 /// </para>
 /// <para>
 /// Works for a driver of any <see cref="LiveDataTier"/>. Lap history comes from the standings

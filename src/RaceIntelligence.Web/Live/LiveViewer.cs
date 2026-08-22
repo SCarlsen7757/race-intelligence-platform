@@ -16,24 +16,6 @@ namespace RaceIntelligence.Web.Live;
 public sealed class LiveViewer
 {
     /// <summary>
-    /// How many drivers one viewer may follow at full rate.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Two, because a comparison needs exactly two and the number is a cost, not a preference. Focus
-    /// frames are the 60 Hz channel; the two-rate transport exists precisely so they are not
-    /// broadcast widely, and each additional subscription multiplies this viewer's share of the
-    /// hub's serialize-and-send work by a whole stream.
-    /// </para>
-    /// <para>
-    /// Stated as a constant rather than left to fall out of however many the dashboard happens to
-    /// ask for: the endpoint is open, so the bound has to hold against a client that is not the
-    /// dashboard.
-    /// </para>
-    /// </remarks>
-    public const int MaxFocusDrivers = 2;
-
-    /// <summary>
     /// Drivers whose completed laps this viewer has asked for, used as a set.
     /// </summary>
     /// <remarks>
@@ -48,9 +30,9 @@ public sealed class LiveViewer
     /// Drivers whose full-rate channels this viewer is following, used as a set.
     /// </summary>
     /// <remarks>
-    /// A set rather than a slot so two cars can be read side by side — see
-    /// <see cref="MaxFocusDrivers"/> for why it is a small set. Concurrent for the same reason the
-    /// lap-history set is: the command loop writes it while every publisher's receive loop reads it.
+    /// A set rather than a slot, so any number of cars can be read side by side. Concurrent for the
+    /// same reason the lap-history set is: the command loop writes it while every publisher's
+    /// receive loop reads it.
     /// </remarks>
     private readonly ConcurrentDictionary<string, byte> _focusDriverKeys =
         new(StringComparer.Ordinal);
@@ -95,27 +77,16 @@ public sealed class LiveViewer
         Queue.ClearSessionState();
     }
 
-    /// <summary>
-    /// Adds a driver to the set this viewer follows at full rate.
-    /// </summary>
-    /// <returns>
-    /// <see langword="false"/> when the viewer already follows <see cref="MaxFocusDrivers"/> others,
-    /// so the caller can answer rather than silently doing nothing.
-    /// </returns>
-    public bool Focus(string driverKey)
+    /// <summary>Adds a driver to the set this viewer follows at full rate.</summary>
+    /// <remarks>
+    /// Re-stating an existing focus is a no-op rather than an error: a dashboard replaying its
+    /// subscriptions after a reconnect must not be refused for asking for what it already has.
+    /// </remarks>
+    public void Focus(string driverKey)
     {
         ArgumentNullException.ThrowIfNull(driverKey);
 
-        // Checked before the add, and re-stating an existing focus is always allowed: a dashboard
-        // replaying its subscriptions after a reconnect must not be refused for asking for what it
-        // already has.
-        if (!_focusDriverKeys.ContainsKey(driverKey) && _focusDriverKeys.Count >= MaxFocusDrivers)
-        {
-            return false;
-        }
-
         _focusDriverKeys[driverKey] = 0;
-        return true;
     }
 
     /// <summary>Removes one driver from that set, dropping any frame already waiting for them.</summary>
