@@ -576,6 +576,25 @@ interface DriverFocus {
  * React normally, because at 10 Hz and below the render cost is irrelevant and the ergonomics are
  * worth a great deal. `subscribe` is what React binds to, and it is deliberately *not* called for
  * focus frames.
+ *
+ * **Stint and extras share a rate and still stay two channels.** Both arrive at roughly 1 Hz, but
+ * stint is typed and canonical — nulls translated, safe for any widget to read generically — while
+ * extras is the connector's raw, unparsed document, kept opaque so a new sim field is a connector
+ * change rather than a contract change (see #94). Folding them into one channel because they share
+ * a cadence would make tyre data look RaceRoom-specific, which it is not.
+ *
+ * **A widget reading across two of these three channels is normal, not a bug** (#85). Every frame —
+ * focus, stint, extras — carries `capturedAtUtc` off the same connector clock, so exactly how stale
+ * one side of a mix is has always been computable; nothing here needed a wire change to answer that.
+ * The brake tile is the case worth naming: pressure rides the focus frame, temperature rides extras,
+ * and for one second after a lap change or a pit exit the two describe different moments. Holding
+ * the fast channel back to the slow one's rate to make that tile internally consistent was
+ * considered and rejected — it would throw away a 60 Hz brake trace to make a 1 Hz temperature look
+ * punctual, which is the wrong side of that trade. Don't add a generic staleness indicator to every
+ * tile that mixes channels either; that repeats the mistake #46 already removed. Only where a mixed
+ * reading would be actively misleading, not merely a second late, should the widget say so in its
+ * own terms — the way the fuel widget already discloses that its consumption figure is a model, not
+ * a raw reading.
  */
 export class LiveStore {
   /**
