@@ -321,6 +321,29 @@ export interface LapSummary {
 }
 
 /**
+ * How many rows the room-wide lap feed keeps.
+ *
+ * A live activity log, not a reference record like `completedLaps`/`raceTraces` — trimming it loses
+ * nothing a driver's own lap history table can't still answer. Sized like `EVENT_LOG_CAPACITY` for
+ * the same reason: comfortably more than a session produces at once, and small enough to live in
+ * React state.
+ */
+export const LAP_FEED_CAPACITY = 200;
+
+/** One completed lap, as the room-wide feed reads it — every driver, in the order each was noticed. */
+export interface LapFeedEntry {
+  /** Distinct per entry, so React has a key that does not shift when the feed is trimmed. */
+  id: number;
+  driverKey: string;
+  displayName: string;
+  lapNumber: number;
+  lapTimeMs: number | null;
+  /** Cumulative splits, exactly as on the lap record — the last entry is the whole lap. */
+  sectorMs: (number | null)[];
+  valid?: boolean;
+}
+
+/**
  * How many events one driver's timeline keeps.
  *
  * A race generates a few dozen: a handful of flag periods, the push-to-pass activations, the
@@ -651,6 +674,19 @@ export class LiveStore {
 
   private nextEventId = 1;
 
+  /**
+   * The room-wide lap feed — every driver's completed laps, in the order each was noticed.
+   *
+   * React state, for the same reason the event log is: it changes a few dozen times an hour and
+   * feeds a scrolling list, not a paint loop.
+   */
+  private lapFeed: readonly LapFeedEntry[] = [];
+
+  /** The highest lap number already fed per driver, so only a genuine increase is appended. */
+  private readonly lastLapFeedLap = new Map<string, number>();
+
+  private nextLapFeedId = 1;
+
   private readonly listeners = new Set<() => void>();
 
   /**
@@ -679,6 +715,7 @@ export class LiveStore {
   getFocusReadyKeys = (): ReadonlySet<string> => this.focusReadyKeys;
   getLapSummaries = (): Readonly<Record<string, readonly LapSummary[]>> => this.lapSummaries;
   getEvents = (): Readonly<Record<string, readonly RaceEvent[]>> => this.events;
+  getLapFeed = (): readonly LapFeedEntry[] => this.lapFeed;
 
   /**
    * One driver's race timeline, created on demand.
@@ -812,6 +849,7 @@ export class LiveStore {
       case 'lapHistory':
         this.lapHistories = { ...this.lapHistories, [message.driverKey]: message };
         this.summariseLaps(message);
+        this.updateLapFeed(message);
         this.emit();
         break;
 
@@ -960,17 +998,24 @@ export class LiveStore {
     this.emit();
   }
 
-  /** Forgets every driver's history — on leaving a room, where the keys stop meaning anything. */
+  /**
+   * Forgets every driver's history, and the lap feed built from it — on leaving a room, where the
+   * keys stop meaning anything. The feed's high-water marks go too: a driver seen again in a later
+   * room starts from a clean seed rather than comparing against a lap number from a different race.
+   */
   resetLapHistory(): void {
     if (
       Object.keys(this.lapHistories).length === 0 &&
-      Object.keys(this.lapSummaries).length === 0
+      Object.keys(this.lapSummaries).length === 0 &&
+      this.lapFeed.length === 0
     ) {
       return;
     }
 
     this.lapHistories = {};
     this.lapSummaries = {};
+    this.lapFeed = [];
+    this.lastLapFeedLap.clear();
     this.emit();
   }
 
@@ -1185,6 +1230,58 @@ export class LiveStore {
     });
 
     this.lapSummaries = { ...this.lapSummaries, [message.driverKey]: summaries };
+  }
+
+  /**
+   * Appends any laps this driver has completed since the last time this ran, to the room-wide feed.
+   *
+   * Ordered by when each lap was noticed, not by lap number — `LapRecord` carries no completion
+   * timestamp, so receipt order is the only ordering available, and it is also the useful one for a
+   * feed of what just happened rather than an archive.
+   *
+   * Seeded silently on the first message for a driver, exactly as `recordEvents` seeds: a driver
+   * already many laps into the race must not dump their whole history into the feed the moment
+   * they're subscribed. Only laps completed after that first sight are ever appended, which also
+   * means closing and reopening the feed loses nothing — the high-water mark persists underneath.
+   */
+  private updateLapFeed(message: LapHistoryMessage): void {
+    const lastSeen = this.lastLapFeedLap.get(message.driverKey);
+
+    const highestLapNumber = message.laps.reduce(
+      (max, record) => Math.max(max, record.lapNumber),
+      lastSeen ?? Number.NEGATIVE_INFINITY,
+    );
+
+    if (lastSeen === undefined) {
+      this.lastLapFeedLap.set(message.driverKey, highestLapNumber);
+      return;
+    }
+
+    const newLaps = message.laps
+      .filter((record) => record.lapNumber > lastSeen)
+      .sort((a, b) => a.lapNumber - b.lapNumber);
+
+    if (newLaps.length === 0) {
+      return;
+    }
+
+    this.lastLapFeedLap.set(message.driverKey, highestLapNumber);
+
+    const displayName =
+      this.tower?.drivers.find((row) => row.driverKey === message.driverKey)?.displayName ??
+      message.driverKey;
+
+    const entries: LapFeedEntry[] = newLaps.map((record) => ({
+      id: this.nextLapFeedId++,
+      driverKey: message.driverKey,
+      displayName,
+      lapNumber: record.lapNumber,
+      lapTimeMs: record.lapTimeMs ?? null,
+      sectorMs: record.sectorMs,
+      ...(record.valid === null || record.valid === undefined ? {} : { valid: record.valid }),
+    }));
+
+    this.lapFeed = [...this.lapFeed, ...entries].slice(-LAP_FEED_CAPACITY);
   }
 
   /**

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
 import type { LapHistoryMessage, StintFrameMessage } from './contracts';
 import type { LiveConnection } from './connection';
-import type { ExtrasSnapshot, LapSummary, LiveStore, RaceEvent } from './store';
+import type { ExtrasSnapshot, LapFeedEntry, LapSummary, LiveStore, RaceEvent } from './store';
 
 // A stable empty reference: useSyncExternalStore compares snapshots by identity, and a fresh [] per
 // read would look like a change on every emit and loop.
@@ -153,6 +153,17 @@ export function useRaceEvents(driverKey: string): readonly RaceEvent[] {
   const read = useCallback(() => store.getEvents()[driverKey] ?? EMPTY_EVENTS, [store, driverKey]);
 
   return useStoreSlice(store, read);
+}
+
+/**
+ * The room-wide lap feed — every driver's completed laps, in the order each was noticed.
+ *
+ * A store-level slice like `useLapSummaries`, not per driver: the feed is already the whole room's
+ * activity in one ordered list, and splitting it per driver would just mean re-merging it here.
+ */
+export function useLapFeed(): readonly LapFeedEntry[] {
+  const { store } = useLive();
+  return useStoreSlice(store, store.getLapFeed);
 }
 
 /**

@@ -32,9 +32,11 @@ export class LiveConnection {
   // one's 60 Hz stream separately. Capped on the hub rather than here — see `FocusDriverCommand`.
   private focusedDriverKeys: ReadonlySet<string> = new Set();
 
-  // A set, not a single key: several tower rows can be expanded at once, and each one is its own
-  // subscription the hub conflates separately.
-  private readonly lapHistoryDriverKeys = new Set<string>();
+  // A refcount, not a set: several tower rows can be expanded at once, and the room-wide lap feed
+  // subscribes the same drivers independently of any row being expanded. Two unrelated owners can
+  // therefore want the same driverKey at once, so an unsubscribe from one must not silence the
+  // other — the wire command is only sent on the true 0→1 and 1→0 edges.
+  private readonly lapHistoryDriverKeys = new Map<string, number>();
 
   constructor(private readonly store: LiveStore) {}
 
@@ -108,18 +110,24 @@ export class LiveConnection {
     }
   }
 
-  /** Asks for one driver's completed laps, and keeps receiving them until told otherwise. */
+  /**
+   * Asks for one driver's completed laps, and keeps receiving them until every caller that asked
+   * has let go. Safe to call more than once for the same driver from independent owners — only the
+   * first caller actually sends the wire command.
+   */
   subscribeLapHistory(driverKey: string): void {
-    if (this.lapHistoryDriverKeys.has(driverKey)) {
-      return;
-    }
+    const count = this.lapHistoryDriverKeys.get(driverKey) ?? 0;
+    this.lapHistoryDriverKeys.set(driverKey, count + 1);
 
-    this.lapHistoryDriverKeys.add(driverKey);
-    this.send({ type: 'subscribeLapHistory', driverKey });
+    if (count === 0) {
+      this.send({ type: 'subscribeLapHistory', driverKey });
+    }
   }
 
   /**
-   * Stops one driver's lap history.
+   * Lets go of one driver's lap history. Only sent to the hub, and only dropped from the store,
+   * once every caller that subscribed has unsubscribed — a collapsed row while the lap feed still
+   * wants the same driver must not silence it, and vice versa.
    *
    * Sent rather than merely forgotten locally: a collapsed row that kept receiving history would
    * have the hub building and queueing a snapshot per lap for something nobody is looking at.
@@ -130,10 +138,17 @@ export class LiveConnection {
    * simply missed.
    */
   unsubscribeLapHistory(driverKey: string): void {
-    if (!this.lapHistoryDriverKeys.delete(driverKey)) {
+    const count = this.lapHistoryDriverKeys.get(driverKey);
+    if (count === undefined) {
       return;
     }
 
+    if (count > 1) {
+      this.lapHistoryDriverKeys.set(driverKey, count - 1);
+      return;
+    }
+
+    this.lapHistoryDriverKeys.delete(driverKey);
     this.send({ type: 'unsubscribeLapHistory', driverKey });
     this.store.dropLapHistory(driverKey);
   }
@@ -162,7 +177,7 @@ export class LiveConnection {
           this.send({ type: 'focusDriver', driverKey });
         }
 
-        for (const driverKey of this.lapHistoryDriverKeys) {
+        for (const driverKey of this.lapHistoryDriverKeys.keys()) {
           this.send({ type: 'subscribeLapHistory', driverKey });
         }
       }

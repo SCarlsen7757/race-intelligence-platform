@@ -1,6 +1,7 @@
 import { Link, useParams } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TowerRow } from '../../shared/live/contracts';
+import { LapFeedPanel } from '../laps/LapFeedPanel';
 import { LapHistoryPanel } from '../laps/LapHistoryPanel';
 import { formatSessionType, isRaceSession } from '../../shared/format/format';
 import { useAge } from '../../shared/format/useAge';
@@ -79,6 +80,11 @@ export function SessionView() {
    */
   const [selectedDriverKey, setSelectedDriverKey] = useState<string | null>(null);
 
+  // Which view the left column shows: the tower and track map, or the room-wide lap feed. A UI
+  // mode rather than data, but reset alongside the rest below anyway — a feed left open across a
+  // room switch would read as this room's laps for a moment before the new subscriptions land.
+  const [leftView, setLeftView] = useState<'timing' | 'feed'>('timing');
+
   // Reset during render rather than from an effect, which is React's own advice for state derived
   // from a prop: an effect would paint one frame of the previous session's car against the new
   // session's tower before correcting itself.
@@ -87,6 +93,7 @@ export function SessionView() {
     setExpansionRoomId(roomId);
     setExpandedDriverKeys(new Set());
     setSelectedDriverKey(null);
+    setLeftView('timing');
   }
 
   useEffect(() => {
@@ -204,55 +211,93 @@ export function SessionView() {
           it used to travel down the page with the bottom of a thirty-car field.
         */}
         <div className="session__left">
-          <div className={`session__tower ${connected ? '' : 'session__tower--stale'}`}>
-            {/*
-              Where the numbers are, not in the corner. The header's connection light is the only
-              thing on screen today that tells a frozen tower from a tower where nobody is
-              improving, and it is twelve pixels of muted text a metre from what is being read.
-              This says the same thing in the place a gap is being read off, and keeps counting
-              while the socket is down — which is exactly when it matters and exactly when no new
-              snapshot will arrive to refresh it.
-
-              Outside the scroll box below, so it cannot scroll away from the tower it describes.
-            */}
-            {tower !== null && tower.roomId === roomId && (
-              <p className="tower__stamp">
-                {connected ? 'Updated' : 'Not updating — last snapshot'}{' '}
-                <LastUpdated atUtc={tower.capturedAtUtc} />
-              </p>
-            )}
-
-            <div className="session__tower-scroll">
-              <TimingTower
-                rows={rows}
-                focusedDriverKeys={followedDriverKeys}
-                onFocus={toggleFocus}
-                pendingDriverKeys={pendingDriverKeys}
-                expandedDriverKeys={expandedDriverKeys}
-                onToggleExpand={toggleExpand}
-                // No room yet means no session type yet, and an unknown session is not a race. The
-                // tower then withholds pit state for the first message or two rather than guessing.
-                isRace={room !== null && isRaceSession(room.gameKey, room.sessionType)}
-                renderDetail={(key, sessionBests) => (
-                  <LapHistoryPanel
-                    driverKey={key}
-                    sessionBests={sessionBests}
-                    layoutLengthMeters={layoutLengthMeters}
-                  />
-                )}
-              />
-            </div>
+          {/*
+            The tower/track-map pair and the room-wide lap feed are two views of the same left
+            column, not two panels stacked — see #70. Both read the room rather than one car, which
+            is exactly why neither ever joined the wall on the right: a widget there is scoped to
+            `selectedDriverKey`, and these aren't.
+          */}
+          <div className="session__left-tabs" role="tablist" aria-label="Left column view">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={leftView === 'timing'}
+              className={`session__left-tab ${
+                leftView === 'timing' ? 'session__left-tab--active' : ''
+              }`}
+              onClick={() => setLeftView('timing')}
+            >
+              Timing
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={leftView === 'feed'}
+              className={`session__left-tab ${
+                leftView === 'feed' ? 'session__left-tab--active' : ''
+              }`}
+              onClick={() => setLeftView('feed')}
+            >
+              Lap feed
+            </button>
           </div>
 
-          <TrackMap
-            rows={rows}
-            focusedDriverKeys={followedDriverKeys}
-            expandedDriverKeys={expandedDriverKeys}
-            // The same thing clicking the row's driver button does. Every car on the map has that
-            // available — lap history comes from standings, so it works for the whole field — where
-            // opening telemetry only works for the few running a collector.
-            onSelect={toggleExpand}
-          />
+          {leftView === 'timing' ? (
+            <>
+              <div className={`session__tower ${connected ? '' : 'session__tower--stale'}`}>
+                {/*
+                  Where the numbers are, not in the corner. The header's connection light is the only
+                  thing on screen today that tells a frozen tower from a tower where nobody is
+                  improving, and it is twelve pixels of muted text a metre from what is being read.
+                  This says the same thing in the place a gap is being read off, and keeps counting
+                  while the socket is down — which is exactly when it matters and exactly when no new
+                  snapshot will arrive to refresh it.
+
+                  Outside the scroll box below, so it cannot scroll away from the tower it describes.
+                */}
+                {tower !== null && tower.roomId === roomId && (
+                  <p className="tower__stamp">
+                    {connected ? 'Updated' : 'Not updating — last snapshot'}{' '}
+                    <LastUpdated atUtc={tower.capturedAtUtc} />
+                  </p>
+                )}
+
+                <div className="session__tower-scroll">
+                  <TimingTower
+                    rows={rows}
+                    focusedDriverKeys={followedDriverKeys}
+                    onFocus={toggleFocus}
+                    pendingDriverKeys={pendingDriverKeys}
+                    expandedDriverKeys={expandedDriverKeys}
+                    onToggleExpand={toggleExpand}
+                    // No room yet means no session type yet, and an unknown session is not a race.
+                    // The tower then withholds pit state for the first message or two rather than
+                    // guessing.
+                    isRace={room !== null && isRaceSession(room.gameKey, room.sessionType)}
+                    renderDetail={(key, sessionBests) => (
+                      <LapHistoryPanel
+                        driverKey={key}
+                        sessionBests={sessionBests}
+                        layoutLengthMeters={layoutLengthMeters}
+                      />
+                    )}
+                  />
+                </div>
+              </div>
+
+              <TrackMap
+                rows={rows}
+                focusedDriverKeys={followedDriverKeys}
+                expandedDriverKeys={expandedDriverKeys}
+                // The same thing clicking the row's driver button does. Every car on the map has
+                // that available — lap history comes from standings, so it works for the whole
+                // field — where opening telemetry only works for the few running a collector.
+                onSelect={toggleExpand}
+              />
+            </>
+          ) : (
+            <LapFeedPanel rows={rows} />
+          )}
         </div>
 
         {/*
