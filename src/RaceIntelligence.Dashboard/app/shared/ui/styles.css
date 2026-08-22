@@ -86,7 +86,7 @@ body {
    Track map cars keep their bespoke rules below. They are SVG, and the focus target a user sees is
    the dot, not the <g> that actually receives focus — which is why that group sets outline: none
    on purpose. */
-:where(.link-button, .room, .driver-button, .focus-button):focus-visible {
+:where(.link-button, .room, .driver-button, .focus-button, .wall__widget-grip):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -1623,6 +1623,20 @@ th.tower__state {
   overflow: hidden;
 }
 
+/*
+ * A tile currently being moved or resized from the keyboard.
+ *
+ * A cue on the tile itself, not only on whichever button has focus, for the same reason #42 stopped
+ * throttle and brake being told apart by hue alone: the state that matters here is "this tile is
+ * about to move if you press an arrow key", and that should not depend on noticing which of two
+ * small buttons in the header currently has a ring around it. Dashed and inset rather than the
+ * ordinary solid outward ring, so it reads as "in progress" rather than as another focus indicator.
+ */
+.wall__widget--arranging {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
 .wall__widget-head {
   display: flex;
   align-items: baseline;
@@ -1632,13 +1646,20 @@ th.tower__state {
 }
 
 /*
- * The drag handle, and the only part of a tile that starts a drag.
+ * The drag handle, and the only part of a tile that starts a drag — and, now that it is a real
+ * button rather than an aria-hidden span, the way a keyboard user moves a tile at all. Button
+ * chrome reset to match .link-button, since visually this is still meant to read as a glyph rather
+ * than a button.
  *
  * A tile is mostly canvas, and a uPlot chart swallowing a pointer-down is exactly what makes a
  * whole-tile drag feel broken. Confining it to the heading also means a chart can grow its own
  * pointer interactions later without fighting the grid for the gesture.
  */
 .wall__widget-grip {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
   cursor: grab;
   color: var(--text-muted);
   font-size: 12px;
