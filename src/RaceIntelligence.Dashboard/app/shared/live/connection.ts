@@ -28,8 +28,8 @@ export class LiveConnection {
 
   private watchedRoomId: string | null = null;
 
-  // A set, not a single key: two drivers can be compared side by side, and the hub conflates each
-  // one's 60 Hz stream separately. Capped on the hub rather than here — see `FocusDriverCommand`.
+  // A set, not a single key: several drivers can be compared side by side, and the hub conflates
+  // each one's 60 Hz stream separately.
   private focusedDriverKeys: ReadonlySet<string> = new Set();
 
   // A refcount, not a set: several tower rows can be expanded at once, and the room-wide lap feed

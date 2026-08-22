@@ -73,10 +73,6 @@ export function SessionView() {
    * Per room, and deliberately never persisted with the wall: a driver key names one car in one
    * session and nobody in the next, whereas a wall is opened against every session of that
    * simulator. Keeping it here is what lets the saved document name no car at all.
-   *
-   * One selection also means the follow set is at most one stream, which is comfortably inside the
-   * hub's cap on how many cars a viewer may follow at full rate — see `LiveViewer.MaxFocusDrivers`
-   * for why that cap exists and why the client should never construct a request that trips it.
    */
   const [selectedDriverKey, setSelectedDriverKey] = useState<string | null>(null);
 

@@ -225,39 +225,53 @@ public sealed class ViewerSessionTests
     }
 
     /// <summary>
-    /// The cap is the explicit part of allowing more than one focus. Focus frames are the 60 Hz
-    /// channel, and the endpoint is open — so the bound has to hold against a client that is not the
-    /// dashboard, and it has to refuse rather than quietly evict a driver the viewer is still
-    /// reading.
+    /// There is no cap: a viewer may follow every driver in a room at full rate at once, and none of
+    /// them are refused.
     /// </summary>
     [Fact]
-    public async Task Following_more_drivers_than_the_cap_allows_is_refused()
+    public async Task Every_driver_in_a_room_can_be_followed_at_once()
     {
+        const int DriverCount = 5;
+
         var hub = new LiveHubFixture();
         LiveRoom? room = null;
+        var identities = new List<LivePublisherIdentity>();
 
-        // One publisher per driver, so every one of them is Self-tier and the refusal is about the
-        // cap rather than about a driver having no telemetry to send.
-        for (int i = 1; i <= LiveViewer.MaxFocusDrivers + 1; i++)
+        // One publisher per driver, so every one of them is Self-tier and has a focus stream to send.
+        for (int i = 1; i <= DriverCount; i++)
         {
             var identity = LiveDtoFactory.Identity();
+            identities.Add(identity);
             room = hub.AnnounceRoom(identity, localSimDriverId: i.ToString());
-            hub.Rooms.ApplyStandings(
-                identity.ClientId,
-                LiveDtoFactory.StandingsFrame(driverCount: LiveViewer.MaxFocusDrivers + 1));
+            hub.Rooms.ApplyStandings(identity.ClientId, LiveDtoFactory.StandingsFrame(driverCount: DriverCount));
         }
 
         var socket = new FakeLiveSocket();
         socket.PushCommand(new WatchRoomCommand(room!.RoomId));
-        for (int i = 1; i <= LiveViewer.MaxFocusDrivers + 1; i++)
+        for (int i = 1; i <= DriverCount; i++)
         {
             socket.PushCommand(new FocusDriverCommand($"id:{i}"));
         }
 
-        var messages = await RunAsync(hub, socket, expectedMessages: 3);
+        var running = hub.CreateViewerSession().RunAsync(socket, TestContext.Current.CancellationToken);
 
-        messages.OfType<LiveErrorMessage>().ShouldHaveSingleItem()
-            .Code.ShouldBe(LiveErrorCodes.TooManyFocusDrivers);
+        // Room list, then the tower answering the watch. Commands are handled in order, so every
+        // focus command has necessarily been processed by the time those two have arrived.
+        await socket.WaitForSendsAsync(2);
+
+        for (int i = 1; i <= DriverCount; i++)
+        {
+            hub.Rooms.ApplySelf(identities[i - 1].ClientId, LiveDtoFactory.SelfFrame(simDriverId: i.ToString()));
+        }
+
+        await socket.WaitForSendsAsync(2 + DriverCount);
+        socket.PushClose();
+        await running;
+
+        var messages = socket.DrainViewMessages();
+        messages.OfType<LiveErrorMessage>().ShouldBeEmpty();
+        messages.OfType<FocusFrameMessage>().Select(frame => frame.DriverKey)
+            .ShouldBe(Enumerable.Range(1, DriverCount).Select(i => $"id:{i}"), ignoreOrder: true);
     }
 
     /// <summary>
