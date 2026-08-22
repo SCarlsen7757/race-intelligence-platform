@@ -486,10 +486,73 @@ body {
 .session__left {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
+  /* Tabs, then whichever view is active. The trailing `auto` only ever holds the pinned track map —
+     the lap feed view places nothing in it, and an empty grid row takes no space. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 16px;
   min-width: 0;
   min-height: 0;
+}
+
+/* The left column's view switch — timing (tower + track map) versus the room-wide lap feed. See
+   #70: both views describe the room rather than one car, which is why neither ever became a wall
+   widget; they swap here instead of splitting into two fixed regions. */
+.session__left-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.session__left-tab {
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.session__left-tab:hover {
+  background: var(--bg-hover);
+}
+
+.session__left-tab--active {
+  border-color: var(--accent);
+  background: var(--accent-fill);
+  color: var(--text);
+}
+
+/* The lap feed scrolls independently, same reasoning as `.session__tower-scroll`: a long session's
+   feed must not grow the page underneath it. */
+.lap-feed {
+  min-height: 0;
+  overflow: auto;
+}
+
+.lap-feed__table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+
+.lap-feed__table th,
+.lap-feed__table td {
+  padding: 3px 14px 3px 0;
+  text-align: right;
+  border: none;
+}
+
+.lap-feed__table th {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.lap-feed__driver {
+  text-align: left;
+  color: var(--text);
 }
 
 /* The stamp above, the scrolling table below. A flex column so the one line explaining why the

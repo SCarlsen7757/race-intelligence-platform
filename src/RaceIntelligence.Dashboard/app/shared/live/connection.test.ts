@@ -165,4 +165,63 @@ describe('LiveConnection', () => {
 
     connection.dispose();
   });
+
+  /**
+   * The room-wide lap feed and an expanded tower row can both want the same driver's lap history
+   * at once — two independent owners, where the old plain-Set bookkeeping only ever expected one.
+   * Refcounted so neither owner's unsubscribe can silence a subscription the other still needs.
+   */
+  describe('lap history refcounting', () => {
+    it('sends subscribeLapHistory only once when two owners subscribe the same driver', () => {
+      const { connection } = watching();
+
+      connection.subscribeLapHistory('id:3');
+      connection.subscribeLapHistory('id:3');
+
+      expect(
+        socket().sent.filter(
+          (command) => command.type === 'subscribeLapHistory' && command.driverKey === 'id:3',
+        ),
+      ).toHaveLength(1);
+
+      connection.dispose();
+    });
+
+    it('does not unsubscribe while another owner still wants the same driver', () => {
+      const { store, connection } = watching();
+      const dropped = vi.spyOn(store, 'dropLapHistory');
+
+      connection.subscribeLapHistory('id:3');
+      connection.subscribeLapHistory('id:3');
+      connection.unsubscribeLapHistory('id:3');
+
+      expect(
+        socket().sent.filter(
+          (command) => command.type === 'unsubscribeLapHistory' && command.driverKey === 'id:3',
+        ),
+      ).toHaveLength(0);
+      expect(dropped).not.toHaveBeenCalled();
+
+      connection.dispose();
+    });
+
+    it('unsubscribes once every owner has let go', () => {
+      const { store, connection } = watching();
+      const dropped = vi.spyOn(store, 'dropLapHistory');
+
+      connection.subscribeLapHistory('id:3');
+      connection.subscribeLapHistory('id:3');
+      connection.unsubscribeLapHistory('id:3');
+      connection.unsubscribeLapHistory('id:3');
+
+      expect(
+        socket().sent.filter(
+          (command) => command.type === 'unsubscribeLapHistory' && command.driverKey === 'id:3',
+        ),
+      ).toHaveLength(1);
+      expect(dropped).toHaveBeenCalledWith('id:3');
+
+      connection.dispose();
+    });
+  });
 });

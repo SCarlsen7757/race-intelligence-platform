@@ -8,7 +8,7 @@ import type {
   TowerSnapshotMessage,
   TreadTemperatures,
 } from './contracts';
-import { LAP_BINS, LiveStore, TraceBuffer, TYRE_TRACE_CAPACITY } from './store';
+import { LAP_BINS, LAP_FEED_CAPACITY, LiveStore, TraceBuffer, TYRE_TRACE_CAPACITY } from './store';
 
 /**
  * A store already following the drivers a test is about to push frames for.
@@ -806,6 +806,98 @@ describe('LiveStore', () => {
 
     store.resetLapHistory();
     expect(store.getLapHistories()).toEqual({});
+  });
+});
+
+describe('LiveStore lap feed', () => {
+  /**
+   * The join-mid-session case: a driver already many laps in must not dump their whole history
+   * into the feed the moment they're subscribed. Mirrors how `recordEvents` seeds.
+   */
+  it('seeds silently on the first message for a driver', () => {
+    const store = new LiveStore();
+
+    store.apply(lapHistory('id:1', [1, 2, 3]));
+
+    expect(store.getLapFeed()).toEqual([]);
+  });
+
+  it('emits only laps newer than the last seen, in lap-number order', () => {
+    const store = new LiveStore();
+
+    store.apply(lapHistory('id:1', [1, 2])); // seeds, emits nothing
+    store.apply(lapHistory('id:1', [1, 2, 3, 4])); // the full snapshot, replayed
+
+    expect(store.getLapFeed().map((entry) => entry.lapNumber)).toEqual([3, 4]);
+  });
+
+  it("resolves the driver's display name from the tower snapshot", () => {
+    const store = new LiveStore();
+    store.apply({
+      type: 'towerSnapshot',
+      roomId: 'room',
+      capturedAtUtc: '2026-08-16T12:00:00Z',
+      drivers: [towerRow('id:1', { displayName: 'Driver One' })],
+    });
+
+    store.apply(lapHistory('id:1', [1]));
+    store.apply(lapHistory('id:1', [1, 2]));
+
+    expect(store.getLapFeed()[0]?.displayName).toBe('Driver One');
+  });
+
+  it('falls back to the driver key when the tower has not named the driver', () => {
+    const store = new LiveStore();
+
+    store.apply(lapHistory('id:1', [1]));
+    store.apply(lapHistory('id:1', [1, 2]));
+
+    expect(store.getLapFeed()[0]?.displayName).toBe('id:1');
+  });
+
+  it('keeps only the most recent LAP_FEED_CAPACITY rows', () => {
+    const store = new LiveStore();
+    const lapNumbers = Array.from({ length: LAP_FEED_CAPACITY + 5 }, (_, i) => i + 1);
+
+    store.apply(lapHistory('id:1', [])); // seeds from an empty snapshot, emits nothing
+    store.apply(lapHistory('id:1', lapNumbers));
+
+    const feed = store.getLapFeed();
+    expect(feed).toHaveLength(LAP_FEED_CAPACITY);
+    expect(feed[0]?.lapNumber).toBe(6);
+    expect(feed.at(-1)?.lapNumber).toBe(LAP_FEED_CAPACITY + 5);
+  });
+
+  /**
+   * `dropLapHistory` runs whenever a subscriber lets go — a collapsed row, or the feed panel's own
+   * roster diff — and must not forget where the feed left off. Otherwise a lap completed between an
+   * unsubscribe and a later resubscribe would either be lost or, worse, re-announced.
+   */
+  it('keeps the high-water mark across dropLapHistory, so a later lap is not lost or repeated', () => {
+    const store = new LiveStore();
+
+    store.apply(lapHistory('id:1', [1])); // seeds
+    store.apply(lapHistory('id:1', [1, 2])); // emits lap 2
+    store.dropLapHistory('id:1');
+    store.apply(lapHistory('id:1', [1, 2, 3])); // resubscribed later, one more lap in
+
+    expect(store.getLapFeed().map((entry) => entry.lapNumber)).toEqual([2, 3]);
+  });
+
+  /** A driver key stops meaning anything on a room switch, same as every other per-room state. */
+  it('resets on leaving the room, including the high-water marks', () => {
+    const store = new LiveStore();
+
+    store.apply(lapHistory('id:1', [1]));
+    store.apply(lapHistory('id:1', [1, 2]));
+    store.resetLapHistory();
+
+    expect(store.getLapFeed()).toEqual([]);
+
+    // Laps 1-2 were already fed before the reset. If the high-water mark survived, this would be
+    // silently skipped as "already seen" instead of being treated as a fresh seed.
+    store.apply(lapHistory('id:1', [1, 2]));
+    expect(store.getLapFeed()).toEqual([]);
   });
 });
 
