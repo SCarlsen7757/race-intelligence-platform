@@ -646,4 +646,138 @@ describe('PitWall', () => {
       expect(screen.getByTestId('chart-hidden').textContent).toBe('fl');
     });
   });
+
+  /**
+   * Move and resize are the two gestures a mouse alone could reach before this — see #83.
+   *
+   * The move tests place the tile narrower than the wall (`w: 2` against `sm`'s 4 columns) and step
+   * it sideways rather than down. A vertical move is the wrong thing to assert on here: the vertical
+   * compactor packs a lone tile back to `y: 0` on every step — precisely the same thing a pointer
+   * drag's own `onDrag` handler does, since it compacts after every `moveElement` call too — so a
+   * one-cell nudge down and a compact leaves a solitary tile exactly where it started regardless of
+   * input method. `x` has no such floor to snap back to, so it is what actually proves a keypress
+   * reached the grid. The resize test grows `h`, which has no compaction to contend with either way.
+   */
+  describe('keyboard arrange', () => {
+    function narrowWidget(): WallWidget {
+      return { instanceId: 'i-reading', widgetId: 'reading', x: 0, y: 0, w: 2, h: 6 };
+    }
+
+    it('moves a tile with the grip, live and revertible', async () => {
+      saveWallView(GAME, { version: WALL_VIEW_VERSION, widgets: [narrowWidget()] });
+      renderWall();
+
+      const tile = screen.getByRole('group');
+      const atRest = tile.getAttribute('style');
+      const grip = screen.getByRole('button', { name: 'Move Reading' });
+
+      await act(async () => {
+        fireEvent.keyDown(grip, { key: 'Enter' });
+      });
+      expect(grip.getAttribute('aria-pressed')).toBe('true');
+
+      await act(async () => {
+        fireEvent.keyDown(grip, { key: 'ArrowRight' });
+      });
+      const whileMoving = tile.getAttribute('style');
+      expect(whileMoving).not.toBe(atRest);
+
+      await act(async () => {
+        fireEvent.keyDown(grip, { key: 'Escape' });
+      });
+      expect(grip.getAttribute('aria-pressed')).toBe('false');
+      expect(tile.getAttribute('style')).toBe(atRest);
+    });
+
+    it('leaves a move in place on Enter, and saves it', async () => {
+      saveWallView(GAME, { version: WALL_VIEW_VERSION, widgets: [narrowWidget()] });
+      renderWall();
+
+      const tile = screen.getByRole('group');
+      const atRest = tile.getAttribute('style');
+      const grip = screen.getByRole('button', { name: 'Move Reading' });
+
+      await act(async () => {
+        fireEvent.keyDown(grip, { key: 'Enter' });
+      });
+      await act(async () => {
+        fireEvent.keyDown(grip, { key: 'ArrowRight' });
+      });
+      await act(async () => {
+        fireEvent.keyDown(grip, { key: 'Enter' });
+      });
+
+      expect(grip.getAttribute('aria-pressed')).toBe('false');
+      expect(tile.getAttribute('style')).not.toBe(atRest);
+
+      await settle();
+      const saved = loadWallView(GAME);
+      const geometry = saved?.widgets[0]?.at?.sm ?? saved?.widgets[0];
+      expect(geometry?.x).toBe(1);
+    });
+
+    it('commits on blur rather than reverting, the same as a pointer mouse-up', async () => {
+      saveWallView(GAME, { version: WALL_VIEW_VERSION, widgets: [narrowWidget()] });
+      renderWall();
+
+      const tile = screen.getByRole('group');
+      const atRest = tile.getAttribute('style');
+      const grip = screen.getByRole('button', { name: 'Move Reading' });
+
+      await act(async () => {
+        fireEvent.keyDown(grip, { key: 'Enter' });
+      });
+      await act(async () => {
+        fireEvent.keyDown(grip, { key: 'ArrowRight' });
+      });
+      await act(async () => {
+        fireEvent.blur(grip);
+      });
+
+      expect(grip.getAttribute('aria-pressed')).toBe('false');
+      expect(tile.getAttribute('style')).not.toBe(atRest);
+    });
+
+    it('resizes a tile with the resize handle', async () => {
+      saveWallView(GAME, { version: WALL_VIEW_VERSION, widgets: [savedWidget('reading')] });
+      renderWall();
+
+      const tile = screen.getByRole('group');
+      const atRest = tile.getAttribute('style');
+      const handle = screen.getByRole('button', { name: 'Resize' });
+
+      await act(async () => {
+        fireEvent.keyDown(handle, { key: 'Enter' });
+      });
+      expect(handle.getAttribute('aria-pressed')).toBeNull();
+
+      await act(async () => {
+        fireEvent.keyDown(handle, { key: 'ArrowDown' });
+      });
+      await act(async () => {
+        fireEvent.keyDown(handle, { key: 'Enter' });
+      });
+
+      expect(tile.getAttribute('style')).not.toBe(atRest);
+
+      await settle();
+      const saved = loadWallView(GAME);
+      const geometry = saved?.widgets[0]?.at?.sm ?? saved?.widgets[0];
+      expect(geometry?.h).toBe(7);
+    });
+
+    it('names the tile and announces the mode it enters', async () => {
+      saveWallView(GAME, { version: WALL_VIEW_VERSION, widgets: [savedWidget('reading')] });
+      renderWall();
+
+      expect(screen.getByRole('group', { name: 'Reading' })).toBeTruthy();
+
+      const grip = screen.getByRole('button', { name: 'Move Reading' });
+      await act(async () => {
+        fireEvent.keyDown(grip, { key: 'Enter' });
+      });
+
+      expect(screen.getByText(/Arranging Reading/)).toBeTruthy();
+    });
+  });
 });

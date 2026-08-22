@@ -1,3 +1,4 @@
+import type { Layout } from 'react-grid-layout';
 import { findPanel } from '../../sims/registry';
 import type { WallWidget, WidgetGeometry } from '../../shared/view/wallView';
 import { CANONICAL_BREAKPOINT, COLUMNS, type WallBreakpoint } from './breakpoints';
@@ -71,6 +72,41 @@ export function fitToGrid(
     w,
     h,
   };
+}
+
+/**
+ * The grid's own view of one breakpoint's arrangement, with each widget's floor attached.
+ *
+ * `minW`/`minH` come off the catalogue entry, so the size below which a widget stops being worth
+ * reading is set by the widget and enforced by the grid — the drag simply stops. Capped at the
+ * breakpoint's column count, because a widget asking for six columns on a four-column wall would
+ * otherwise be given a floor it cannot stand on. A widget whose entry has gone missing gets no
+ * floor, because there is nobody left to ask what its minimum is — and it still has to be movable,
+ * so it can be removed.
+ *
+ * Not memoised: every caller either wants a fresh, disposable array to mutate (the keyboard
+ * arrange path) or is itself inside a `useMemo` that has already keyed on `widgets`.
+ */
+export function layoutAt(
+  widgets: WallWidget[],
+  gameKey: string,
+  breakpoint: WallBreakpoint,
+): Layout {
+  return widgets.map((widget) => {
+    const entry = findPanel(gameKey, widget.widgetId);
+    const geometry = fitToGrid(widget, gameKey, breakpoint, geometryAt(widget, breakpoint));
+
+    return {
+      i: widget.instanceId,
+      ...geometry,
+      ...(entry === null
+        ? {}
+        : {
+            minW: Math.min(entry.minSize.w, COLUMNS[breakpoint]),
+            minH: entry.minSize.h,
+          }),
+    };
+  });
 }
 
 /** Every placement of one widget, put inside the grid at whichever widths it has one for. */

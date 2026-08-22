@@ -1,5 +1,14 @@
+import type { KeyboardEvent, Ref } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Responsive, useContainerWidth, type Layout } from 'react-grid-layout';
+import {
+  getLayoutItem,
+  moveElement,
+  Responsive,
+  useContainerWidth,
+  verticalCompactor,
+  type Layout,
+  type ResizeHandleAxis,
+} from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import { useAllExtras, useLive } from '../../shared/live/useLive';
 import { downloadViewFile, readViewFile } from '../../shared/view/viewFile';
@@ -26,7 +35,7 @@ import {
   WALL_BREAKPOINTS,
   type WallBreakpoint,
 } from './breakpoints';
-import { fitToGrid, fitWidget, geometryAt, withGeometryAt } from './geometry';
+import { fitToGrid, fitWidget, geometryAt, layoutAt, withGeometryAt } from './geometry';
 import '../../sims/raceroom';
 
 interface PitWallProps {
@@ -60,6 +69,27 @@ const ROW_HEIGHT = 34;
  * scope so it is not a fresh object on every render, for the same reason the chart specs are.
  */
 const DRAG_CONFIG = { handle: '.wall__widget-grip' } as const;
+
+/**
+ * The grid's own collision and compaction algorithm — the same one the pointer path uses.
+ *
+ * `<Responsive>` defaults to this when no `compactor` prop is given, so this was already the
+ * behaviour; stated explicitly so the keyboard arrange path below can call the exact same object
+ * rather than a second literal that could quietly drift from what pointer drag does.
+ */
+const COMPACTOR = verticalCompactor;
+
+/**
+ * Arrow-key deltas, reused for both modes: in move mode they nudge `x`/`y`, and in resize mode the
+ * same shape reads as `w`/`h` — Right/Down grow a tile exactly the way dragging its corner right or
+ * down does, so one table serves both gestures.
+ */
+const ARROW_STEP: Record<string, { x: number; y: number }> = {
+  ArrowLeft: { x: -1, y: 0 },
+  ArrowRight: { x: 1, y: 0 },
+  ArrowUp: { x: 0, y: -1 },
+  ArrowDown: { x: 0, y: 1 },
+};
 
 /**
  * Stands in for a tile that has hidden nothing, hoisted so it is the same array every render.
@@ -364,18 +394,23 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
   const breakpoint = breakpointFor(width);
 
   /**
-   * Writes a drag or a resize back — to *this* monitor's arrangement, not to every monitor's.
+   * Writes a drag, a resize, or a keyboard nudge back — to *this* monitor's arrangement, not to
+   * every monitor's.
    *
    * Merged into the existing widgets rather than rebuilt from the layout, because the layout only
    * carries geometry — the widget id lives here and would be lost by a rebuild.
    *
-   * The breakpoint is the load-bearing part. This callback fires for the grid's own rescaling as
-   * well as for a gesture, so writing its numbers into the canonical fields meant that opening the
-   * wall on a narrower screen once rewrote the arrangement for every screen, permanently. Routed
-   * through `withGeometryAt`, a laptop's placements land in that breakpoint's side table and the
-   * numbers the 4K wall is written in are never touched.
+   * The breakpoint is the load-bearing part. This fires for the grid's own rescaling as well as for
+   * a gesture, so writing its numbers into the canonical fields meant that opening the wall on a
+   * narrower screen once rewrote the arrangement for every screen, permanently. Routed through
+   * `withGeometryAt`, a laptop's placements land in that breakpoint's side table and the numbers the
+   * 4K wall is written in are never touched.
+   *
+   * The one merge point every write to the wall's geometry goes through, pointer or keyboard — see
+   * `stepArrange` below, which computes a `Layout` the same way the grid's own drag/resize handlers
+   * do and hands it here rather than writing `widgets` directly.
    */
-  const onLayoutChange = useCallback(
+  const applyLayout = useCallback(
     (layout: Layout) => {
       const geometry = new Map(layout.map((item) => [item.i, item]));
 
@@ -399,6 +434,230 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
   );
 
   /**
+   * The tile currently being moved or resized by keyboard, if any.
+   *
+   * At most one at a time, the same as a pointer drag: starting to arrange a second tile while the
+   * first is still active would leave the question of what Escape on the second one is supposed to
+   * undo for the first.
+   */
+  const [arrangement, setArrangement] = useState<{
+    instanceId: string;
+    mode: 'move' | 'resize';
+    origin: WidgetGeometry;
+  } | null>(null);
+
+  /**
+   * Enters an arrange mode from the grip (move) or the resize handle (resize), snapshotting the
+   * geometry to restore on Escape.
+   *
+   * The snapshot is the *stored* geometry (`geometryAt`), not the grid's fitted view of it, because
+   * that is what `cancelArrange` writes back through `withGeometryAt` — the same representation the
+   * wall already persists in.
+   */
+  const beginArrange = useCallback(
+    (instanceId: string, mode: 'move' | 'resize') => {
+      const widget = widgets.find((candidate) => candidate.instanceId === instanceId);
+      if (widget === undefined) {
+        return;
+      }
+
+      setArrangement({ instanceId, mode, origin: geometryAt(widget, breakpoint) });
+    },
+    [widgets, breakpoint],
+  );
+
+  /**
+   * Applies one arrow-key press to the tile currently being arranged.
+   *
+   * Reuses the grid's own collision and compaction primitives — `moveElement` for a move,
+   * `COMPACTOR.compact` for both — rather than a second implementation of what "does this land on
+   * top of another tile" means. Built from a freshly derived `layoutAt(...)`, never from the
+   * memoised `layouts[breakpoint]`: that array is reused across renders by identity, and mutating an
+   * item inside it (which is what `moveElement` and a resize both do) would leak into whatever the
+   * grid renders next, before `applyLayout` has had a chance to replace it.
+   */
+  const stepArrange = useCallback(
+    (dx: number, dy: number) => {
+      if (arrangement === null) {
+        return;
+      }
+
+      const widget = widgets.find((candidate) => candidate.instanceId === arrangement.instanceId);
+      if (widget === undefined) {
+        return;
+      }
+
+      const layout = layoutAt(widgets, gameKey, breakpoint);
+      const item = getLayoutItem(layout, arrangement.instanceId);
+      if (item === undefined) {
+        return;
+      }
+
+      const columns = COLUMNS[breakpoint];
+
+      if (arrangement.mode === 'resize') {
+        const fitted = fitToGrid(widget, gameKey, breakpoint, {
+          x: item.x,
+          y: item.y,
+          w: item.w + dx,
+          h: item.h + dy,
+        });
+        item.x = fitted.x;
+        item.w = fitted.w;
+        item.h = fitted.h;
+        applyLayout(COMPACTOR.compact(layout, columns));
+        return;
+      }
+
+      // Clamped before moveElement rather than after: fitToGrid is what keeps a nudge from putting
+      // the tile off the right edge or above the top row, the same floor a pointer drag gets for
+      // free from the grid's own bounds.
+      const fitted = fitToGrid(widget, gameKey, breakpoint, {
+        x: item.x + dx,
+        y: Math.max(0, item.y + dy),
+        w: item.w,
+        h: item.h,
+      });
+      const moved = moveElement(
+        layout,
+        item,
+        fitted.x,
+        fitted.y,
+        true,
+        false,
+        COMPACTOR.type,
+        columns,
+        COMPACTOR.allowOverlap,
+      );
+      applyLayout(COMPACTOR.compact(moved, columns));
+    },
+    [arrangement, widgets, gameKey, breakpoint, applyLayout],
+  );
+
+  /** Leaves the current arrange mode. The geometry is already live, so there is nothing to write. */
+  const commitArrange = useCallback(() => {
+    setArrangement(null);
+  }, []);
+
+  /** Leaves the current arrange mode and puts the tile back where it was when it started. */
+  const cancelArrange = useCallback(() => {
+    if (arrangement === null) {
+      return;
+    }
+
+    const { instanceId, origin } = arrangement;
+    setWidgets((current) =>
+      current.map((widget) =>
+        widget.instanceId === instanceId ? withGeometryAt(widget, breakpoint, origin) : widget,
+      ),
+    );
+    setArrangement(null);
+  }, [arrangement, breakpoint]);
+
+  /**
+   * Wired to both the grip and the resize handle. Enter/Space starts the matching mode; once
+   * active, arrow keys nudge, Enter commits, Escape reverts — mirroring mouse-down / drag / mouse-up
+   * for a control a pointer drag was never going to reach.
+   */
+  const handleArrangeKeyDown = useCallback(
+    (event: KeyboardEvent, instanceId: string, mode: 'move' | 'resize') => {
+      const isActive = arrangement?.instanceId === instanceId && arrangement.mode === mode;
+
+      if (!isActive) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          beginArrange(instanceId, mode);
+        }
+        return;
+      }
+
+      const step = ARROW_STEP[event.key];
+      if (step !== undefined) {
+        event.preventDefault();
+        stepArrange(step.x, step.y);
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        commitArrange();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelArrange();
+      }
+    },
+    [arrangement, beginArrange, stepArrange, commitArrange, cancelArrange],
+  );
+
+  /**
+   * Losing focus mid-arrange commits rather than reverting, the same as a pointer drag's mouse-up:
+   * tabbing away is not a cancel gesture, and there is no focus trap holding a keyboard user inside
+   * whichever tile they started arranging.
+   */
+  const handleArrangeBlur = useCallback(
+    (instanceId: string, mode: 'move' | 'resize') => {
+      if (arrangement?.instanceId === instanceId && arrangement.mode === mode) {
+        commitArrange();
+      }
+    },
+    [arrangement, commitArrange],
+  );
+
+  /**
+   * Renders the tile's resize handle as a real, focusable button rather than `react-resizable`'s
+   * default unfocusable span — see `.wall__grid .react-grid-item > .react-resizable-handle` in
+   * `styles.css`, which already had a `:focus-visible` rule waiting for something that could
+   * receive focus. The className is kept identical to the library's default so that rule, and the
+   * library's own hit-testing of the handle, keep applying unchanged.
+   *
+   * `resizeConfig.handleComponent` is one function shared by every tile on the wall — it is not told
+   * which widget it is rendering for, only the axis and a ref `react-resizable` needs attached for
+   * pointer resize to keep working. The instance id is read from the tile's own wrapper at event
+   * time instead (`.wall__widget[data-widget-instance-id]`), which the button is always a DOM child
+   * of — confirmed against `react-resizable`'s `Resizable.renderResizeHandle`, which appends the
+   * handle inside the single child element it is given.
+   */
+  const renderResizeHandle = useCallback(
+    (axis: ResizeHandleAxis, ref: Ref<HTMLElement>) => (
+      <button
+        type="button"
+        ref={ref as Ref<HTMLButtonElement>}
+        className={`react-resizable-handle react-resizable-handle-${axis}`}
+        aria-label="Resize"
+        onKeyDown={(event) => {
+          const instanceId =
+            event.currentTarget.closest<HTMLElement>('.wall__widget')?.dataset.widgetInstanceId;
+          if (instanceId !== undefined) {
+            handleArrangeKeyDown(event, instanceId, 'resize');
+          }
+        }}
+        onBlur={(event) => {
+          const instanceId =
+            event.currentTarget.closest<HTMLElement>('.wall__widget')?.dataset.widgetInstanceId;
+          if (instanceId !== undefined) {
+            handleArrangeBlur(instanceId, 'resize');
+          }
+        }}
+      />
+    ),
+    [handleArrangeKeyDown, handleArrangeBlur],
+  );
+
+  /** What the live region announces while a keyboard arrange is in progress. */
+  const arrangeAnnouncement = useMemo(() => {
+    if (arrangement === null) {
+      return '';
+    }
+
+    const widget = widgets.find((candidate) => candidate.instanceId === arrangement.instanceId);
+    const title = findPanel(gameKey, widget?.widgetId ?? '')?.title ?? widget?.widgetId ?? 'widget';
+    const verb = arrangement.mode === 'move' ? 'Arranging' : 'Resizing';
+    const action = arrangement.mode === 'move' ? 'move' : 'resize';
+
+    return `${verb} ${title}. Arrow keys ${action}. Enter to place, Escape to cancel.`;
+  }, [arrangement, widgets, gameKey]);
+
+  /**
    * The grid's own view of the wall, one layout per breakpoint, with each widget's floor attached.
    *
    * `minW`/`minH` come off the catalogue entry, so the size below which a widget stops being worth
@@ -413,23 +672,6 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
    * is "the same numbers, arrived at one render later".
    */
   const layouts = useMemo(() => {
-    const build = (name: WallBreakpoint): Layout =>
-      widgets.map((widget) => {
-        const entry = findPanel(gameKey, widget.widgetId);
-        const geometry: WidgetGeometry = fitToGrid(widget, gameKey, name, geometryAt(widget, name));
-
-        return {
-          i: widget.instanceId,
-          ...geometry,
-          ...(entry === null
-            ? {}
-            : {
-                minW: Math.min(entry.minSize.w, COLUMNS[name]),
-                minH: entry.minSize.h,
-              }),
-        };
-      });
-
     const result: Partial<Record<WallBreakpoint, Layout>> = {};
 
     for (const name of WALL_BREAKPOINTS) {
@@ -440,7 +682,7 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
       // handed back through `onLayoutChange` and stored, so a width becomes explicit the first time
       // it is used and is never derived again.
       if (name === CANONICAL_BREAKPOINT || widgets.some((widget) => widget.at?.[name])) {
-        result[name] = build(name);
+        result[name] = layoutAt(widgets, gameKey, name);
       }
     }
 
@@ -515,6 +757,16 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
         </div>
       )}
 
+      {/*
+        Announces entering and leaving a keyboard arrange mode. Separate from the notice banner
+        above: that one is a dismissible complaint about a file with its own `role="status"`, and a
+        second element carrying that role would make `getByRole('status')` ambiguous wherever both
+        are on screen at once. `aria-live` alone still gets this announced without claiming the role.
+      */}
+      <div className="visually-hidden" aria-live="polite" aria-atomic="true">
+        {arrangeAnnouncement}
+      </div>
+
       {picking && (
         <div className="wall__picker">
           {addable.length === 0 ? (
@@ -550,23 +802,46 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
           breakpoints={BREAKPOINTS}
           cols={COLUMNS}
           rowHeight={ROW_HEIGHT}
-          onLayoutChange={onLayoutChange}
+          onLayoutChange={applyLayout}
           dragConfig={DRAG_CONFIG}
+          compactor={COMPACTOR}
+          resizeConfig={{ handleComponent: renderResizeHandle }}
         >
           {widgets.map((widget) => {
             const entry = findPanel(gameKey, widget.widgetId);
+            const title = entry?.title ?? widget.widgetId;
+            const titleId = `wall-widget-title-${widget.instanceId}`;
+            const arranging =
+              arrangement?.instanceId === widget.instanceId ? arrangement.mode : null;
 
             return (
-              <div key={widget.instanceId} className="wall__widget">
+              <div
+                key={widget.instanceId}
+                className={
+                  arranging === null ? 'wall__widget' : 'wall__widget wall__widget--arranging'
+                }
+                role="group"
+                aria-labelledby={titleId}
+                data-widget-instance-id={widget.instanceId}
+              >
                 <header className="wall__widget-head">
-                  <span className="wall__widget-grip" aria-hidden="true">
+                  <button
+                    type="button"
+                    className="wall__widget-grip"
+                    aria-label={`Move ${title}`}
+                    aria-pressed={arranging === 'move'}
+                    onKeyDown={(event) => handleArrangeKeyDown(event, widget.instanceId, 'move')}
+                    onBlur={() => handleArrangeBlur(widget.instanceId, 'move')}
+                  >
                     ⠿
-                  </span>
-                  <h3 className="wall__widget-title">{entry?.title ?? widget.widgetId}</h3>
+                  </button>
+                  <h3 id={titleId} className="wall__widget-title">
+                    {title}
+                  </h3>
                   <button
                     type="button"
                     className="link-button"
-                    aria-label={`Remove ${entry?.title ?? widget.widgetId}`}
+                    aria-label={`Remove ${title}`}
                     onClick={() => removeWidget(widget.instanceId)}
                   >
                     Remove
