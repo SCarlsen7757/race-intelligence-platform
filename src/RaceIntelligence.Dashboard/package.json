@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "tsc --noEmit && vite build",
-    "start": "node dist/server/server.js",
+    "start": "node server.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
@@ -19,6 +19,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-grid-layout": "^2.2.4",
+    "srvx": "^0.11.22",
     "uplot": "^1.6.32"
   },
   "devDependencies": {

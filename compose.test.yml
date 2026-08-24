@@ -1,0 +1,138 @@
+# Test deployment: the backend half of the platform, built from this clone.
+#
+#   docker compose -f compose.test.yml up --build
+#
+# The collector is deliberately absent. It reads a Windows named shared-memory block that only
+# exists while RaceRoom is running, so it belongs on the gaming PC, not here. See docs/deployment.md.
+#
+# This is a TEST topology and says so in its name. It builds from the working tree rather than
+# pulling tagged images, because there are no tags: nothing is released, and every process is
+# expected to come from the same commit.
+
+name: race-intelligence-test
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: raceintel
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # Not published to the LAN. Nothing outside this compose network needs to reach the database —
+    # the collector reaches it only through the ingest API, which is the property that keeps
+    # database credentials in exactly two places. Add a `ports:` entry temporarily if you want to
+    # point DataGrip at it, and take it out again afterwards.
+    healthcheck:
+      # The healthcheck the migrate step waits on. Postgres briefly accepts connections while still
+      # initialising, so `pg_isready` scoped to the real user and database is the check that
+      # actually means "ready", rather than a bare TCP probe.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d raceintel']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # One-shot. Applies the EF Core migrations, then exits — everything that depends on a prepared
+  # schema waits for `service_completed_successfully`, so a failed migration stops the deploy here
+  # instead of letting the API come up against a half-built database.
+  #
+  # RaceIntelligence.Ingest.RaceRoom/Program.cs applies migrations only in Development; production
+  # is explicitly out-of-band. This service is that out-of-band step.
+  migrate:
+    build:
+      context: .
+      dockerfile: src/RaceIntelligence.Ingest.RaceRoom/Dockerfile
+      target: migrate
+    # The bundle takes the connection string as an argument rather than from the environment, and
+    # the ENTRYPOINT is the bundle itself.
+    command:
+      - --connection
+      - Host=postgres;Port=5432;Database=raceintel;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  ingest-api:
+    build:
+      context: .
+      dockerfile: src/RaceIntelligence.Ingest.RaceRoom/Dockerfile
+      target: app
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__raceintel: Host=postgres;Port=5432;Database=raceintel;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}
+      Ingest__ApiKey: ${INGEST_API_KEY:?set INGEST_API_KEY in .env}
+      # Which simulator this database holds. One database per simulator (ADR 0001), so the API
+      # refuses to start without this and refuses any session claiming a different one.
+      Ingest__GameKey: raceroom
+    ports:
+      # LAN ONLY, and it must stay that way. Ingest.Api/Auth/ApiKeyFilter.cs documents its own key
+      # check as a Phase-1 compromise with a non-constant-time comparison, explicitly not meant to
+      # be reachable beyond the LAN. It is absent from the cloudflared ingress for that reason.
+      #
+      # 5443 matches the port docs/development.md already uses in its collector examples.
+      - '5443:8080'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # The live hub. The only .NET service meant to be reachable from outside the LAN, and the one
+  # built for it: a constant-time key comparison on the publish socket, an origin allowlist, and a
+  # 15-second WebSocket keep-alive that exists to survive proxy idle timeouts.
+  web:
+    build:
+      context: .
+      dockerfile: src/RaceIntelligence.Web/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Live__ApiKey: ${LIVE_API_KEY:?set LIVE_API_KEY in .env}
+      # The PUBLIC dashboard origin, not an internal address: this is compared against the Origin
+      # header a browser sends, and a browser sends the address in its URL bar. __0 is the
+      # configuration binder's array syntax — the setting is a list, and this is its first entry.
+      # The hub refuses to boot if it is missing rather than defaulting to allowing everything.
+      Live__AllowedOrigins__0: ${DASHBOARD_ORIGIN:?set DASHBOARD_ORIGIN in .env}
+    ports:
+      # Published to the LAN so the collector can publish over it directly rather than making a
+      # round trip out through the tunnel and back. Browsers reach this same service through
+      # cloudflared instead.
+      - '5044:8080'
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: src/RaceIntelligence.Dashboard/Dockerfile
+      args:
+        # A BUILD argument, and it has to be. vite.config.ts bakes it into the client bundle, so
+        # this is not something an `environment:` entry can change — repointing means
+        # `docker compose build dashboard`, not a restart. It must be the public https origin of
+        # the HUB (not of the dashboard): the browser opens its socket straight at the hub.
+        HUB_URL: ${HUB_ORIGIN:?set HUB_ORIGIN in .env}
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    depends_on:
+      - web
+
+  # Publishes the dashboard and the hub. Two hostnames, matching the two-origin design: the browser
+  # loads the page from one and opens its WebSocket at the other.
+  #
+  # Configure the token and the ingress rules in the Cloudflare dashboard; the two hostnames must
+  # map to dashboard:3000 and web:8080 respectively. Comment this service out to run without a
+  # tunnel and reach both over the LAN.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on:
+      - dashboard
+      - web
+
+volumes:
+  postgres-data:

@@ -141,7 +141,9 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
                     yield return telemetryEvent;
                 }
 
-                bool waitingToConnect = _state is ConnectionState.Disconnected or ConnectionState.WaitingForSimulator;
+                bool waitingToConnect = _state is ConnectionState.Disconnected
+                    or ConnectionState.WaitingForSimulator
+                    or ConnectionState.Faulted;
                 if (waitingToConnect)
                 {
                     try
@@ -194,6 +196,14 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
         {
             case ConnectionState.Disconnected:
             case ConnectionState.WaitingForSimulator:
+            // Faulted retries too. It is reached only from the catch-all in TryConnect, which means
+            // "something we did not anticipate", not "something that cannot get better" — and the
+            // things that land there in practice (a transient permissions or mapping error while
+            // the game is starting) clear on their own. Leaving it terminal cost a whole race for a
+            // fault that a two-second retry would have cleared, and left the loop spinning at the
+            // full poll rate producing nothing. SetState is idempotent, so a fault that genuinely
+            // persists re-enters this branch silently rather than logging every retry.
+            case ConnectionState.Faulted:
                 TryConnect(events, now);
                 break;
 
@@ -203,7 +213,6 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
                 ProcessConnectedTick(events, now);
                 break;
 
-            case ConnectionState.Faulted:
             default:
                 break;
         }

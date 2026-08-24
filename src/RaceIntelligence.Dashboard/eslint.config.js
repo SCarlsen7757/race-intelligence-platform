@@ -52,8 +52,11 @@ export default tseslint.config(
   },
 
   {
-    // Not in tsconfig's `include`, so the type-aware rules have no program to consult.
-    files: ['eslint.config.js'],
+    // Not in tsconfig's `include`, so the type-aware rules have no program to consult. `server.mjs`
+    // is here for the same reason and is deliberately outside it: it is the production entry point,
+    // and it imports `dist/server/server.js`, which does not exist until after a build. Putting it
+    // in the type-checked program would make `npm run typecheck` depend on having already built.
+    files: ['eslint.config.js', 'server.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },
 
