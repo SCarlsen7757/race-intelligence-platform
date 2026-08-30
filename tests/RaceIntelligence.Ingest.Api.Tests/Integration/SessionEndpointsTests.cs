@@ -588,9 +588,18 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
     /// Opens a connection to the fixture's throwaway Postgres container.
     /// </summary>
     /// <remarks>
-    /// The ingest API is write-only — it exposes no endpoint that reads a driver or a session back —
-    /// so the driver-identity and rate assertions above have to inspect the rows themselves. The
-    /// integration-test Postgres resource is deliberately given no fixed port, so the connection
+    /// The assertions above are about the shape of the stored rows — that resolving a driver twice
+    /// leaves one row, that a renamed driver keeps their id, that a sentinel rate became NULL rather
+    /// than zero — so they inspect the rows themselves.
+    /// <para>
+    /// There is a read API now (<c>RaceIntelligence.Read.Api</c>), and it deliberately does not help
+    /// here: it serves sessions, laps and telemetry, not <c>drivers</c> row counts, and it should not
+    /// grow an endpoint whose only caller is a test. Reading these back over HTTP would also assert
+    /// something weaker than what is meant — "the API reports one driver" is true of a schema that
+    /// stored two and joined badly. These are storage invariants and they are checked against
+    /// storage.
+    /// </para>
+    /// The integration-test Postgres resource is deliberately given no fixed port, so the connection
     /// string comes from the fixture rather than configuration.
     /// </remarks>
     private async Task<NpgsqlConnection> OpenDatabaseAsync()

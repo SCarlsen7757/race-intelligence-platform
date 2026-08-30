@@ -65,6 +65,23 @@ var ingestApi = builder.AddProject<Projects.RaceIntelligence_Ingest_RaceRoom>("i
     // ingest API that accepts anything is the silent mixing the split exists to prevent.
     .WithEnvironment("Ingest__GameKey", "raceroom");
 
+// RaceRoom's read API: the same database as the ingest API above, reached read-only.
+//
+// A separate service rather than more endpoints on the ingest host, because the two have opposite
+// exposure. The ingest host holds a key and stays on the LAN (ADR 0003); this one holds no key at
+// all and is the half a browser is meant to reach. Merging them would mean picking one posture for
+// both, and the safe pick would put a key in the dashboard's bundle where it is not a secret.
+//
+// It gets no API key parameter for that reason — it has nothing to authenticate. What limits it is
+// the origin allowlist wired below, and that it cannot write.
+var readApi = builder.AddProject<Projects.RaceIntelligence_Read_RaceRoom>("read-api")
+    .WithReference(database)
+    .WaitFor(database)
+    // After the ingest API, which owns the schema and applies the migrations in development. This
+    // host deliberately does not migrate, so starting it against an unprepared database would fail
+    // on the first query instead of quietly creating tables it does not own.
+    .WaitFor(ingestApi);
+
 // The cross-simulator identity registry. The only other service allowed to hold database
 // credentials, and only ever its own — it is never given a reference to the telemetry store, which
 // is what keeps the separation above true in code rather than only in a diagram.
@@ -98,7 +115,13 @@ var web = builder.AddProject<Projects.RaceIntelligence_Web>("web")
 // that exists under either launch profile.
 var dashboard = builder.AddViteApp("dashboard", "../RaceIntelligence.Dashboard")
     .WithEnvironment("HUB_URL", web.GetEndpoint("http"))
-    .WaitFor(web);
+    // READ_URL is the second baked-in origin, and it is baked for the same reason HUB_URL is: Vite
+    // reads it at config time and the browser has no environment to read at run time. Two URLs now,
+    // because history and live genuinely come from two services — the hub holds no database and the
+    // read API holds no live state.
+    .WithEnvironment("READ_URL", readApi.GetEndpoint("http"))
+    .WaitFor(web)
+    .WaitFor(readApi);
 
 // Stated after the dashboard exists, because it names the dashboard's endpoint. There is no cycle:
 // Aspire allocates every endpoint before it resolves any environment variable, so the two
@@ -108,6 +131,11 @@ var dashboard = builder.AddViteApp("dashboard", "../RaceIntelligence.Dashboard")
 // first entry. Without it the hub refuses to boot rather than accepting every origin, which is the
 // whole point of the setting.
 web.WithEnvironment("Live__AllowedOrigins__0", dashboard.GetEndpoint("http"));
+
+// The same handshake for the read API, and the same reason it cannot be defaulted: an empty
+// Read:AllowedOrigins would mean "accept every origin", so the read host refuses to start without
+// this rather than starting permissively.
+readApi.WithEnvironment("Read__AllowedOrigins__0", dashboard.GetEndpoint("http"));
 
 // The collector holds no database credentials by design — it reaches the database only through
 // the ingest API.

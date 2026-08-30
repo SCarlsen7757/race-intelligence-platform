@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { useConnected } from '../live/useLive';
 import { ErrorBanner } from './ErrorBanner';
@@ -15,7 +16,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="app">
       <header className="app__header">
-        <h1 className="app__title">Race Intelligence</h1>
+        <h1 className="app__title">
+          <Link to="/">Race Intelligence</Link>
+        </h1>
+
+        {/* The two tenses the dashboard now has. Live is the landing page and stays that way — it
+            is what someone opens mid-race — but history was unreachable without a URL to type. */}
+        <nav className="app__nav">
+          <Link to="/" activeOptions={{ exact: true }} className="app__nav-link">
+            Live
+          </Link>
+          <Link to="/sessions" className="app__nav-link">
+            History
+          </Link>
+        </nav>
 
         <span className={`status status--${connected ? 'live' : 'offline'}`}>
           {connected ? 'Connected' : 'Reconnecting…'}

@@ -5,10 +5,27 @@ import {
   createRouter,
   Outlet,
   RouterProvider,
+  useLoaderData,
 } from '@tanstack/react-router';
 import { act, render } from '@testing-library/react';
 import { ROUTER_DEFAULTS } from '../router';
 import { RoomsView } from '../features/rooms/RoomsView';
+import { SessionList } from '../features/history/SessionList';
+import { StoredSessionView } from '../features/history/StoredSessionView';
+import {
+  fetchLaps,
+  fetchSampledLapNumbers,
+  fetchSession,
+  fetchSessions,
+} from '../shared/history/client';
+import type { StoredLap, StoredSession, StoredSessionPage } from '../shared/history/contracts';
+
+/** What the stored-session route's loader returns, named so the component can state it back. */
+interface StoredSessionData {
+  session: StoredSession;
+  laps: StoredLap[];
+  sampledLapNumbers: number[];
+}
 import { SessionView } from '../features/tower/SessionView';
 import { LiveProvider } from '../shared/live/LiveProvider';
 import { AppShell } from '../shared/ui/AppShell';
@@ -45,7 +62,51 @@ function buildRouteTree() {
     component: SessionView,
   });
 
-  return rootRoute.addChildren([indexRoute, sessionRoute]);
+  // The history routes carry real loaders, unlike every route above them. Mirrored here with the
+  // same loaders the route files declare, because a test of the stored-session page that skipped
+  // them would be testing a component, not the page.
+  //
+  // Both read their data through `useLoaderData({ strict: false })` rather than off the route
+  // object. A component declared inside `createRoute` that reads the route it is being declared on
+  // is circular to infer, and TypeScript resolves that circle to `never` rather than to an error
+  // that says so. The loose hook breaks the circle; the annotations below put the types back.
+  const storedSessionsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/sessions',
+    loader: (): Promise<StoredSessionPage> => fetchSessions(),
+    component: function StoredSessions() {
+      // Narrowed inside `select` rather than asserted over the hook's result: the loose hook
+      // returns every loader's shape merged, so this says which one this route's is.
+      const page = useLoaderData({ strict: false, select: (data) => data as StoredSessionPage });
+      return <SessionList sessions={page.sessions} />;
+    },
+  });
+
+  const storedSessionRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/sessions/$sessionId',
+    loader: async ({ params }): Promise<StoredSessionData> => {
+      const [session, laps, sampledLapNumbers] = await Promise.all([
+        fetchSession(params.sessionId),
+        fetchLaps(params.sessionId),
+        fetchSampledLapNumbers(params.sessionId),
+      ]);
+
+      return { session, laps, sampledLapNumbers };
+    },
+    component: function StoredSession() {
+      const { session, laps, sampledLapNumbers } = useLoaderData({
+        strict: false,
+        select: (data) => data as StoredSessionData,
+      });
+
+      return (
+        <StoredSessionView session={session} laps={laps} sampledLapNumbers={sampledLapNumbers} />
+      );
+    },
+  });
+
+  return rootRoute.addChildren([indexRoute, sessionRoute, storedSessionsRoute, storedSessionRoute]);
 }
 
 /**

@@ -135,6 +135,9 @@ body {
   max-width: 1600px;
   margin: 0 auto;
   padding: 16px 20px;
+  /* Lets a route that fills the glass actually do so — without it a flex child refuses to shrink
+     below its content and `height: 100%` inside has nothing definite to resolve against. */
+  min-height: 0;
 }
 
 /*
@@ -1921,4 +1924,112 @@ th.tower__state {
 .race-timeline__stops {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* ---- History: stored sessions ------------------------------------------------------------- */
+
+/* The two tenses, in the header. `app__title` keeps the visual weight — this is navigation between
+   two views of the same data, not a top-level mode switch, so it reads quieter than the title. */
+.app__nav {
+  display: flex;
+  gap: 4px;
+}
+
+.app__nav-link {
+  padding: 4px 10px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.app__nav-link:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* TanStack Router marks the matched link, so the current view is stated rather than inferred from
+   the URL bar. */
+.app__nav-link.active {
+  background: var(--accent-fill);
+  color: var(--accent);
+}
+
+.app__title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/*
+ * The stored-session page is a column that fills the glass, so the chart can take what is left.
+ *
+ * `.trace` is `flex: 1 1 auto` — it takes whatever height its flex parent has spare, which is how a
+ * dragged pit-wall tile draws a taller trace. On this page the parent has to be told to be that
+ * tall, or the chart falls back to its 96px floor and a lap of telemetry is drawn in a strip. Same
+ * mechanism as the wall, not a hardcoded height.
+ */
+.stored-session {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.session__header {
+  flex: 0 0 auto;
+  margin-bottom: 16px;
+}
+
+.session__header h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* A row of laps rather than a dropdown: which laps exist, and which one is being read, are both
+   worth seeing at once — comparing lap times is most of why anyone opens a stored session. Wraps
+   because an endurance stint has more laps than a line. */
+.lap-picker {
+  /* Fixed size in the column, so the chart below is what absorbs the spare height. */
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.lap-picker__lap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lap-picker__lap:hover {
+  background: var(--bg-hover);
+}
+
+.lap-picker__lap--selected {
+  border-color: var(--accent);
+  background: var(--accent-fill);
+}
+
+.lap-picker__number {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Tabular figures so a column of lap times compares digit against digit rather than drifting. */
+.lap-picker__time {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
 }

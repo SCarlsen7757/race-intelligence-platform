@@ -30,14 +30,16 @@ block that exists only while RaceRoom is running. It belongs on the gaming PC.
 **The ingest API is not on the tunnel.** `Ingest.Api/Auth/ApiKeyFilter.cs` documents its own key
 check as a Phase-1 compromise with a non-constant-time comparison, and says it should not be exposed
 beyond the LAN. The live hub is the service built for exposure — constant-time key comparison, an
-origin allowlist, and a WebSocket keep-alive that exists to survive proxy idle timeouts — and it is
-the only .NET service published. The collector reaches both over the LAN, including the hub: there
-is no reason to send live frames out through the tunnel and back.
+origin allowlist, and a WebSocket keep-alive that exists to survive proxy idle timeouts. The read
+API is published too, for the opposite reason: it holds no key at all, writes nothing, applies no
+migrations, and serves only GETs behind its own origin allowlist. The collector reaches the ingest
+API and the hub over the LAN: there is no reason to send live frames out through the tunnel and back.
 
-**The dashboard and the hub are two origins, hence two hostnames.** The browser loads the page from
-the dashboard and then opens its WebSocket straight at the hub, rather than being proxied back
-through Node. That is the lower-latency arrangement — a proxy would force Node's event loop to
-re-emit every focus frame sixty times a second — and it is why two hostnames are needed.
+**The dashboard, the hub and the read API are three origins, hence three hostnames.** The browser
+loads the page from the dashboard, opens its WebSocket straight at the hub, and fetches stored
+sessions from the read API. Routing the sockets through Node would force its event loop to re-emit
+every focus frame sixty times a second; keeping history off the hub is what lets the hub go on
+holding no database credentials.
 
 ---
 
@@ -52,36 +54,42 @@ docker compose -f compose.test.yml up --build -d
 ```
 
 Compose brings things up in the right order on its own: PostgreSQL becomes healthy, the `migrate`
-container applies the schema and exits, and only then does the ingest API start.
+container applies the schema and exits, and only then do the ingest and read APIs start. The read
+API waits on the migration step even though it never migrates: it does not own the schema, so
+starting before one exists would fail on its first query rather than at startup.
 
-### Two settings that are easy to get wrong
+### Three settings that are easy to get wrong
 
-**`HUB_ORIGIN` is baked into the dashboard image at build time.** It is passed as a Docker build
-argument, and `vite.config.ts` compiles it into the client bundle — the browser has no environment
-to read, and the live routes are client-only, so there is no server render to ship the value down
-with. Two consequences:
+**`HUB_ORIGIN` and `READ_ORIGIN` are baked into the dashboard image at build time.** Both are passed
+as Docker build arguments, and `vite.config.ts` compiles them into the client bundle — the browser
+has no environment to read, and the routes are client-only, so there is no server render to ship the
+values down with. Two consequences:
 
-- Changing it means `docker compose -f compose.test.yml build dashboard`, **not** a restart.
-- It must be the public `https://` origin of the **hub**. `app/shared/live/hubUrl.ts` derives the
-  socket scheme from this value rather than from the page, so an `http://` origin produces a `ws://`
-  URL that browsers block as mixed content on an https page.
+- Changing either means `docker compose -f compose.test.yml build dashboard`, **not** a restart.
+- `HUB_ORIGIN` must be the public `https://` origin of the **hub**. `app/shared/live/hubUrl.ts`
+  derives the socket scheme from this value rather than from the page, so an `http://` origin
+  produces a `ws://` URL that browsers block as mixed content on an https page.
 
-If the dashboard loads but never connects, this is almost always why. Check what the page actually
-requests in DevTools before looking anywhere else.
+If the dashboard loads but never connects, `HUB_ORIGIN` is almost always why. If it connects but the
+History page fails to load, look at `READ_ORIGIN` instead — the two are independent, and one being
+wrong leaves the other working, which is what makes the symptom confusing. Check what the page
+actually requests in DevTools before looking anywhere else.
 
 **`DASHBOARD_ORIGIN` is compared against a browser's `Origin` header**, so it too must be the public
-address, not an internal one. The hub refuses to start if it is missing rather than defaulting to
+address, not an internal one. It is used twice — the hub's `Live:AllowedOrigins` and the read API's
+`Read:AllowedOrigins` — and both services refuse to start if it is missing rather than defaulting to
 allowing every origin.
 
 ### Cloudflare tunnel
 
-Create the tunnel in the Zero Trust dashboard, put its token in `.env`, and give it two public
+Create the tunnel in the Zero Trust dashboard, put its token in `.env`, and give it three public
 hostnames:
 
 | Hostname | Service |
 |---|---|
 | `race-web.<domain>` | `http://dashboard:3000` |
 | `race-api.<domain>` | `http://web:8080` |
+| `race-read.<domain>` | `http://read-api:8080` |
 
 Do not add a rule for the ingest API.
 

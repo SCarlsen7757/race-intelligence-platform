@@ -1,5 +1,6 @@
 import viteReact from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
+import { DEFAULT_READ_URL } from './app/shared/history/readUrlBuild';
 import { DEFAULT_HUB_URL } from './app/shared/live/hubUrlBuild';
 
 /**
@@ -18,6 +19,7 @@ export default defineConfig({
   // HUB_URL exported.
   define: {
     __HUB_URL__: JSON.stringify(DEFAULT_HUB_URL),
+    __READ_URL__: JSON.stringify(DEFAULT_READ_URL),
   },
 
   test: {

@@ -61,10 +61,11 @@ public sealed class AspireAppFixture : IAsyncLifetime
     /// database the ingest API writes to. Only valid when <see cref="IsAvailable"/>.
     /// </summary>
     /// <remarks>
-    /// The ingest API is write-only by design, so an integration test that needs to assert on what
-    /// was actually persisted has no endpoint to read it back through and must query the database
-    /// directly. Exposing that here keeps the coupling to <see cref="DistributedApplication"/> in
-    /// the fixture, where the rest of it already lives.
+    /// The ingest API is write-only by design. There is a separate read API now, but it answers
+    /// questions about sessions, laps and telemetry — not about whether resolving a driver twice
+    /// left one row — and those storage invariants are what the assertions here are for. So they
+    /// query the database directly. Exposing that here keeps the coupling to
+    /// <see cref="DistributedApplication"/> in the fixture, where the rest of it already lives.
     /// </remarks>
     /// <param name="resourceName">The AppHost resource name, e.g. <c>raceintel</c>.</param>
     public ValueTask<string?> GetConnectionStringAsync(string resourceName, CancellationToken ct = default) =>

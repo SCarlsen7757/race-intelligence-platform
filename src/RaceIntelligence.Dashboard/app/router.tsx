@@ -15,8 +15,12 @@ export const ROUTER_DEFAULTS = {};
 /**
  * The router TanStack Start boots, on the server and in the browser.
  *
- * `defaultPreload: 'intent'` costs nothing here: every route's data arrives over the live socket
- * rather than from a loader, so preloading buys a mounted component and no request at all.
+ * `defaultPreload: 'intent'` used to cost nothing: every route's data arrived over the live socket
+ * rather than from a loader, so preloading bought a mounted component and no request at all.
+ *
+ * The `/sessions` routes changed that. They read history over HTTP and have real loaders, so
+ * preloading them does issue a request — which is why it stays on. Those are the routes where
+ * starting the fetch on hover is worth something, and the live routes still pay nothing for it.
  */
 export function getRouter() {
   return createRouter({

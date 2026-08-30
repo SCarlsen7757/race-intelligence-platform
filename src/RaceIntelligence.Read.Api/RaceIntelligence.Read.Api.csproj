@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!--
+      A library, not a host — the same split RaceIntelligence.Ingest.Api makes, for the same reason.
+      Reading a session, its laps and a lap's telemetry is the same question in every simulator,
+      because it is asked of the canonical entities in Persistence.Core. A second simulator's read
+      API is a Program.cs, not a copy of this.
+
+      The write side is the mirror of this project and deliberately a separate deployable: an ingest
+      host holds a key and stays on the LAN (ADR 0003), a read host holds no key and is the one that
+      gets exposed. Merging them would mean choosing one auth posture for both.
+    -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- The implicit usings the Web SDK would have given a host. Stated here because this is a plain
+       library: it is the endpoints, not the process that runs them. -->
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Http.HttpResults" />
+    <Using Include="Microsoft.AspNetCore.Mvc" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RaceIntelligence.Persistence.Core\RaceIntelligence.Persistence.Core.csproj" />
+  </ItemGroup>
+
+</Project>

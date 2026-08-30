@@ -80,6 +80,34 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # The read API: RaceRoom's stored sessions, read-only.
+  #
+  # A separate service from ingest-api rather than more endpoints on it, because the two have
+  # opposite exposure. That one holds a key and stays on the LAN; this one holds no key at all and
+  # is reachable through the tunnel, which is what lets a browser read history. Merging them would
+  # mean choosing one posture for both.
+  #
+  # It writes nothing and applies no migrations — the ingest side owns the schema (ADR 0001) — but
+  # it still waits on the migration step, because starting against an unprepared database would
+  # fail on the first query rather than on startup.
+  read-api:
+    build:
+      context: .
+      dockerfile: src/RaceIntelligence.Read.RaceRoom/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__raceintel: Host=postgres;Port=5432;Database=raceintel;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}
+      # The PUBLIC dashboard origin, for the same reason and with the same syntax as the hub's
+      # below: it is compared against the Origin header a browser sends. The service refuses to
+      # boot without it rather than defaulting to allowing every origin.
+      Read__AllowedOrigins__0: ${DASHBOARD_ORIGIN:?set DASHBOARD_ORIGIN in .env}
+    ports:
+      - '5049:8080'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   # The live hub. The only .NET service meant to be reachable from outside the LAN, and the one
   # built for it: a constant-time key comparison on the publish socket, an origin allowlist, and a
   # 15-second WebSocket keep-alive that exists to survive proxy idle timeouts.
@@ -112,18 +140,26 @@ services:
         # `docker compose build dashboard`, not a restart. It must be the public https origin of
         # the HUB (not of the dashboard): the browser opens its socket straight at the hub.
         HUB_URL: ${HUB_ORIGIN:?set HUB_ORIGIN in .env}
+        # The read API's public origin, baked in for exactly the same reason and with the same
+        # cost: repointing it is a rebuild, not a restart. Two addresses because history and live
+        # are two services.
+        READ_URL: ${READ_ORIGIN:?set READ_ORIGIN in .env}
     restart: unless-stopped
     ports:
       - '3000:3000'
     depends_on:
       - web
+      - read-api
 
-  # Publishes the dashboard and the hub. Two hostnames, matching the two-origin design: the browser
-  # loads the page from one and opens its WebSocket at the other.
+  # Publishes the dashboard, the hub and the read API. Three hostnames now: the browser loads the
+  # page from one, opens its WebSocket at the second, and fetches history from the third.
   #
-  # Configure the token and the ingress rules in the Cloudflare dashboard; the two hostnames must
-  # map to dashboard:3000 and web:8080 respectively. Comment this service out to run without a
-  # tunnel and reach both over the LAN.
+  # The read API joins the tunnel and the ingest API still does not, which is the whole reason they
+  # are separate services — see read-api above.
+  #
+  # Configure the token and the ingress rules in the Cloudflare dashboard; the three hostnames must
+  # map to dashboard:3000, web:8080 and read-api:8080 respectively. Comment this service out to run
+  # without a tunnel and reach them over the LAN.
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
@@ -133,6 +169,7 @@ services:
     depends_on:
       - dashboard
       - web
+      - read-api
 
 volumes:
   postgres-data:

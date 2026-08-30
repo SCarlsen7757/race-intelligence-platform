@@ -1,6 +1,7 @@
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { resolveReadUrlAtBuildTime } from './app/shared/history/readUrlBuild';
 import { resolveHubUrlAtBuildTime } from './app/shared/live/hubUrlBuild';
 
 /**
@@ -25,6 +26,9 @@ export default defineConfig({
   // hubUrlBuild.ts for why the fallback is what it is.
   define: {
     __HUB_URL__: JSON.stringify(resolveHubUrlAtBuildTime(process.env.HUB_URL)),
+    // The read API's address, baked in for the same reason and by the same mechanism. Two
+    // addresses because history and live are two services — see readUrlBuild.ts.
+    __READ_URL__: JSON.stringify(resolveReadUrlAtBuildTime(process.env.READ_URL)),
   },
 
   // `PORT` because that is what Aspire assigns a JavaScript resource, and Vite does not read it on

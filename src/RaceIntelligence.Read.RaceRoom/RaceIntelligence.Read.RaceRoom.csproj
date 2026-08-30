@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RaceIntelligence.Read.Api\RaceIntelligence.Read.Api.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Persistence.RaceRoom\RaceIntelligence.Persistence.RaceRoom.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.ServiceDefaults\RaceIntelligence.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+</Project>

@@ -42,20 +42,31 @@ Core migration bundle in its own image, which everything needing a prepared sche
 its own logs, rather than an API in a restart loop — and it stays correct if the API is ever run
 with more than one replica.
 
-**Two public hostnames, because the dashboard and the hub are genuinely two origins.**
+**Three public hostnames, because the dashboard, the hub and the read API are genuinely three
+origins.**
 
 The dashboard is a Node service; the browser loads the page from it and then opens its WebSocket
 *straight at the hub*, not proxied back through Node. One hostname would mean putting the hub behind
 the dashboard's path space and reintroducing the proxy hop that arrangement exists to avoid. So:
-`race-web.*` to the dashboard, `race-api.*` to the hub, and the hub's `Live:AllowedOrigins` names
-the dashboard's public origin.
+`race-web.*` to the dashboard, `race-api.*` to the hub, `race-read.*` to the read API, and both
+back-end services name the dashboard's public origin in their allowlists.
 
-**The ingest API stays on the LAN.**
+The read API is the third because history is not live state and the hub holds none: it has no
+database credentials by design, and giving it some to serve one more route would undo the property
+that makes it the safe service to expose. See [0001](0001-per-sim-storage.md) for why the read API
+is per-simulator and why it is not simply more endpoints on the ingest host.
+
+**The ingest API stays on the LAN — and the read API does not.**
 
 `Ingest.Api/Auth/ApiKeyFilter.cs` documents its own key check as a Phase-1 compromise with a
 non-constant-time comparison and says plainly that it should not be exposed beyond the LAN. It is
 therefore absent from the tunnel's ingress. The hub is the service built for exposure — constant-time
-key comparison, origin allowlist, WebSocket keep-alive — and it is the only .NET service published.
+key comparison, origin allowlist, WebSocket keep-alive — and the read API is built for it from the
+other direction: it holds no key to leak, writes nothing, and serves only GETs behind its own origin
+allowlist. Those two are published; the ingest API is not.
+
+**That split is why the read API is a separate process rather than a `MapGet` beside the existing
+`MapPost`.** Same database, same table, opposite auth posture — and one service cannot have two.
 
 The collector also publishes to the hub over the LAN rather than out through the tunnel and back,
 which is both lower latency and one less dependency during a race.
@@ -69,7 +80,7 @@ changing that code to serve compose's convenience.
 
 ## Consequences
 
-- **`HUB_URL` is baked into the dashboard image at build time.** Vite `define`s it into the client
+- **`HUB_URL` and `READ_URL` are baked into the dashboard image at build time.** Vite `define`s it into the client
   bundle because the browser has no environment to read and the live routes are client-only.
   Repointing the dashboard at a different hub is a rebuild, not a restart, and it must be the public
   `https://` origin — the socket scheme is derived from that value, so an internal `http://` address

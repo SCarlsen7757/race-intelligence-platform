@@ -13,6 +13,7 @@
     <Project Path="src/RaceIntelligence.Collector/RaceIntelligence.Collector.csproj" />
     <Project Path="src/RaceIntelligence.Identity.Api/RaceIntelligence.Identity.Api.csproj" />
     <Project Path="src/RaceIntelligence.Ingest.RaceRoom/RaceIntelligence.Ingest.RaceRoom.csproj" />
+    <Project Path="src/RaceIntelligence.Read.RaceRoom/RaceIntelligence.Read.RaceRoom.csproj" />
     <Project Path="src/RaceIntelligence.Web/RaceIntelligence.Web.csproj" />
   </Folder>
   <Folder Name="/Infrastructure/">
@@ -23,6 +24,7 @@
     <Project Path="src/RaceIntelligence.Ingest.Api/RaceIntelligence.Ingest.Api.csproj" />
     <Project Path="src/RaceIntelligence.Persistence.Core/RaceIntelligence.Persistence.Core.csproj" />
     <Project Path="src/RaceIntelligence.Persistence.RaceRoom/RaceIntelligence.Persistence.RaceRoom.csproj" />
+    <Project Path="src/RaceIntelligence.Read.Api/RaceIntelligence.Read.Api.csproj" />
   </Folder>
   <Folder Name="/Shared/">
     <Project Path="src/RaceIntelligence.Collector.Abstractions/RaceIntelligence.Collector.Abstractions.csproj" />
@@ -42,6 +44,7 @@
     <Project Path="tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Persistence.RaceRoom.Tests/RaceIntelligence.Persistence.RaceRoom.Tests.csproj" />
+    <Project Path="tests/RaceIntelligence.Read.Api.Tests/RaceIntelligence.Read.Api.Tests.csproj" />
     <Project Path="tests/RaceIntelligence.Web.Tests/RaceIntelligence.Web.Tests.csproj" />
   </Folder>
 </Solution>

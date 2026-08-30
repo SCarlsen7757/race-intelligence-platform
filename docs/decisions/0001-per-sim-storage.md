@@ -125,10 +125,36 @@ Step 4 was the one with a deadline, and it was met while there was still exactly
 seed from. Step 3 completes the simulator-owned storage shape that makes the rest of this decision
 worth its bill.
 
+## The read API, as built
+
+**Per simulator, as its own deployable: `RaceIntelligence.Read.Api` is the shared endpoint library
+and `RaceIntelligence.Read.RaceRoom` is the first host** — the same library-plus-host split the
+ingest side already makes, and for the same reason. Reading a session, its laps and a lap's
+telemetry is one question in every simulator, because it is asked of the canonical entities in
+`Persistence.Core`; only the `DbContext` registration names a schema.
+
+**It is a separate service from the ingest host, and that is forced rather than tidy.** The two have
+opposite exposure. [0003](0003-deployment-topology.md) keeps the ingest API off the tunnel because
+`Ingest.Api/Auth/ApiKeyFilter.cs` documents its own key check as a non-constant-time Phase-1
+compromise; a dashboard on its own origin has to reach *something*, and it cannot be that. The other
+candidate was the live hub, which is already exposed — but the hub holds no database credentials by
+design, that being the property `AppHost.cs` and `Ingest.RaceRoom/Program.cs` both state explicitly,
+and it is shared across simulators where this decision says storage is not.
+
+So: the ingest host keeps a key and stays on the LAN; the read host holds no key, serves only GETs,
+writes nothing, applies no migrations, and is published. Its guard is an origin allowlist that must
+be non-empty for it to start. An API key was considered and rejected: to be useful it would have to
+ship inside the browser bundle, where it is not a secret and only reads as one — the same argument
+the hub already makes for its open viewing socket.
+
+This is the third instance of the "N deployments" bill: a second simulator means another database,
+another ingest API, another migration bundle, and now another read API.
+
 ## Open questions
 
-- Where the read API for a multi-sim dashboard lives: one gateway that fans out per simulator, or a
-  read model built by the translator. Leaning to the latter, since the translator has to produce a
-  canonical dataset anyway.
+- Whether the cross-simulator read path is this API fanned out per simulator or a read model built
+  by the translator. Unchanged by the above, which deliberately answers only the single-simulator
+  case: `Read.Api` is per-sim by construction and knows nothing of any other. Still leaning to the
+  translator, since it has to produce a canonical dataset anyway.
 - Whether the analysis warehouse in 0002 is PostgreSQL or a columnar format. Not urgent; it does not
   change anything here.
