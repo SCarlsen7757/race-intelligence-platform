@@ -34,7 +34,15 @@ BEGIN;
 
 -- 1. Put the old table aside rather than dropping it. Nothing is deleted until the counts at the
 --    bottom have been read by a human.
+--
+--    Every index has to be renamed too, and the primary key's is the one that bites: renaming a
+--    table does not rename the objects hanging off it, and index names share one namespace per
+--    schema. Leave "PK_telemetry_samples" where it is and step 2's CREATE TABLE fails with
+--    `relation "PK_telemetry_samples" already exists` — after the old table has been renamed but
+--    before the new one exists. Inside a transaction that rolls back cleanly, but it is a confusing
+--    place to stop. The foreign key needs no such care: constraint names are per-table.
 ALTER TABLE telemetry_samples RENAME TO telemetry_samples_pre_109;
+ALTER INDEX "PK_telemetry_samples" RENAME TO "PK_telemetry_samples_pre_109";
 ALTER INDEX ix_telemetry_session_lap RENAME TO ix_telemetry_session_lap_pre_109;
 ALTER INDEX ix_telemetry_timestamp_brin RENAME TO ix_telemetry_timestamp_brin_pre_109;
 
