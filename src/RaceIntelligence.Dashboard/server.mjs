@@ -11,7 +11,8 @@
  * provided by the handler alone:
  *
  *   1. A listener. `srvx` serves a fetch handler on Node and is already in the tree — it is what
- *      h3 uses underneath — so this adds no new dependency surface.
+ *      h3 uses underneath — so this adds no new dependency surface. It is a RUNTIME dependency, not
+ *      a dev one: this file imports it in the container, where `npm ci --omit=dev` has run.
  *   2. Static files. The SSR handler renders HTML that references hashed bundles under
  *      `dist/client/assets/`, but it does not serve them; without the middleware below every page
  *      loads, then dies on its own script tags.
@@ -23,7 +24,7 @@
 import { fileURLToPath } from 'node:url';
 
 import { serve } from 'srvx';
-import { serveStatic } from 'srvx/static';
+import { staticMiddleware } from 'srvx/static';
 
 import handler from './dist/server/server.js';
 
@@ -47,7 +48,7 @@ const server = serve({
   hostname,
   // Static first: the assets are hashed and immutable, and there is no reason to run a router
   // match over a request for a bundle. Anything not found on disk falls through to SSR.
-  middleware: [serveStatic({ dir: clientDir })],
+  middleware: [staticMiddleware({ dir: clientDir })],
   fetch: handler.fetch,
 });
 
