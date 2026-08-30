@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- xUnit1051: these integration tests already bound their lifetime via the fixture and
+         explicit timeouts; threading TestContext.Current.CancellationToken through every HTTP
+         call adds noise without changing behaviour. Same rationale as the other test projects. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The read host under test, the ingest contracts used to seed it through the real write path,
+         and the AppHost that starts both. -->
+    <ProjectReference Include="..\..\src\RaceIntelligence.Read.RaceRoom\RaceIntelligence.Read.RaceRoom.csproj" />
+    <ProjectReference Include="..\..\src\RaceIntelligence.Ingest.Contracts\RaceIntelligence.Ingest.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\RaceIntelligence.AppHost\RaceIntelligence.AppHost.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Identity.Api\RaceIntelligence.Identity.Api.csproj" />
     <ProjectReference Include="..\RaceIntelligence.Ingest.RaceRoom\RaceIntelligence.Ingest.RaceRoom.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Read.RaceRoom\RaceIntelligence.Read.RaceRoom.csproj" />
     <ProjectReference Include="..\RaceIntelligence.Collector\RaceIntelligence.Collector.csproj" />
     <ProjectReference Include="..\RaceIntelligence.Web\RaceIntelligence.Web.csproj" />
   </ItemGroup>

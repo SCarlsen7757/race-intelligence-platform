@@ -202,9 +202,15 @@ interface LiveChartProps {
    * The rings themselves are reached through each series' `buffer`, so neither of these is read for
    * data. They are here because they say *when the rings become different rings* — a chart pointed
    * at another driver is drawing another car's stint and has to be rebuilt rather than repainted.
+   *
+   * **Both are optional, because not every source is a stream.** A chart drawn from a stored lap has
+   * numbers that were fixed before the page loaded: there is no later moment at which they become
+   * different numbers, so its identity is the constant `undefined` and it is built exactly once.
+   * Leaving these required would have meant handing such a chart a `LiveStore` it does not read, to
+   * satisfy a dependency array — a prop passed to mean nothing, which is worse than an absent one.
    */
-  store: LiveStore;
-  driverKey: string;
+  store?: LiveStore;
+  driverKey?: string;
   spec: LiveChartSpec;
   /**
    * Channel ids not to draw, matched against each series' `id`.
