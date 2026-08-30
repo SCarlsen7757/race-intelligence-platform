@@ -1,6 +1,6 @@
 using RaceIntelligence.Connectors.RaceRoom.Interop;
 using RaceIntelligence.Connectors.RaceRoom.Tests.Support;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using Shouldly;
 
 namespace RaceIntelligence.Connectors.RaceRoom.Tests;
@@ -15,7 +15,7 @@ namespace RaceIntelligence.Connectors.RaceRoom.Tests;
 /// </summary>
 public class R3ETelemetryMapperSentinelTests
 {
-    private static TelemetrySample MapSample(Action<R3ESharedRawBuilder> configure)
+    private static RaceRoomTelemetrySample MapSample(Action<R3ESharedRawBuilder> configure)
     {
         var builder = new R3ESharedRawBuilder().InRaceSession("Sentinel Test Track", "Sentinel Test Layout");
         configure(builder);
@@ -119,10 +119,10 @@ public class R3ETelemetryMapperSentinelTests
     {
         var sample = MapSample(b => b.WithTyrePressures(frontLeft, frontRight, rearLeft, rearRight));
 
-        sample.TyrePressure.FrontLeft.ShouldBe(expectedFrontLeft);
-        sample.TyrePressure.FrontRight.ShouldBe(expectedFrontRight);
-        sample.TyrePressure.RearLeft.ShouldBe(expectedRearLeft);
-        sample.TyrePressure.RearRight.ShouldBe(expectedRearRight);
+        sample.TyrePressureFl.ShouldBe(expectedFrontLeft);
+        sample.TyrePressureFr.ShouldBe(expectedFrontRight);
+        sample.TyrePressureRl.ShouldBe(expectedRearLeft);
+        sample.TyrePressureRr.ShouldBe(expectedRearRight);
     }
 
     // RaceRoom's tire_wear is tread REMAINING (1.0 fresh, falling as the tyre wears), while the
@@ -140,10 +140,10 @@ public class R3ETelemetryMapperSentinelTests
     {
         var sample = MapSample(b => b.WithTyreWear(frontLeft, frontRight, rearLeft, rearRight));
 
-        ShouldBeWear(sample.TyreWear.FrontLeft, expectedFrontLeft);
-        ShouldBeWear(sample.TyreWear.FrontRight, expectedFrontRight);
-        ShouldBeWear(sample.TyreWear.RearLeft, expectedRearLeft);
-        ShouldBeWear(sample.TyreWear.RearRight, expectedRearRight);
+        ShouldBeWear(sample.TyreWearFl, expectedFrontLeft);
+        ShouldBeWear(sample.TyreWearFr, expectedFrontRight);
+        ShouldBeWear(sample.TyreWearRl, expectedRearLeft);
+        ShouldBeWear(sample.TyreWearRr, expectedRearRight);
     }
 
     /// <summary>
@@ -171,8 +171,8 @@ public class R3ETelemetryMapperSentinelTests
         var fresh = MapSample(b => b.WithTyreWear(0.9979f, 0.9979f, 0.9977f, 0.9977f));
         var worn = MapSample(b => b.WithTyreWear(0.8098f, 0.8098f, 0.8195f, 0.8195f));
 
-        worn.TyreWear.FrontLeft.ShouldNotBeNull().ShouldBeGreaterThan(fresh.TyreWear.FrontLeft!.Value);
-        worn.TyreWear.RearLeft.ShouldNotBeNull().ShouldBeGreaterThan(fresh.TyreWear.RearLeft!.Value);
+        worn.TyreWearFl.ShouldNotBeNull().ShouldBeGreaterThan(fresh.TyreWearFl!.Value);
+        worn.TyreWearRl.ShouldNotBeNull().ShouldBeGreaterThan(fresh.TyreWearRl!.Value);
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public class R3ETelemetryMapperSentinelTests
     public void Gear_RealGear_PassesThroughUnchanged(int gear)
     {
         var sample = MapSample(b => b.WithGear(gear));
-        sample.Gear.ShouldBe(gear);
+        sample.Gear.ShouldBe((short)gear);
     }
 
     [Fact]

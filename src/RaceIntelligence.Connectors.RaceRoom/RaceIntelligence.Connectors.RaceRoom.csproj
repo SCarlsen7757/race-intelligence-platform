@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Collector.Abstractions\RaceIntelligence.Collector.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

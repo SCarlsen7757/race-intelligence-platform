@@ -1,8 +1,10 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
-import { LiveStore, type ExtrasSnapshot } from '../../shared/live/store';
+import type { RaceRoomSample } from '../../shared/live/contracts';
+import { LiveStore, type SlowSnapshot } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
+import { slowFrame } from '../../testing/slowFrame';
 import {
   IncidentsPanel,
   incidentsPanelIsEmpty,
@@ -13,21 +15,15 @@ import {
 const DRIVER = 'id:2';
 
 /**
- * Mounts the panel over a store holding one extras document.
+ * Mounts the panel over a store holding one slow frame.
  *
- * Fed directly rather than through a socket: the panel reads the low-rate extras channel and
- * nothing else, so a real connection would only add a network to the test.
+ * Fed directly rather than through a socket: the panel reads the low-rate slow channel and nothing
+ * else, so a real connection would only add a network to the test.
  */
-function renderIncidents(extras: Record<string, number>) {
+function renderIncidents(sample: RaceRoomSample) {
   const store = new LiveStore();
   store.setFollowedDrivers([DRIVER]);
-  store.apply({
-    type: 'extrasFrame',
-    roomId: 'room',
-    driverKey: DRIVER,
-    capturedAtUtc: '2026-08-16T12:00:00Z',
-    extras: JSON.stringify(extras),
-  });
+  store.apply(slowFrame(DRIVER, sample));
 
   return render(
     <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
@@ -37,10 +33,14 @@ function renderIncidents(extras: Record<string, number>) {
 }
 
 describe('toIncidentCount', () => {
-  /** `-1` is the simulator saying it has no reading, not the driver having none. */
-  it('reads the simulator sentinel as no reading', () => {
-    expect(toIncidentCount(-1)).toBeNull();
+  /**
+   * An absent count is the simulator saying it has no reading, not the driver having none. The `-1`
+   * it used to arrive as is translated by the connector now; the guard stays because a defensive
+   * check that costs nothing is worth keeping on a number a panel renders.
+   */
+  it('reads an unreported count as no reading', () => {
     expect(toIncidentCount(undefined)).toBeNull();
+    expect(toIncidentCount(-1)).toBeNull();
     expect(toIncidentCount(Number.NaN)).toBeNull();
   });
 
@@ -56,7 +56,7 @@ describe('toIncidentLimit', () => {
    * Zero is rejected where the count keeps it: a limit of nothing cannot be rendered (`4 / 0`) and
    * cannot be divided into, so there is no reading it usefully means.
    */
-  it('treats both the sentinel and a zero limit as no limit', () => {
+  it('treats an absent limit and a zero limit alike', () => {
     expect(toIncidentLimit(-1)).toBeNull();
     expect(toIncidentLimit(0)).toBeNull();
     expect(toIncidentLimit(undefined)).toBeNull();
@@ -70,19 +70,12 @@ describe('toIncidentLimit', () => {
 
 describe('IncidentsPanel', () => {
   it('uses the panel rendering rule when deciding whether its frame is empty', () => {
-    const snapshot = (incidentPoints: number): ExtrasSnapshot => ({
-      message: {
-        type: 'extrasFrame',
-        roomId: 'room',
-        driverKey: DRIVER,
-        capturedAtUtc: '2026-08-16T12:00:00Z',
-        extras: JSON.stringify({ incidentPoints }),
-      },
-      document: { incidentPoints },
+    const snapshot = (sample: RaceRoomSample): SlowSnapshot => ({
+      message: slowFrame(DRIVER, sample),
     });
 
-    expect(incidentsPanelIsEmpty(snapshot(-1))).toBe(true);
-    expect(incidentsPanelIsEmpty(snapshot(0))).toBe(false);
+    expect(incidentsPanelIsEmpty(snapshot({}))).toBe(true);
+    expect(incidentsPanelIsEmpty(snapshot({ incidentPoints: 0 }))).toBe(false);
   });
 
   it('shows the count against the limit when the server reports one', () => {
@@ -103,11 +96,10 @@ describe('IncidentsPanel', () => {
    * `4 / -1` and `4 / 0` would both be inventions.
    */
   it('shows the count alone when no limit is reported', () => {
-    const { container } = renderIncidents({ incidentPoints: 4, maxIncidentPoints: -1 });
+    const { container } = renderIncidents({ incidentPoints: 4 });
 
     expect(container.querySelector('.incidents__count')?.textContent).toBe('4');
     expect(container.querySelector('.incidents__limit')).toBeNull();
-    expect(container.textContent).not.toContain('-1');
     expect(container.textContent).not.toContain('/');
   });
 
@@ -116,30 +108,9 @@ describe('IncidentsPanel', () => {
    * driver is clean.
    */
   it('shows nothing at all when neither value is reported', () => {
-    const { container } = renderIncidents({ incidentPoints: -1, maxIncidentPoints: -1 });
+    const { container } = renderIncidents({});
 
     expect(container.querySelector('.incidents')).toBeNull();
-    expect(container.textContent).toBe('');
-  });
-
-  /** A malformed extras document is the same as no document: nothing reported. */
-  it('shows nothing when the extras document will not parse', () => {
-    const store = new LiveStore();
-    store.setFollowedDrivers([DRIVER]);
-    store.apply({
-      type: 'extrasFrame',
-      roomId: 'room',
-      driverKey: DRIVER,
-      capturedAtUtc: '2026-08-16T12:00:00Z',
-      extras: '{ not json',
-    });
-
-    const { container } = render(
-      <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
-        <IncidentsPanel store={store} driverKey={DRIVER} />
-      </LiveContext.Provider>,
-    );
-
     expect(container.textContent).toBe('');
   });
 
@@ -151,16 +122,16 @@ describe('IncidentsPanel', () => {
 
   /** Without a limit there is nothing to be close to, so no count may raise the warning. */
   it('never warns when no limit is reported, however high the count', () => {
-    const { container } = renderIncidents({ incidentPoints: 99, maxIncidentPoints: -1 });
+    const { container } = renderIncidents({ incidentPoints: 99 });
 
     expect(container.querySelector('.incidents--critical')).toBeNull();
   });
 
   /**
-   * Two drivers can be compared, so a panel reads its own driver's extras rather than whichever
-   * document arrived last.
+   * Two drivers can be compared, so a panel reads its own driver's frame rather than whichever one
+   * arrived last.
    */
-  it('reads the extras of its own driver, not of the other car on screen', () => {
+  it('reads the slow channels of its own driver, not of the other car on screen', () => {
     const store = new LiveStore();
     store.setFollowedDrivers([DRIVER, 'id:9']);
 
@@ -168,13 +139,7 @@ describe('IncidentsPanel', () => {
       [DRIVER, 4],
       ['id:9', 7],
     ] as const) {
-      store.apply({
-        type: 'extrasFrame',
-        roomId: 'room',
-        driverKey,
-        capturedAtUtc: '2026-08-16T12:00:00Z',
-        extras: JSON.stringify({ incidentPoints, maxIncidentPoints: 10 }),
-      });
+      store.apply(slowFrame(driverKey, { incidentPoints, maxIncidentPoints: 10 }));
     }
 
     const { container } = render(

@@ -1,4 +1,5 @@
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
 
 namespace RaceIntelligence.Collector.Abstractions;
 
@@ -26,7 +27,7 @@ public interface ISampleObserver
     /// Cancelled at shutdown. Only meaningful to an implementation that can park the loop; a plugin
     /// that merely enqueues has nothing to observe it with.
     /// </param>
-    void OnSample(TelemetrySample sample, CancellationToken cancellationToken);
+    void OnSample(RaceRoomTelemetrySample sample, CancellationToken cancellationToken);
 
     /// <summary>
     /// No further samples will arrive. Called once when the source stops, and again as shutdown

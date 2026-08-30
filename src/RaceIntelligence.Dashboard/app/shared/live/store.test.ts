@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
-  ExtrasFrameMessage,
+  SlowFrameMessage,
   FocusFrameMessage,
   LapHistoryMessage,
   StintFrameMessage,
@@ -25,13 +25,14 @@ function following(driverKeys: string[], now?: () => number): LiveStore {
 }
 
 /**
- * One tyre's temperatures, with a plausible window around the given middle-of-tread reading.
+ * One tyre's temperatures across the tread.
  *
  * Shoulders either side of the middle rather than three identical numbers, so a test that started
- * reading the wrong one would fail rather than pass by coincidence.
+ * reading the wrong one would fail rather than pass by coincidence. The band that used to ride here
+ * is on the slow channel now, keyed by compound.
  */
 function tread(middle: number): TreadTemperatures {
-  return { inner: middle + 2, middle, outer: middle - 2, optimal: 90, cold: 70, hot: 110 };
+  return { inner: middle + 2, middle, outer: middle - 2 };
 }
 
 /**
@@ -75,13 +76,14 @@ function focusFrame(overrides: Partial<FocusFrameMessage> = {}): FocusFrameMessa
   };
 }
 
-function extrasFrame(overrides: Partial<ExtrasFrameMessage> = {}): ExtrasFrameMessage {
+function slowFrame(overrides: Partial<SlowFrameMessage> = {}): SlowFrameMessage {
   return {
-    type: 'extrasFrame',
+    type: 'slowFrame',
     roomId: 'room',
     driverKey: 'id:2',
     capturedAtUtc: '2026-08-16T12:00:00Z',
-    extras: '{}',
+    sample: {},
+    operatingWindows: [],
     ...overrides,
   };
 }
@@ -577,25 +579,23 @@ describe('LiveStore', () => {
     const frontLeft = store.stintFor('id:2')!.tyreTemperatureCelsius[0]!;
 
     expect(frontLeft.inner).toBe(87);
+    expect(frontLeft.middle).toBe(85);
     expect(frontLeft.outer).toBe(83);
-    expect(frontLeft.optimal).toBe(90);
-    expect(frontLeft.cold).toBe(70);
-    expect(frontLeft.hot).toBe(110);
   });
 
   /**
-   * A simulator that names no band must leave the dashboard drawing none. An absent bound read as
-   * zero would put every tyre on the car permanently over its hot threshold.
+   * A shoulder the simulator did not report must leave a hole rather than a reading. Read as zero it
+   * would draw a tyre that had never been driven.
    */
-  it('leaves an unreported window absent rather than zero', () => {
+  it('leaves an unreported shoulder absent rather than zero', () => {
     const store = following(['id:2']);
 
     store.apply(stintFrame({ tyreTemperatureCelsius: [{ middle: 85 }, {}, {}, {}] }));
 
     const frontLeft = store.stintFor('id:2')!.tyreTemperatureCelsius[0]!;
 
-    expect(frontLeft.optimal).toBeUndefined();
-    expect(frontLeft.hot).toBeUndefined();
+    expect(frontLeft.inner).toBeUndefined();
+    expect(frontLeft.outer).toBeUndefined();
     expect(store.tracesFor('id:2').tyres.temperatureCelsius[0].last()).toBe(85);
 
     // And a tyre reporting nothing at all leaves a hole, not a reading at zero.
@@ -630,121 +630,112 @@ describe('LiveStore', () => {
   });
 
   /**
-   * Two damage panels can be on screen at once, so extras are keyed like lap history rather than
-   * held in a single slot both would read.
+   * Two damage panels can be on screen at once, so slow frames are keyed like lap history rather
+   * than held in a single slot both would read.
    */
-  it('keeps a separate extras document per driver', () => {
+  it('keeps a separate slow frame per driver', () => {
     const store = following(['id:2', 'id:9']);
 
-    store.apply({
-      type: 'extrasFrame',
-      roomId: 'room',
-      driverKey: 'id:2',
-      capturedAtUtc: '2026-08-16T12:00:00Z',
-      extras: '{"damage":{"engine":0.5}}',
-    });
+    store.apply(slowFrame({ driverKey: 'id:2', sample: { damageEngine: 0.5 } }));
 
-    // Decoded on arrival, so a reader gets the document rather than the string it came in.
-    expect(store.getExtras()['id:2']?.document?.damage?.engine).toBe(0.5);
-    expect(store.getExtras()['id:9']).toBeUndefined();
-  });
-
-  it('decodes one extras document once, and hands every reader the same object', () => {
-    const store = following(['id:2']);
-
-    store.apply(extrasFrame({ extras: '{"tyreGrip":[0.9,0.9,0.88,0.88]}' }));
-
-    // Identity, not equality. Two tiles reading the same frame must not each get their own decode —
-    // that is the cost this whole change exists to remove.
-    expect(store.getExtras()['id:2']?.document).toBe(store.getExtras()['id:2']?.document);
-  });
-
-  it('survives an extras payload that will not parse', () => {
-    const store = following(['id:2']);
-
-    expect(() => store.apply(extrasFrame({ extras: 'not json at all' }))).not.toThrow();
-    expect(store.getExtras()['id:2']?.document).toBeNull();
-
-    // And the rings still advance, so the hole is drawn rather than closed over.
-    expect(store.tracesFor('id:2').extras.tyreGrip[0].length).toBe(1);
-    expect(store.tracesFor('id:2').extras.tyreGrip[0].last()).toBeNaN();
-  });
-
-  it('pushes extras channels into rings, treating the -1 sentinel as absent', () => {
-    const store = following(['id:2']);
-
-    store.apply(
-      extrasFrame({
-        extras: JSON.stringify({
-          brakeTemperatureCelsius: [
-            { current: 320, optimal: 400, cold: 200, hot: 800 },
-            { current: -1, optimal: 400, cold: 200, hot: 800 },
-            { current: 300, optimal: 400, cold: 200, hot: 800 },
-            { current: 300, optimal: 400, cold: 200, hot: 800 },
-          ],
-          turboPressureBar: -1,
-          engineOilTempCelsius: 104,
-        }),
-      }),
-    );
-
-    const { extras } = store.tracesFor('id:2');
-
-    // The ring holds the reading. A brake temperature is an object now, carrying its window
-    // alongside, and the trace plots the one member that moves.
-    expect(extras.brakeTemperatureCelsius[0].last()).toBe(320);
-    // A brake at -1 °C is not a cold brake. It is a reading that was never taken.
-    expect(extras.brakeTemperatureCelsius[1].last()).toBeNaN();
-    expect(extras.turboPressureBar.last()).toBeNaN();
-    expect(extras.engineOilTempCelsius.last()).toBe(104);
+    expect(store.getSlowFrames()['id:2']?.message.sample.damageEngine).toBe(0.5);
+    expect(store.getSlowFrames()['id:9']).toBeUndefined();
   });
 
   /**
-   * The window the simulator names for these pads. It stays on the document rather than going into
-   * a ring, for the reason a tyre's does: a band does not move, so a rolling history of it would be
-   * fifteen minutes of the same four numbers.
+   * There is nothing left to parse.
+   *
+   * This used to be three tests: that one document was decoded once and handed to every reader by
+   * identity, that a payload which would not parse did not take the panel down, and that the rings
+   * advanced anyway. The channels are typed on the wire now, so a malformed payload is not a state
+   * the store can reach — what remains worth asserting is that a reader gets the same object twice,
+   * which is what `useSyncExternalStore` compares on.
    */
-  it('keeps the brake operating window on the parsed document', () => {
+  it('hands every reader the same frame object', () => {
+    const store = following(['id:2']);
+
+    store.apply(slowFrame({ sample: { tyreGripFl: 0.9 } }));
+
+    expect(store.getSlowFrames()['id:2']).toBe(store.getSlowFrames()['id:2']);
+  });
+
+  it('pushes slow channels into rings, treating an unreported one as a hole', () => {
     const store = following(['id:2']);
 
     store.apply(
-      extrasFrame({
-        extras: JSON.stringify({
-          brakeTemperatureCelsius: [{ current: 320, optimal: 400, cold: 200, hot: 800 }],
-        }),
+      slowFrame({
+        sample: {
+          brakeTempFl: 320,
+          // The front right is unreported. A brake at zero is a brake that did nothing, which is a
+          // different and much more alarming fact than one nobody measured.
+          brakeTempRl: 300,
+          brakeTempRr: 300,
+          engineOilTempCelsius: 104,
+        },
       }),
     );
 
-    const frontLeft = store.getExtras()['id:2']?.document?.brakeTemperatureCelsius?.[0];
+    const { slow } = store.tracesFor('id:2');
 
-    expect(frontLeft?.optimal).toBe(400);
-    expect(frontLeft?.cold).toBe(200);
-    expect(frontLeft?.hot).toBe(800);
+    expect(slow.brakeTemperatureCelsius[0].last()).toBe(320);
+    expect(slow.brakeTemperatureCelsius[1].last()).toBeNaN();
+    expect(slow.turboPressureBar.last()).toBeNaN();
+    expect(slow.engineOilTempCelsius.last()).toBe(104);
   });
 
-  it('advances the extras rings once per document, not once per delivery', () => {
+  /**
+   * The bands stay on the frame rather than going into a ring, for the reason they were moved off
+   * the tread reading in the first place: a band does not move, so a rolling history of one would be
+   * fifteen minutes of the same four numbers.
+   */
+  it('keeps the operating windows on the frame', () => {
     const store = following(['id:2']);
-    const frame = extrasFrame({ extras: '{"turboPressureBar":1.4}' });
+
+    store.apply(
+      slowFrame({
+        operatingWindows: [
+          {
+            corner: 0,
+            compound: 2,
+            brakeOptimalCelsius: 400,
+            brakeColdCelsius: 200,
+            brakeHotCelsius: 800,
+          },
+        ],
+      }),
+    );
+
+    const frontLeft = store.getSlowFrames()['id:2']?.message.operatingWindows[0];
+
+    expect(frontLeft?.compound).toBe(2);
+    expect(frontLeft?.brakeOptimalCelsius).toBe(400);
+    expect(frontLeft?.brakeColdCelsius).toBe(200);
+    expect(frontLeft?.brakeHotCelsius).toBe(800);
+  });
+
+  it('advances the slow rings once per frame, not once per delivery', () => {
+    const store = following(['id:2']);
+    const frame = slowFrame({ sample: { turboPressureBar: 1.4 } });
 
     store.apply(frame);
     store.apply(frame);
 
     // The same capture time twice is one sample. Otherwise a re-delivery would stretch the window
     // and the width of a stint would depend on how the socket happened to behave.
-    expect(store.tracesFor('id:2').extras.turboPressureBar.length).toBe(1);
+    expect(store.tracesFor('id:2').slow.turboPressureBar.length).toBe(1);
 
     store.apply(
-      extrasFrame({ capturedAtUtc: '2026-08-16T12:00:01Z', extras: '{"turboPressureBar":1.5}' }),
+      slowFrame({ capturedAtUtc: '2026-08-16T12:00:01Z', sample: { turboPressureBar: 1.5 } }),
     );
-    expect(store.tracesFor('id:2').extras.turboPressureBar.length).toBe(2);
+    expect(store.tracesFor('id:2').slow.turboPressureBar.length).toBe(2);
   });
 
-  it('refuses an extras frame for a driver nobody is following', () => {
+  it('refuses a slow frame for a driver nobody is following', () => {
     const store = following(['id:2']);
 
-    store.apply(extrasFrame({ driverKey: 'id:9' }));
+    store.apply(slowFrame({ driverKey: 'id:9' }));
 
-    expect(store.getExtras()['id:9']).toBeUndefined();
+    expect(store.getSlowFrames()['id:9']).toBeUndefined();
   });
 
   it('reports connection changes once per transition', () => {

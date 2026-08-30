@@ -1,14 +1,17 @@
-﻿using System.Text.Json;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Collector.TestSupport;
 
-/// <summary>Builds minimal-but-valid <see cref="TelemetrySample"/> instances for tests.</summary>
+/// <summary>Builds minimal-but-valid <see cref="RaceRoomTelemetrySample"/> instances for tests.</summary>
+/// <remarks>
+/// Sets the handful of channels a test is likely to assert on and leaves the rest at their defaults,
+/// which for a nullable channel is <see langword="null"/> — "the simulator did not report this", the
+/// same thing it means everywhere else. A factory that filled all hundred and seventy-five would be
+/// asserting a shape rather than supplying a sample.
+/// </remarks>
 public static class TelemetrySampleFactory
 {
-    private const string EmptyExtras = "{}";
-
-    public static TelemetrySample Create(Guid sessionId, long sequenceNumber = 0, DateTimeOffset? timestamp = null) => new()
+    public static RaceRoomTelemetrySample Create(Guid sessionId, long sequenceNumber = 0, DateTimeOffset? timestamp = null) => new()
     {
         SessionId = sessionId,
         SequenceNumber = sequenceNumber,
@@ -25,12 +28,22 @@ public static class TelemetrySampleFactory
         LapNumber = 1,
         Sector = 1,
         Position = 1,
-        WheelSpeed = new WheelData<float>(45f, 45f, 45f, 45f),
-        SuspensionTravel = new WheelData<float>(0.03f, 0.03f, 0.03f, 0.03f),
-        TyreTemperature = new WheelData<TyreTemperature>(default, default, default, default),
-        TyrePressure = new WheelData<float?>(180f, 180f, 180f, 180f),
-        TyreWear = new WheelData<float?>(0f, 0f, 0f, 0f),
         TrackPositionFraction = 0.1f,
-        Extras = EmptyExtras,
+        WheelSpeedFl = 45f,
+        WheelSpeedFr = 45f,
+        WheelSpeedRl = 45f,
+        WheelSpeedRr = 45f,
+        SuspensionTravelFl = 0.03f,
+        SuspensionTravelFr = 0.03f,
+        SuspensionTravelRl = 0.03f,
+        SuspensionTravelRr = 0.03f,
+        TyrePressureFl = 180f,
+        TyrePressureFr = 180f,
+        TyrePressureRl = 180f,
+        TyrePressureRr = 180f,
+        TyreWearFl = 0f,
+        TyreWearFr = 0f,
+        TyreWearRl = 0f,
+        TyreWearRr = 0f,
     };
 }

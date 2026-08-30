@@ -1,17 +1,16 @@
 import type {
-  ExtrasFrameMessage,
+  SlowFrameMessage,
   FocusFrameMessage,
   LapHistoryMessage,
   LiveErrorMessage,
   LiveRoomSummary,
   LiveViewMessage,
-  RaceRoomExtras,
-  RaceRoomFlags,
+  RaceRoomSample,
   SessionStateMessage,
   StintFrameMessage,
   TowerSnapshotMessage,
 } from './contracts';
-import { parseExtras, reportedNumber, reportedOrNaN } from './extras';
+import { orNaN } from './slowChannels';
 
 /**
  * How many focus frames the trace buffers keep.
@@ -256,23 +255,21 @@ export type WheelTraces = readonly [TraceBuffer, TraceBuffer, TraceBuffer, Trace
 export const LAP_BINS = 1000;
 
 /**
- * The extras channels this dashboard plots, kept on the tyre rings' slower sample index.
+ * The slow channels this dashboard plots, kept on the tyre rings' slower sample index.
  *
- * Extras arrive at roughly 1 Hz on their own channel, which is the same cadence the tyre rings
+ * They arrive at roughly 1 Hz on their own channel, which is the same cadence the tyre rings
  * decimate to, so they share a capacity and a window rather than inventing a third timebase.
  *
  * Held by the store rather than by the panels that draw them. They used to live in a ref inside
  * `BrakePanel`, which worked and was the only such exception on screen — every other channel is a
- * ring the store owns. The exception existed only because the extras document was parsed per panel;
- * with one parse on arrival there is no longer a reason for it, and a brake chart becomes an
- * ordinary `LiveChart` caller like every other chart.
+ * ring the store owns.
  */
-export interface ExtrasTraces {
+export interface SlowTraces {
   // Per-wheel channels, FL/FR/RL/RR.
   brakeTemperatureCelsius: WheelTraces;
-  brakeWear: WheelTraces;
   tyreGrip: WheelTraces;
   tyreLoadNewtons: WheelTraces;
+  tyreDirt: WheelTraces;
 
   // Scalars — car health and energy, which move over a stint rather than through a corner.
   engineTempCelsius: TraceBuffer;
@@ -356,39 +353,39 @@ export const EVENT_LOG_CAPACITY = 200;
 export interface RaceEvent {
   /** Distinct per event, so React has a key that does not shift when the log is trimmed. */
   id: number;
-  /** When it was noticed, from the extras frame that carried it. */
+  /** When it was noticed, from the slow frame that carried it. */
   atUtc: string;
   kind: 'flag' | 'drs' | 'pushToPass' | 'incident';
   label: string;
 }
 
 /**
- * The extras fields the timeline watches, and what to call each when it starts.
+ * The flag channels the timeline watches, and what to call each when it starts.
  *
- * Flags are counts rather than booleans in RaceRoom's document, so "raised" means the count went
- * up — a second yellow while the first is still out is a second event and should read as one.
+ * Flags are counts rather than booleans in RaceRoom, so "raised" means the count went up — a second
+ * yellow while the first is still out is a second event and should read as one.
  */
 const FLAG_EVENTS = [
-  ['yellow', 'Yellow flag'],
-  ['blue', 'Blue flag'],
-  ['black', 'Black flag'],
-  ['white', 'White flag'],
-  ['checkered', 'Chequered flag'],
-  ['blackAndWhite', 'Black and white flag'],
-  ['green', 'Green flag'],
-] as const satisfies readonly (readonly [keyof RaceRoomFlags, string])[];
+  ['flagYellow', 'Yellow flag'],
+  ['flagBlue', 'Blue flag'],
+  ['flagBlack', 'Black flag'],
+  ['flagWhite', 'White flag'],
+  ['flagCheckered', 'Chequered flag'],
+  ['flagBlackAndWhite', 'Black and white flag'],
+  ['flagGreen', 'Green flag'],
+] as const satisfies readonly (readonly [keyof RaceRoomSample, string])[];
 
-/** One extras frame, decoded once. */
-export interface ExtrasSnapshot {
+/**
+ * One slow-channel frame, as a panel reads it.
+ *
+ * There is nothing to decode any more. This used to hold a parsed copy of a JSON document beside
+ * the message, because every panel calling `JSON.parse` on the same string meant a wall of
+ * extras-fed tiles decoded it three times a second to produce three identical objects. The channels
+ * are typed on the wire now, so the message is the whole answer.
+ */
+export interface SlowSnapshot {
   /** The message as it arrived, still carrying its capture time. */
-  message: ExtrasFrameMessage;
-  /**
-   * The decoded document, or null when there was none or it would not parse.
-   *
-   * Decoded here so that a wall of extras-fed tiles shares one parse rather than each doing its
-   * own. A reader must still treat every value as raw — see `reportedNumber`.
-   */
-  document: RaceRoomExtras | null;
+  message: SlowFrameMessage;
 }
 
 /**
@@ -430,13 +427,13 @@ export interface FocusTraces {
    * Here because it moves at pedal rate: it rises and falls inside one braking event, so a sample a
    * second is one or two readings of a corner. Sharing the index with `brake` is also what makes
    * pedal-against-pressure a comparison — the two are the same instant, which they were not while
-   * pressure rode the once-a-second extras document.
+   * pressure rode the once-a-second slow channel.
    */
   brakePressureKiloNewtons: WheelTraces;
   /** Tyre channels, on their own slower sample index. */
   tyres: TyreTraces;
-  /** Extras channels, sharing the tyre rings' cadence — see {@link ExtrasTraces}. */
-  extras: ExtrasTraces;
+  /** Slow channels, sharing the tyre rings' cadence — see {@link SlowTraces}. */
+  slow: SlowTraces;
 }
 
 /**
@@ -455,12 +452,12 @@ function wheelTraces(capacity: number = TYRE_TRACE_CAPACITY): WheelTraces {
   ];
 }
 
-function extrasTraces(): ExtrasTraces {
+function slowTraces(): SlowTraces {
   return {
     brakeTemperatureCelsius: wheelTraces(),
-    brakeWear: wheelTraces(),
     tyreGrip: wheelTraces(),
     tyreLoadNewtons: wheelTraces(),
+    tyreDirt: wheelTraces(),
     engineTempCelsius: new TraceBuffer(TYRE_TRACE_CAPACITY),
     engineOilTempCelsius: new TraceBuffer(TYRE_TRACE_CAPACITY),
     engineOilPressureKpa: new TraceBuffer(TYRE_TRACE_CAPACITY),
@@ -488,38 +485,41 @@ function newTraces(): FocusTraces {
       wear: wheelTraces(),
       temperatureCelsius: wheelTraces(),
     },
-    extras: extrasTraces(),
+    slow: slowTraces(),
   };
 }
 
 /**
- * Every per-wheel extras channel, paired with how one wheel's value is read out of the document.
+ * Every per-wheel slow channel, paired with the four field names one per corner.
  *
- * A reader rather than a field name, because the channels no longer share a shape: a brake
- * temperature is an object carrying its operating window beside the reading, where the rest are
- * bare numbers. Keeping the difference here means the push loop stays one loop, and the knowledge
- * of what the document looks like stays in one table rather than spreading into it.
+ * Field names rather than reader functions. The channels used to differ in shape — a brake
+ * temperature was an object carrying its operating window beside the reading where the rest were
+ * bare numbers — so the table held a lambda per channel to hide the difference. Every channel is
+ * four flat fields now, so the table can say which four and the push loop can stay one loop.
  */
-const EXTRAS_WHEEL_CHANNELS = [
-  ['brakeTemperatureCelsius', (extras, wheel) => extras.brakeTemperatureCelsius?.[wheel]?.current],
-  ['brakeWear', (extras, wheel) => extras.brakeWear?.[wheel]],
-  ['tyreGrip', (extras, wheel) => extras.tyreGrip?.[wheel]],
-  ['tyreLoadNewtons', (extras, wheel) => extras.tyreLoadNewtons?.[wheel]],
+const SLOW_WHEEL_CHANNELS = [
+  ['brakeTemperatureCelsius', ['brakeTempFl', 'brakeTempFr', 'brakeTempRl', 'brakeTempRr']],
+  ['tyreGrip', ['tyreGripFl', 'tyreGripFr', 'tyreGripRl', 'tyreGripRr']],
+  [
+    'tyreLoadNewtons',
+    ['tyreLoadNewtonsFl', 'tyreLoadNewtonsFr', 'tyreLoadNewtonsRl', 'tyreLoadNewtonsRr'],
+  ],
+  ['tyreDirt', ['tyreDirtFl', 'tyreDirtFr', 'tyreDirtRl', 'tyreDirtRr']],
 ] as const satisfies readonly (readonly [
-  keyof ExtrasTraces,
-  (extras: RaceRoomExtras, wheel: number) => number | undefined,
+  keyof SlowTraces,
+  readonly [keyof RaceRoomSample, keyof RaceRoomSample, keyof RaceRoomSample, keyof RaceRoomSample],
 ])[];
 
-/** Every scalar extras channel, paired with where it is read from the document. */
-const EXTRAS_SCALAR_CHANNELS = [
-  ['engineTempCelsius', 'engineTempCelsius'],
-  ['engineOilTempCelsius', 'engineOilTempCelsius'],
-  ['engineOilPressureKpa', 'engineOilPressureKpa'],
-  ['fuelPressureKpa', 'fuelPressureKpa'],
-  ['turboPressureBar', 'turboPressureBar'],
-  ['batteryStateOfChargePercent', 'batteryStateOfChargePercent'],
-  ['virtualEnergyLeftMj', 'virtualEnergyLeftMj'],
-] as const satisfies readonly (readonly [keyof ExtrasTraces, keyof RaceRoomExtras])[];
+/** Every scalar slow channel. Ring name and field name are the same, and that is worth keeping. */
+const SLOW_SCALAR_CHANNELS = [
+  'engineTempCelsius',
+  'engineOilTempCelsius',
+  'engineOilPressureKpa',
+  'fuelPressureKpa',
+  'turboPressureBar',
+  'batteryStateOfChargePercent',
+  'virtualEnergyLeftMj',
+] as const satisfies readonly (keyof SlowTraces & keyof RaceRoomSample)[];
 
 /** Everything held for one followed driver. Plain fields — none of this goes through React. */
 interface DriverFocus {
@@ -529,14 +529,14 @@ interface DriverFocus {
   /** The last tyre readings, for widgets reading the tread spread and the operating window. */
   stint: StintFrameMessage | null;
   /**
-   * The capture time of the extras frame last pushed into the rings.
+   * The capture time of the slow frame last pushed into the rings.
    *
-   * Extras are already decimated by the collector, so the rings follow the frames rather than a
-   * clock. This is what stops a re-delivered or repeated document being counted twice — the sample
-   * index has to advance once per document, or a stint's width would depend on how the socket
+   * The slow channel is already decimated by the collector, so the rings follow the frames rather
+   * than a clock. This is what stops a re-delivered or repeated frame being counted twice — the
+   * sample index has to advance once per frame, or a stint's width would depend on how the socket
    * happened to behave.
    */
-  lastExtrasCapturedAtUtc: string | null;
+  lastSlowCapturedAtUtc: string | null;
 
   /** The lap being recorded, or null before the first frame names one. */
   currentLap: LapTrace | null;
@@ -572,21 +572,21 @@ interface DriverFocus {
  * drops frames on a laptop long before it drops them on a desktop. The focus panel reads these
  * fields from a single `requestAnimationFrame` loop and paints to canvas.
  *
- * The slow-changing half — the room list, the tower, lap history, extras, errors — goes through
+ * The slow-changing half — the room list, the tower, lap history, slow frames, errors — goes through
  * React normally, because at 10 Hz and below the render cost is irrelevant and the ergonomics are
  * worth a great deal. `subscribe` is what React binds to, and it is deliberately *not* called for
  * focus frames.
  *
- * **Stint and extras share a rate and still stay two channels.** Both arrive at roughly 1 Hz, but
+ * **Stint and the slow channel share a rate and still stay two channels.** Both arrive at 1 Hz, but
  * stint is typed and canonical — nulls translated, safe for any widget to read generically — while
- * extras is the connector's raw, unparsed document, kept opaque so a new sim field is a connector
+ * the slow frame carries the channels that move over a race rather than through a corner, which
  * change rather than a contract change (see #94). Folding them into one channel because they share
  * a cadence would make tyre data look RaceRoom-specific, which it is not.
  *
  * **A widget reading across two of these three channels is normal, not a bug** (#85). Every frame —
- * focus, stint, extras — carries `capturedAtUtc` off the same connector clock, so exactly how stale
+ * focus, stint, slow — carries `capturedAtUtc` off the same connector clock, so exactly how stale
  * one side of a mix is has always been computable; nothing here needed a wire change to answer that.
- * The brake tile is the case worth naming: pressure rides the focus frame, temperature rides extras,
+ * The brake tile is the case worth naming: pressure rides the focus frame, temperature the slow one,
  * and for one second after a lap change or a pit exit the two describe different moments. Holding
  * the fast channel back to the slow one's rate to make that tile internally consistent was
  * considered and rejected — it would throw away a 60 Hz brake trace to make a 1 Hz temperature look
@@ -642,9 +642,9 @@ export class LiveStore {
   // Per driver, and replaced rather than mutated, for exactly the reasons lap histories are: two
   // damage panels can be on screen at once, and useSyncExternalStore compares by identity.
   //
-  // Holds the decoded document beside the message, so the parse happens once here rather than once
+  // The latest slow frame per driver, so a panel reads the channels it wants off one object
   // per panel per frame.
-  private extras: Readonly<Record<string, ExtrasSnapshot>> = {};
+  private slowFrames: Readonly<Record<string, SlowSnapshot>> = {};
 
   /**
    * The race timeline, per driver, held outside React.
@@ -729,7 +729,7 @@ export class LiveStore {
   getSessionState = (): SessionStateMessage | null => this.sessionState;
   getLastError = (): LiveErrorMessage | null => this.lastError;
   getLapHistories = (): Readonly<Record<string, LapHistoryMessage>> => this.lapHistories;
-  getExtras = (): Readonly<Record<string, ExtrasSnapshot>> => this.extras;
+  getSlowFrames = (): Readonly<Record<string, SlowSnapshot>> => this.slowFrames;
   isConnected = (): boolean => this.connected;
   getFocusReadyKeys = (): ReadonlySet<string> => this.focusReadyKeys;
   getLapSummaries = (): Readonly<Record<string, readonly LapSummary[]>> => this.lapSummaries;
@@ -805,7 +805,7 @@ export class LiveStore {
     this.followedDriverKeys = followed;
 
     let announce = false;
-    const remainingExtras = { ...this.extras };
+    const remainingSlow = { ...this.slowFrames };
 
     for (const driverKey of [...this.focus.keys()]) {
       if (!followed.has(driverKey)) {
@@ -813,10 +813,10 @@ export class LiveStore {
       }
     }
 
-    for (const driverKey of Object.keys(remainingExtras)) {
+    for (const driverKey of Object.keys(remainingSlow)) {
       if (!followed.has(driverKey)) {
-        delete remainingExtras[driverKey];
-        this.extras = remainingExtras;
+        delete remainingSlow[driverKey];
+        this.slowFrames = remainingSlow;
         announce = true;
       }
     }
@@ -876,10 +876,10 @@ export class LiveStore {
         this.applyStint(message);
         break;
 
-      case 'extrasFrame':
+      case 'slowFrame':
         // Roughly 1 Hz, so this one *does* go through React. The whole reason extras have their own
         // channel is that they change slowly enough for that to be free.
-        this.applyExtras(message);
+        this.applySlowFrame(message);
         break;
 
       case 'error':
@@ -933,13 +933,13 @@ export class LiveStore {
         entry.traces.tyres.wear[wheel]!.push(Number.NaN);
         entry.traces.tyres.temperatureCelsius[wheel]!.push(Number.NaN);
 
-        for (const [ring] of EXTRAS_WHEEL_CHANNELS) {
-          entry.traces.extras[ring][wheel]!.push(Number.NaN);
+        for (const [ring] of SLOW_WHEEL_CHANNELS) {
+          entry.traces.slow[ring][wheel]!.push(Number.NaN);
         }
       }
 
-      for (const [ring] of EXTRAS_SCALAR_CHANNELS) {
-        entry.traces.extras[ring].push(Number.NaN);
+      for (const ring of SLOW_SCALAR_CHANNELS) {
+        entry.traces.slow[ring].push(Number.NaN);
       }
 
       // Dropped rather than held. `LiveReadout` paints the last frame forever, so keeping it would
@@ -954,7 +954,7 @@ export class LiveStore {
       // Cleared for the same reason, from the other direction: the hub re-sends extras on re-focus,
       // and a repeated capture time would otherwise be mistaken for the duplicate this guards
       // against and dropped — leaving the first document back out of the rings entirely.
-      entry.lastExtrasCapturedAtUtc = null;
+      entry.lastSlowCapturedAtUtc = null;
     }
 
     // The followed set is deliberately left alone. Frames cannot arrive while the socket is down,
@@ -991,11 +991,11 @@ export class LiveStore {
    * nothing.
    */
   private dropVisibleFocusState(): void {
-    if (Object.keys(this.extras).length === 0 && this.focusReadyKeys.size === 0) {
+    if (Object.keys(this.slowFrames).length === 0 && this.focusReadyKeys.size === 0) {
       return;
     }
 
-    this.extras = {};
+    this.slowFrames = {};
     this.focusReadyKeys = new Set();
     this.emit();
   }
@@ -1056,7 +1056,7 @@ export class LiveStore {
         // Negative infinity rather than "now", so the first frame of a stint is sampled instead of
         // being swallowed by an interval that has not elapsed yet.
         stint: null,
-        lastExtrasCapturedAtUtc: null,
+        lastSlowCapturedAtUtc: null,
         currentLap: null,
         currentLapStartedAt: 0,
         lastFuelLeftLiters: Number.NaN,
@@ -1409,46 +1409,42 @@ export class LiveStore {
   }
 
   /**
-   * Records one extras frame: decoded once, kept for React, and pushed into the extras rings.
+   * Records one slow-channel frame: kept for React, and pushed into the slow rings.
    *
-   * The decode is the point of this method. Panels used to each call `JSON.parse` on the same
-   * string, so a wall showing brakes, tyre grip and car health decoded one document three times a
-   * second to produce three identical objects — against a channel whose whole reason for existing
-   * is that parsing it should be rare.
+   * There is no decode step. This method used to exist mainly to perform one — panels each called
+   * `JSON.parse` on the same string, so a wall showing brakes, tyre grip and car health decoded one
+   * document three times a second to produce three identical objects.
    *
    * Frames for a driver nobody follows are dropped, as focus frames are, and for the same reason:
    * admitting one leaves a car on screen that nothing will ever update again.
    */
-  private applyExtras(message: ExtrasFrameMessage): void {
+  private applySlowFrame(message: SlowFrameMessage): void {
     if (!this.followedDriverKeys.has(message.driverKey)) {
       return;
     }
 
-    const document = parseExtras(message.extras);
-    this.extras = { ...this.extras, [message.driverKey]: { message, document } };
+    this.slowFrames = { ...this.slowFrames, [message.driverKey]: { message } };
 
-    this.pushExtrasSample(this.ensureFocus(message.driverKey), message, document);
-    this.recordEvents(message, document);
+    this.pushSlowSample(this.ensureFocus(message.driverKey), message);
+    this.recordEvents(message);
     this.emit();
   }
 
   /**
-   * Notices what has started since the last document, and writes it to the timeline.
+   * Notices what has started since the last frame, and writes it to the timeline.
    *
-   * **Transitions, never states.** Extras arrive about once a second, so recording "a yellow is
+   * **Transitions, never states.** Slow frames arrive about once a second, so recording "a yellow is
    * out" would write sixty entries a minute for one flag period and bury the two events that
    * mattered. Every channel here is therefore a counter compared against its previous value, and
    * only an increase is an event — which also means a second yellow raised while the first still
    * stands reads as a second event, because the count went up again.
    *
-   * The counters are held per driver and seeded on the first document rather than from zero. A
-   * viewer joining a session under a yellow should not be told the flag has just come out; the
-   * first document says what is already true, and only what changes afterwards is news.
+   * The counters are held per driver and seeded on the first frame rather than from zero. A viewer
+   * joining a session under a yellow should not be told the flag has just come out; the first frame
+   * says what is already true, and only what changes afterwards is news.
    */
-  private recordEvents(message: ExtrasFrameMessage, document: RaceRoomExtras | null): void {
-    if (document === null) {
-      return;
-    }
+  private recordEvents(message: SlowFrameMessage): void {
+    const sample = message.sample;
 
     let previous = this.lastEventState.get(message.driverKey);
     const seeding = previous === undefined;
@@ -1459,15 +1455,20 @@ export class LiveStore {
 
     const raised: RaceEvent[] = [];
 
-    const note = (key: string, value: number | null, kind: RaceEvent['kind'], label: string) => {
-      if (value === null) {
+    const note = (
+      key: string,
+      value: number | undefined,
+      kind: RaceEvent['kind'],
+      label: string,
+    ) => {
+      if (value === undefined) {
         return;
       }
 
       const before = previous.get(key);
       previous.set(key, value);
 
-      // Seeding is the join-mid-session case: the first document establishes the baseline and
+      // Seeding is the join-mid-session case: the first frame establishes the baseline and
       // announces nothing, however much of the race it has already missed.
       if (seeding || before === undefined || value <= before) {
         return;
@@ -1477,16 +1478,16 @@ export class LiveStore {
     };
 
     for (const [flag, label] of FLAG_EVENTS) {
-      note(`flag:${flag}`, reportedNumber(document.flags?.[flag]), 'flag', label);
+      note(`flag:${flag}`, sample[flag], 'flag', label);
     }
 
     // DRS and push-to-pass report engagement as 0 or 1 rather than as a tally, and the same
     // increase test reads them correctly: 0 → 1 is an activation, and a later 0 → 1 is the next
     // one. `amountLeft` would have been the obvious counter and is the wrong one — it counts
     // activations *remaining*, so it falls as they are spent and would never register at all.
-    note('drs', reportedNumber(document.drs?.engaged), 'drs', 'DRS engaged');
-    note('p2p', reportedNumber(document.pushToPass?.engaged), 'pushToPass', 'Push to pass');
-    note('incidents', reportedNumber(document.incidentPoints), 'incident', 'Incident points');
+    note('drs', sample.drsEngaged, 'drs', 'DRS engaged');
+    note('p2p', sample.pushToPassEngaged, 'pushToPass', 'Push to pass');
+    note('incidents', sample.incidentPoints, 'incident', 'Incident points');
 
     if (raised.length === 0) {
       return;
@@ -1500,34 +1501,28 @@ export class LiveStore {
   }
 
   /**
-   * Adds one sample to the extras rings, once per document.
+   * Adds one sample to the slow rings, once per frame.
    *
-   * A malformed or missing document still advances the rings, writing NaN across every channel.
-   * Skipping it instead would close the gap in the trace and draw a line through the outage, which
-   * is the same lie `spanGaps: false` is set everywhere to prevent — the reading genuinely was not
-   * taken, and the chart should say so.
+   * An unreported channel still advances the rings, writing NaN. Skipping it instead would close the
+   * gap in the trace and draw a line through the outage, which is the same lie `spanGaps: false` is
+   * set everywhere to prevent — the reading genuinely was not taken, and the chart should say so.
    */
-  private pushExtrasSample(
-    entry: DriverFocus,
-    message: ExtrasFrameMessage,
-    document: RaceRoomExtras | null,
-  ): void {
-    if (entry.lastExtrasCapturedAtUtc === message.capturedAtUtc) {
+  private pushSlowSample(entry: DriverFocus, message: SlowFrameMessage): void {
+    if (entry.lastSlowCapturedAtUtc === message.capturedAtUtc) {
       return;
     }
 
-    entry.lastExtrasCapturedAtUtc = message.capturedAtUtc;
+    entry.lastSlowCapturedAtUtc = message.capturedAtUtc;
+    const sample = message.sample;
 
-    for (const [ring, read] of EXTRAS_WHEEL_CHANNELS) {
+    for (const [ring, fields] of SLOW_WHEEL_CHANNELS) {
       for (let wheel = 0; wheel < 4; wheel++) {
-        entry.traces.extras[ring][wheel]!.push(
-          reportedOrNaN(document === null ? undefined : read(document, wheel)),
-        );
+        entry.traces.slow[ring][wheel]!.push(orNaN(sample[fields[wheel]!]));
       }
     }
 
-    for (const [ring, field] of EXTRAS_SCALAR_CHANNELS) {
-      entry.traces.extras[ring].push(reportedOrNaN(document?.[field]));
+    for (const ring of SLOW_SCALAR_CHANNELS) {
+      entry.traces.slow[ring].push(orNaN(sample[ring]));
     }
   }
 

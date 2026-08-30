@@ -4,6 +4,7 @@ import type { LiveConnection } from '../../shared/live/connection';
 import type { StintFrameMessage, TreadTemperatures } from '../../shared/live/contracts';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
+import { slowFrame, uniformWindows } from '../../testing/slowFrame';
 import { firstReportedWindow } from './operatingWindow';
 import { TyreHeatmap } from './TyreHeatmap';
 
@@ -21,20 +22,29 @@ function frame(tread: TreadTemperatures[]): StintFrameMessage {
   };
 }
 
-/** A tread reading with the same window on every corner, which is how a simulator reports one. */
+/** One corner's three tread readings. The window no longer rides here — see {@link WINDOW}. */
 function corner(inner: number, middle: number, outer: number): TreadTemperatures {
-  return { inner, middle, outer, cold: 70, optimal: 90, hot: 110 };
+  return { inner, middle, outer };
 }
 
-/** A corner that reports a reading and no window at all. */
-function windowless(middle: number): TreadTemperatures {
-  return { middle };
-}
+/**
+ * The band the simulator reports for the compound currently fitted.
+ *
+ * It arrives on the slow channel now rather than on every tread reading of every frame: it is a
+ * property of the compound and never moved between frames, which is exactly why it did not belong
+ * beside a number that does.
+ */
+const WINDOW = uniformWindows({ tyreCold: 70, tyreOptimal: 90, tyreHot: 110 });
 
-async function renderHeatmap(tread: TreadTemperatures[], hidden: readonly string[] = []) {
+async function renderHeatmap(
+  tread: TreadTemperatures[],
+  hidden: readonly string[] = [],
+  windows = WINDOW,
+) {
   const store = new LiveStore();
   store.setFollowedDrivers([DRIVER]);
   store.apply(frame(tread));
+  store.apply(slowFrame(DRIVER, {}, { operatingWindows: windows }));
 
   const rendered = render(
     <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
@@ -62,7 +72,12 @@ describe('firstReportedWindow', () => {
    * Drawing four identical bands would be drawing one band four times as opaque.
    */
   it('takes one window for the whole car', () => {
-    expect(firstReportedWindow([corner(80, 85, 90), corner(81, 86, 91)])).toEqual({
+    expect(
+      firstReportedWindow([
+        { cold: 70, optimal: 90, hot: 110 },
+        { cold: 70, optimal: 90, hot: 110 },
+      ]),
+    ).toEqual({
       cold: 70,
       optimal: 90,
       hot: 110,
@@ -74,20 +89,15 @@ describe('firstReportedWindow', () => {
    * first *reported* window wins rather than simply the front left's.
    */
   it('skips corners that report nothing and takes the first that does', () => {
-    expect(firstReportedWindow([windowless(80), corner(81, 86, 91)])).toEqual({
+    expect(firstReportedWindow([{}, { cold: 70, optimal: 90, hot: 110 }])).toEqual({
       cold: 70,
       optimal: 90,
       hot: 110,
     });
   });
 
-  /** RaceRoom's `-1` is "not available". A band drawn from it would sit below freezing. */
-  it('reads the simulator sentinel as no window rather than as a window at minus one', () => {
-    expect(firstReportedWindow([{ cold: -1, optimal: -1, hot: -1 }])).toBeNull();
-  });
-
   it('has no window to give when nothing reported one', () => {
-    expect(firstReportedWindow([windowless(80)])).toBeNull();
+    expect(firstReportedWindow([{}])).toBeNull();
     expect(firstReportedWindow(undefined)).toBeNull();
   });
 
@@ -128,7 +138,7 @@ describe('TyreHeatmap', () => {
    */
   it('shows an unreported shoulder as no reading rather than as cold', async () => {
     const { container } = await renderHeatmap([
-      { middle: 90, cold: 70, optimal: 90, hot: 110 },
+      { middle: 90 },
       corner(84, 83, 82),
       corner(76, 75, 74),
       corner(73, 72, 71),
@@ -146,12 +156,11 @@ describe('TyreHeatmap', () => {
    * "is 84 °C hot" this dashboard is entitled to invent, so the cells stay neutral and show numbers.
    */
   it('draws no heat colours at all when the simulator reports no window', async () => {
-    const { container } = await renderHeatmap([
-      { inner: 95, middle: 90, outer: 85 },
-      { inner: 84, middle: 83, outer: 82 },
-      { inner: 76, middle: 75, outer: 74 },
-      { inner: 73, middle: 72, outer: 71 },
-    ]);
+    const { container } = await renderHeatmap(
+      [corner(95, 90, 85), corner(84, 83, 82), corner(76, 75, 74), corner(73, 72, 71)],
+      [],
+      [],
+    );
 
     const cells = [...container.querySelectorAll('.tyre-heatmap__cell')];
     expect(cells).toHaveLength(12);

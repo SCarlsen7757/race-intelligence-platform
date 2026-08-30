@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Read.Api.Contracts;
 using RaceIntelligence.Read.Api.Tests.Support;
 using Shouldly;
@@ -52,6 +54,105 @@ public sealed class TelemetryReadEndpointsTests(ReadAppFixture fixture)
             sample.LapNumber.ShouldBe(1);
             sample.Gear.ShouldBe((short)4);
         }
+    }
+
+    /// <summary>
+    /// The default response is the canonical fields and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// A sample is a hundred and seventy-five columns. Returning all of them by default would put
+    /// about 650 bytes on the wire per sample, several thousand times a lap, for a chart that plots
+    /// three — so the extra channels are asked for by name and absent otherwise.
+    /// </remarks>
+    [Fact]
+    public async Task a_lap_carries_no_extra_channels_unless_they_are_asked_for()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var seed = new Seed(fixture);
+        var id = await seed.SessionAsync();
+        await seed.TelemetryAsync(id, lapNumber: 1, count: 3);
+
+        var lap = await fixture.ReadClient.GetFromJsonAsync<LapTelemetryResponse>(
+            $"/api/v1/sessions/{id}/telemetry?lap=1");
+
+        lap.ShouldNotBeNull();
+        lap.Samples.ShouldAllBe(sample => sample.Channels == null);
+    }
+
+    [Fact]
+    public async Task the_channels_asked_for_come_back_under_their_own_names()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var seed = new Seed(fixture);
+        var id = await seed.SessionAsync();
+        await seed.TelemetryAsync(id, lapNumber: 1, count: 3);
+
+        var lap = await fixture.ReadClient.GetFromJsonAsync<LapTelemetryResponse>(
+            $"/api/v1/sessions/{id}/telemetry?lap=1&channels=tyreGripFl,camberFl");
+
+        lap.ShouldNotBeNull();
+
+        var channels = lap.Samples[0].Channels.ShouldNotBeNull();
+        channels.Keys.ShouldBe(["tyreGripFl", "camberFl"], ignoreOrder: true);
+
+        // Seeded values, round-tripped through a binary COPY and a projected read. Deserialised as
+        // JsonElement because the map is `object?` on the contract: which channels are in it is the
+        // caller's choice, so there is no member for a converter to bind to a type.
+        ((JsonElement)channels["tyreGripFl"]!).GetSingle().ShouldBe(0.97f, tolerance: 0.001f);
+        ((JsonElement)channels["camberFl"]!).GetSingle().ShouldBe(-0.06f, tolerance: 0.001f);
+    }
+
+    /// <summary>
+    /// A group resolves to every channel in it, because that is how a widget asks: a suspension
+    /// chart wants "suspension", not a list of names it would have to keep in step with the
+    /// manifest.
+    /// </summary>
+    /// <remarks>
+    /// Asserted on what came back rather than on the whole group, because most of the group is
+    /// unreported in the seeded data and an unreported channel is omitted — the same rule the rest
+    /// of this wire follows. What the group buys is that <c>camberFl</c> arrives without having been
+    /// named, and that nothing outside the group does.
+    /// </remarks>
+    [Fact]
+    public async Task a_group_name_resolves_to_the_channels_in_it_and_no_others()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var seed = new Seed(fixture);
+        var id = await seed.SessionAsync();
+        await seed.TelemetryAsync(id, lapNumber: 1, count: 2);
+
+        var lap = await fixture.ReadClient.GetFromJsonAsync<LapTelemetryResponse>(
+            $"/api/v1/sessions/{id}/telemetry?lap=1&channels=suspension");
+
+        lap.ShouldNotBeNull();
+
+        var channels = lap.Samples[0].Channels.ShouldNotBeNull();
+
+        channels.Keys.ShouldContain("camberFl");
+        channels.Keys.ShouldNotContain("tyreGripFl");
+        channels.Keys.ShouldBeSubsetOf(RaceRoomChannels.ByGroup["suspension"]);
+    }
+
+    /// <summary>
+    /// A misspelling is refused by name. Silently returning fewer channels would draw a chart with a
+    /// line missing and say nothing about why.
+    /// </summary>
+    [Fact]
+    public async Task an_unknown_channel_is_a_400_naming_it()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var seed = new Seed(fixture);
+        var id = await seed.SessionAsync();
+
+        using var response = await fixture.ReadClient.GetAsync(
+            $"/api/v1/sessions/{id}/telemetry?lap=1&channels=tyreGripFl,tyreGrpFl");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("tyreGrpFl");
     }
 
     [Fact]

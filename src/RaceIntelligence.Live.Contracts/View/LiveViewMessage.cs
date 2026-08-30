@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 
+using RaceIntelligence.RaceRoom.Telemetry;
+
 namespace RaceIntelligence.Live.Contracts.View;
 
 /// <summary>
@@ -34,7 +36,7 @@ namespace RaceIntelligence.Live.Contracts.View;
 [JsonDerivedType(typeof(FocusFrameMessage), "focusFrame")]
 [JsonDerivedType(typeof(LapHistoryMessage), "lapHistory")]
 [JsonDerivedType(typeof(StintFrameMessage), "stintFrame")]
-[JsonDerivedType(typeof(ExtrasFrameMessage), "extrasFrame")]
+[JsonDerivedType(typeof(SlowFrameMessage), "slowFrame")]
 [JsonDerivedType(typeof(LiveErrorMessage), "error")]
 public abstract record LiveViewMessage;
 
@@ -436,46 +438,45 @@ public sealed record FocusFrameMessage(
 public sealed record TreadTemperatures(
     float? Inner,
     float? Middle,
-    float? Outer,
-    float? Optimal,
-    float? Cold,
-    float? Hot);
+    float? Outer);
 
 /// <summary>
-/// The simulator-specific channels for the focused driver, at roughly 1 Hz.
+/// The slow-moving channels for the focused driver, at roughly 1 Hz.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is what makes <c>SimCapabilities.Damage</c> mean something: the collector has always
-/// advertised it in its hello while no damage value ever crossed the wire, because the connector
-/// wrote damage into a sample's extras and the live mapper dropped it. It now travels on a channel
-/// sized for it.
+/// This is what makes <c>SimCapabilities.Damage</c> mean something: the collector had always
+/// advertised it in its hello while no damage value ever crossed the wire.
 /// </para>
 /// <para>
-/// <b>The payload is opaque to the hub</b> — carried through as the string the connector wrote,
-/// never parsed here. That is the "flexible metadata" half of the platform's data model working as
-/// intended: a simulator exposing a field nobody anticipated costs a connector and a dashboard
-/// panel, not a change to this contract.
-/// </para>
-/// <para>
-/// <b>Sentinels are not translated.</b> RaceRoom reports <c>-1</c> for a value it does not have, and
-/// a panel that renders that as zero damage says the car is fine when the truth is that nobody
-/// knows.
+/// <b>It used to be an opaque JSON string</b> the hub carried through without parsing, on the
+/// argument that a simulator exposing a field nobody anticipated should cost a connector and a
+/// dashboard panel rather than a contract change. It cost the dashboard more than that: a parse per
+/// frame, a hand-written mirror of the document's shape with nothing checking it, and a warning that
+/// the simulator's <c>-1</c> sentinels were untranslated, so a panel rendering
+/// <c>damage.engine == -1</c> as an undamaged engine would say the car was fine when the truth was
+/// that nobody knew. Every channel is named and typed now, and the connector has already turned
+/// every sentinel into a null, so an absent reading is absent rather than alarming (#109).
 /// </para>
 /// </remarks>
 /// <param name="RoomId">The room this belongs to.</param>
 /// <param name="DriverKey">Which driver, matching <see cref="TowerRow.DriverKey"/>.</param>
 /// <param name="CapturedAtUtc">Capture time on the publishing machine.</param>
-/// <param name="Extras">
-/// The simulator's own document, as raw JSON text. For RaceRoom this carries
-/// <c>damage.engine</c>, <c>damage.transmission</c>, <c>damage.aerodynamics</c> and
-/// <c>damage.suspension</c>, each 0..1 or <c>-1</c> for unavailable.
+/// <param name="Sample">
+/// The sample the slow channels were read from — the whole thing. At about 1 Hz, with nulls omitted,
+/// sending it whole is cheaper than the machinery to decide which channels count as slow, and it
+/// removes a judgement that fails silently when it is made wrong.
 /// </param>
-public sealed record ExtrasFrameMessage(
+/// <param name="OperatingWindows">
+/// The tyre and brake temperature bands in force, one per corner. Constant for a compound, so they
+/// are here rather than on every tyre reading of every frame.
+/// </param>
+public sealed record SlowFrameMessage(
     string RoomId,
     string DriverKey,
     DateTimeOffset CapturedAtUtc,
-    string Extras) : LiveViewMessage;
+    RaceRoomTelemetrySample Sample,
+    IReadOnlyList<OperatingWindow> OperatingWindows) : LiveViewMessage;
 
 /// <summary>
 /// The focused driver's tyre channels, at roughly 1 Hz.

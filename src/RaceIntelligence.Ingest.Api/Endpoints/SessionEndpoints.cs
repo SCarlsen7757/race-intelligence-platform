@@ -149,7 +149,7 @@ public static class SessionEndpoints
         return Results.Ok(new { entity.Id });
     }
 
-    /// <summary>Applies partial updates (end time, weather, setup, extras) to an existing session. 404 if unknown.</summary>
+    /// <summary>Applies partial updates (end time, extras) to an existing session. 404 if unknown.</summary>
     private static async Task<IResult> UpdateSessionAsync(
         Guid id,
         SessionUpdateRequest request,
@@ -170,26 +170,6 @@ public static class SessionEndpoints
         if (request.EndedAtUtc is { } endedAt)
         {
             session.EndedAt = endedAt;
-        }
-
-        if (request.WeatherJson is not null)
-        {
-            if (!TryParseJson(request.WeatherJson, out var weather))
-            {
-                return ProblemResults.MalformedJson(nameof(SessionUpdateRequest.WeatherJson), weather.Reason!);
-            }
-
-            session.Weather = weather.Value;
-        }
-
-        if (request.SetupJson is not null)
-        {
-            if (!TryParseJson(request.SetupJson, out var setup))
-            {
-                return ProblemResults.MalformedJson(nameof(SessionUpdateRequest.SetupJson), setup.Reason!);
-            }
-
-            session.Setup = setup.Value;
         }
 
         if (request.ExtrasJson is not null)

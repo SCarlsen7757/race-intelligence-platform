@@ -1,16 +1,17 @@
 import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
-import type { BrakeTemperature } from '../../shared/live/contracts';
+import type { OperatingWindow, RaceRoomSample } from '../../shared/live/contracts';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
+import { slowFrame, uniformWindows } from '../../testing/slowFrame';
 import { firstReportedWindow } from '../../features/focus/operatingWindow';
 import { BrakePressurePanel, BrakeTemperaturePanel } from './BrakePanel';
 
 const DRIVER = 'id:4';
 
 /**
- * Renders the pressure panel against a focus frame rather than an extras document.
+ * Renders the pressure panel against a focus frame rather than the slow channel.
  *
  * Pressure moved to the fast channel because a braking event lasts about a second, which at the
  * extras cadence is one or two samples of the thing being asked about. Its own helper rather than a
@@ -62,18 +63,18 @@ async function renderPressure(pressure: (number | null)[], hidden: readonly stri
 
 function renderPanel(
   Panel: typeof BrakePressurePanel,
-  extras: Record<string, unknown>,
+  sample: RaceRoomSample,
   hidden: readonly string[] = [],
+  windows = uniformWindows({ brakeOptimal: 450, brakeCold: 300, brakeHot: 700 }),
 ) {
   const store = new LiveStore();
   store.setFollowedDrivers([DRIVER]);
-  store.apply({
-    type: 'extrasFrame',
-    roomId: 'room',
-    driverKey: DRIVER,
-    capturedAtUtc: '2026-08-19T11:00:00Z',
-    extras: JSON.stringify(extras),
-  });
+  store.apply(
+    slowFrame(DRIVER, sample, {
+      capturedAtUtc: '2026-08-19T11:00:00Z',
+      operatingWindows: windows,
+    }),
+  );
 
   return render(
     <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
@@ -84,7 +85,7 @@ function renderPanel(
 
 describe('BrakePressurePanel', () => {
   /**
-   * The channel the extras document has carried all along and nothing read. Temperature says the
+   * The channel that crossed the wire for a long time and that nothing read. Temperature says the
    * discs are working; pressure says how they were asked to.
    */
   it('reads out pressure for every corner', async () => {
@@ -99,10 +100,10 @@ describe('BrakePressurePanel', () => {
    * An unmeasured corner reads as no reading, never as a corner taking no pressure — which would be
    * a brake that has failed rather than one nobody measured.
    *
-   * Null rather than RaceRoom's `-1` because pressure moved to the typed wire, where the connector
-   * translates the sentinel (`NullIfNegative`) before it is ever sent. That is a real gain from the
-   * move: the extras document carries the connector's raw values and leaves every reader to know
-   * the sentinel, and this channel no longer does.
+   * Null rather than RaceRoom's `-1`, because the connector translates the sentinel
+   * (`NullIfNegative`) before anything is sent. That now holds for every channel on every wire — it
+   * used to hold only for the typed ones, and the JSON document beside them left each reader to know
+   * the encoding for itself.
    */
   it('shows an unmeasured corner as no reading rather than as no braking', async () => {
     await renderPressure([null, 12.9, 6.1, 6.0]);
@@ -127,31 +128,22 @@ describe('brake operating window', () => {
    * cooking on another.
    */
   it('takes one window for the whole car, from the first corner that reports it', () => {
-    const corners: BrakeTemperature[] = [
-      { current: 380 },
-      { current: 390, optimal: 450, cold: 300, hot: 700 },
-      { current: 300 },
-      { current: 310 },
-    ];
+    const corners: OperatingWindow[] = [{}, { optimal: 450, cold: 300, hot: 700 }, {}, {}];
 
     expect(firstReportedWindow(corners)).toEqual({ cold: 300, optimal: 450, hot: 700 });
   });
 
   /** A simulator reporting no window gets no band, never one invented from a nominal value. */
   it('has no window when the simulator reports none', () => {
-    const corners: BrakeTemperature[] = [{ current: 380 }, { current: 390 }];
-
-    expect(firstReportedWindow(corners)).toBeNull();
+    expect(firstReportedWindow([{}, {}])).toBeNull();
   });
 
   it('reads out brake temperature beside the band', () => {
     renderPanel(BrakeTemperaturePanel, {
-      brakeTemperatureCelsius: [
-        { current: 380, optimal: 450, cold: 300, hot: 700 },
-        { current: 390, optimal: 450, cold: 300, hot: 700 },
-        { current: 300, optimal: 450, cold: 300, hot: 700 },
-        { current: 310, optimal: 450, cold: 300, hot: 700 },
-      ],
+      brakeTempFl: 380,
+      brakeTempFr: 390,
+      brakeTempRl: 300,
+      brakeTempRr: 310,
     });
 
     expect(screen.getByText('380')).toBeTruthy();
@@ -159,7 +151,7 @@ describe('brake operating window', () => {
   });
 });
 
-describe('the extras rings behind both panels', () => {
+describe('the slow rings behind both panels', () => {
   /**
    * The rings live in the store rather than in the panel, which is what lets a tile dragged to a new
    * position keep its stint instead of starting from empty.
@@ -169,16 +161,16 @@ describe('the extras rings behind both panels', () => {
     store.setFollowedDrivers([DRIVER]);
 
     for (let second = 0; second < 3; second++) {
-      store.apply({
-        type: 'extrasFrame',
-        roomId: 'room',
-        driverKey: DRIVER,
-        capturedAtUtc: `2026-08-19T11:00:0${second}Z`,
-        extras: JSON.stringify({ brakeTemperatureCelsius: [{ current: second }, {}, {}, {}] }),
-      });
+      store.apply(
+        slowFrame(
+          DRIVER,
+          { brakeTempFl: second },
+          { capturedAtUtc: `2026-08-19T11:00:0${second}Z` },
+        ),
+      );
     }
 
-    const rings = store.tracesFor(DRIVER).extras.brakeTemperatureCelsius;
+    const rings = store.tracesFor(DRIVER).slow.brakeTemperatureCelsius;
     expect(rings[0].length).toBe(3);
 
     const { unmount } = render(
@@ -197,6 +189,6 @@ describe('the extras rings behind both panels', () => {
     });
     unmount();
 
-    expect(store.tracesFor(DRIVER).extras.brakeTemperatureCelsius[0].length).toBe(3);
+    expect(store.tracesFor(DRIVER).slow.brakeTemperatureCelsius[0].length).toBe(3);
   });
 });

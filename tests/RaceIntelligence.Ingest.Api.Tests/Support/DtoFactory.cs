@@ -1,3 +1,4 @@
+using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Ingest.Contracts;
 using RaceIntelligence.Ingest.Contracts.Telemetry;
 
@@ -46,8 +47,13 @@ internal static class DtoFactory
         ManufacturerName: "Acme Motors",
         ExtrasJson: null);
 
-    /// <summary>A minimal, complete <see cref="TelemetrySampleDto"/> for <paramref name="sessionId"/> at <paramref name="sequenceNumber"/>.</summary>
-    public static TelemetrySampleDto TelemetrySample(Guid sessionId, long sequenceNumber, DateTimeOffset? timestamp = null) => new()
+    /// <summary>A minimal, complete sample for <paramref name="sessionId"/> at <paramref name="sequenceNumber"/>.</summary>
+    /// <remarks>
+    /// Sets the channels these tests read and leaves the rest at their defaults, which for a nullable
+    /// channel is <see langword="null"/> — the same thing it means everywhere else. Filling all
+    /// hundred and seventy-five would assert a shape rather than supply a sample.
+    /// </remarks>
+    public static RaceRoomTelemetrySample TelemetrySample(Guid sessionId, long sequenceNumber, DateTimeOffset? timestamp = null) => new()
     {
         SessionId = sessionId,
         SequenceNumber = sequenceNumber,
@@ -64,35 +70,42 @@ internal static class DtoFactory
         LapNumber = 1,
         Sector = 1,
         Position = 3,
-        WheelSpeedFrontLeft = 45.1f,
-        WheelSpeedFrontRight = 45.2f,
-        WheelSpeedRearLeft = 44.9f,
-        WheelSpeedRearRight = 45.0f,
-        SuspensionTravelFrontLeft = 0.05f,
-        SuspensionTravelFrontRight = 0.05f,
-        SuspensionTravelRearLeft = 0.06f,
-        SuspensionTravelRearRight = 0.06f,
-        TyrePressureFrontLeft = 180f,
-        TyrePressureFrontRight = 180f,
-        TyrePressureRearLeft = 175f,
-        TyrePressureRearRight = 175f,
-        TyreWearFrontLeft = 0.1f,
-        TyreWearFrontRight = 0.1f,
-        TyreWearRearLeft = 0.12f,
-        TyreWearRearRight = 0.12f,
-        TyreTemperatureFrontLeft = TyreTemperature(),
-        TyreTemperatureFrontRight = TyreTemperature(),
-        TyreTemperatureRearLeft = TyreTemperature(),
-        TyreTemperatureRearRight = TyreTemperature(),
         TrackPositionFraction = 0.42f,
-        Extras = "{}",
+        WheelSpeedFl = 45.1f,
+        WheelSpeedFr = 45.2f,
+        WheelSpeedRl = 44.9f,
+        WheelSpeedRr = 45.0f,
+        SuspensionTravelFl = 0.05f,
+        SuspensionTravelFr = 0.05f,
+        SuspensionTravelRl = 0.06f,
+        SuspensionTravelRr = 0.06f,
+        TyrePressureFl = 180f,
+        TyrePressureFr = 180f,
+        TyrePressureRl = 175f,
+        TyrePressureRr = 175f,
+        TyreWearFl = 0.1f,
+        TyreWearFr = 0.1f,
+        TyreWearRl = 0.12f,
+        TyreWearRr = 0.12f,
+        TyreTempFlInner = 85f,
+        TyreTempFlMiddle = 90f,
+        TyreTempFlOuter = 88f,
+        TyreTempFrInner = 85f,
+        TyreTempFrMiddle = 90f,
+        TyreTempFrOuter = 88f,
+        TyreTempRlInner = 85f,
+        TyreTempRlMiddle = 90f,
+        TyreTempRlOuter = 88f,
+        TyreTempRrInner = 85f,
+        TyreTempRrMiddle = 90f,
+        TyreTempRrOuter = 88f,
     };
 
-    /// <summary>Builds <paramref name="count"/> sequential telemetry sample DTOs starting at <paramref name="startSequence"/>.</summary>
-    public static IReadOnlyList<TelemetrySampleDto> TelemetryBatch(Guid sessionId, int count, long startSequence = 0, DateTimeOffset? anchor = null)
+    /// <summary>Builds <paramref name="count"/> sequential telemetry samples starting at <paramref name="startSequence"/>.</summary>
+    public static IReadOnlyList<RaceRoomTelemetrySample> TelemetryBatch(Guid sessionId, int count, long startSequence = 0, DateTimeOffset? anchor = null)
     {
         var start = anchor ?? DateTimeOffset.UtcNow;
-        var samples = new List<TelemetrySampleDto>(count);
+        var samples = new List<RaceRoomTelemetrySample>(count);
         for (var i = 0; i < count; i++)
         {
             var sequenceNumber = startSequence + i;
@@ -102,5 +115,12 @@ internal static class DtoFactory
         return samples;
     }
 
-    private static TyreTemperatureDto TyreTemperature() => new() { Inner = 85, Middle = 90, Outer = 88, Optimal = 90, Cold = 70, Hot = 110 };
+    /// <summary>The tyre and brake bands, one per corner, as they ride on a telemetry batch.</summary>
+    public static IReadOnlyList<OperatingWindow> OperatingWindows() =>
+    [
+        new(Corner.FrontLeft, Compound: 2, 90f, 70f, 110f, 410f, 200f, 600f),
+        new(Corner.FrontRight, Compound: 2, 90f, 70f, 110f, 410f, 200f, 600f),
+        new(Corner.RearLeft, Compound: 4, 92f, 72f, 112f, 412f, 202f, 602f),
+        new(Corner.RearRight, Compound: 4, 92f, 72f, 112f, 412f, 202f, 602f),
+    ];
 }

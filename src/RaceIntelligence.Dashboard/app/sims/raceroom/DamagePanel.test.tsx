@@ -1,28 +1,24 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
+import type { RaceRoomSample } from '../../shared/live/contracts';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
+import { slowFrame } from '../../testing/slowFrame';
 import { DamagePanel, toCondition } from './DamagePanel';
 
 const DRIVER = 'id:2';
 
 /**
- * Mounts the panel over a store holding one extras document.
+ * Mounts the panel over a store holding one slow frame.
  *
- * The store is fed directly rather than through a socket: the panel reads the low-rate extras
- * channel and nothing else, so a real connection would only add a network to the test.
+ * The store is fed directly rather than through a socket: the panel reads the low-rate slow channel
+ * and nothing else, so a real connection would only add a network to the test.
  */
-function renderDamage(damage: Record<string, number>) {
+function renderDamage(sample: RaceRoomSample) {
   const store = new LiveStore();
   store.setFollowedDrivers([DRIVER]);
-  store.apply({
-    type: 'extrasFrame',
-    roomId: 'room',
-    driverKey: DRIVER,
-    capturedAtUtc: '2026-08-16T12:00:00Z',
-    extras: JSON.stringify({ damage }),
-  });
+  store.apply(slowFrame(DRIVER, sample));
 
   return render(
     <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
@@ -33,14 +29,13 @@ function renderDamage(damage: Record<string, number>) {
 
 describe('toCondition', () => {
   /**
-   * RaceRoom's `-1` means "not available", not "destroyed". Reading it as a number would tell a race
-   * engineer the opposite of the truth twice over: that there is a reading, and that it is the worst
-   * possible one.
+   * A channel the simulator did not report is absent, not zero. It used to arrive as `-1` and this
+   * function was where that was caught; the connector translates it now, so what is left is the
+   * absence — and reading absence as total damage would tell a race engineer the opposite of the
+   * truth twice over: that there is a reading, and that it is the worst possible one.
    */
-  it('reads the simulator sentinel as no reading rather than as total damage', () => {
-    expect(toCondition(-1)).toBeNull();
+  it('reads an unreported channel as no reading rather than as total damage', () => {
     expect(toCondition(undefined)).toBeNull();
-    expect(toCondition(Number.NaN)).toBeNull();
   });
 
   /** 1.0 is pristine and 0.0 is broken, keeping the simulator's direction rather than inverting. */
@@ -54,7 +49,7 @@ describe('toCondition', () => {
 
 describe('DamagePanel', () => {
   it('reports a known condition on the meter', () => {
-    renderDamage({ engine: 0.75 });
+    renderDamage({ damageEngine: 0.75 });
 
     expect(screen.getByRole('meter', { name: 'Engine' }).getAttribute('aria-valuenow')).toBe('75');
     expect(screen.getByText('75%')).toBeDefined();
@@ -65,7 +60,7 @@ describe('DamagePanel', () => {
    * lie the em dash avoids visually, so the attribute is omitted rather than defaulted.
    */
   it('omits aria-valuenow for an unreported channel rather than announcing zero', () => {
-    renderDamage({ engine: 1, transmission: -1 });
+    renderDamage({ damageEngine: 1 });
 
     const gearbox = screen.getByRole('meter', { name: 'Gearbox' });
 
@@ -74,52 +69,38 @@ describe('DamagePanel', () => {
   });
 
   it('marks a component below half condition as critical', () => {
-    const { container } = renderDamage({ engine: 0.4, transmission: 0.9 });
+    const { container } = renderDamage({ damageEngine: 0.4, damageTransmission: 0.9 });
 
     expect(container.querySelectorAll('.damage__fill--critical')).toHaveLength(1);
   });
 
-  /** One malformed payload is not a reason to take the focus panel down with it. */
-  it('renders every channel as unreported when the extras document will not parse', () => {
-    const store = new LiveStore();
-    store.setFollowedDrivers([DRIVER]);
-    store.apply({
-      type: 'extrasFrame',
-      roomId: 'room',
-      driverKey: DRIVER,
-      capturedAtUtc: '2026-08-16T12:00:00Z',
-      extras: '{ not json',
-    });
-
-    render(
-      <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
-        <DamagePanel store={store} driverKey={DRIVER} />
-      </LiveContext.Provider>,
-    );
+  /**
+   * A car reporting no damage channels at all still renders four meters, all of them silent.
+   *
+   * This used to be the "malformed document" case — the payload was a JSON string, so a panel could
+   * be handed text that would not parse. There is no parse left to fail; what remains is the case
+   * that mattered anyway, which is a simulator that reports nothing.
+   */
+  it('renders every channel as unreported when the sample carries no damage', () => {
+    renderDamage({});
 
     expect(screen.getAllByRole('meter')).toHaveLength(4);
     expect(screen.getAllByRole('meter').every((m) => !m.hasAttribute('aria-valuenow'))).toBe(true);
   });
 
   /**
-   * Two drivers can be compared, so a panel reads its own driver's extras rather than whichever
-   * document arrived last.
+   * Two drivers can be compared, so a panel reads its own driver's frame rather than whichever one
+   * arrived last.
    */
-  it('reads the extras of its own driver, not of the other car on screen', () => {
+  it('reads the slow channels of its own driver, not of the other car on screen', () => {
     const store = new LiveStore();
     store.setFollowedDrivers([DRIVER, 'id:9']);
 
-    for (const [driverKey, engine] of [
+    for (const [driverKey, damageEngine] of [
       [DRIVER, 0.75],
       ['id:9', 0.25],
     ] as const) {
-      store.apply({
-        type: 'extrasFrame',
-        roomId: 'room',
-        driverKey,
-        capturedAtUtc: '2026-08-16T12:00:00Z',
-        extras: JSON.stringify({ damage: { engine } }),
-      });
+      store.apply(slowFrame(driverKey, { damageEngine }));
     }
 
     render(

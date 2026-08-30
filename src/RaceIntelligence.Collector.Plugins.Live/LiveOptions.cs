@@ -79,11 +79,11 @@ public sealed class LiveOptions
     /// Slower again than <see cref="StandingsInterval"/>. The document costs nothing extra to
     /// produce, since the sample already carries it, but the dashboard parses JSON to read it and
     /// the values inside move on the scale of a race — damage after contact, push-to-pass once a
-    /// lap. With this plugin switched off nothing implements <see cref="IExtrasObserver"/> and the
+    /// lap. With this plugin switched off nothing implements <see cref="ISlowChannelObserver"/> and the
     /// connector is told not to publish extras at all.
     /// </remarks>
     [Range(typeof(TimeSpan), "00:00:00.020", "00:01:00")]
-    public TimeSpan ExtrasInterval { get; init; } = TimeSpan.FromSeconds(1);
+    public TimeSpan SlowChannelInterval { get; init; } = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// How often to publish the local car's stint channels — tyre pressure, wear and temperature.
@@ -148,10 +148,10 @@ public sealed class LiveOptionsValidator(IOptions<CollectorOptions> collectorOpt
                 + "than the poll rate. Lower the poll interval instead.");
         }
 
-        if (options.ExtrasInterval < pollInterval)
+        if (options.SlowChannelInterval < pollInterval)
         {
             failures.Add(
-                $"'Collector:Live:ExtrasInterval' ({options.ExtrasInterval}) is shorter than "
+                $"'Collector:Live:SlowChannelInterval' ({options.SlowChannelInterval}) is shorter than "
                 + $"'Collector:PollInterval' ({pollInterval}), which cannot produce extras any faster "
                 + "than the poll rate. Lower the poll interval instead.");
         }

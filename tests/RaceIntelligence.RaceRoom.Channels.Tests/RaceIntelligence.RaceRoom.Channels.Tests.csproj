@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- The generated artefacts, not the generator: what is worth pinning is that the manifest still
+         produces a coherent set of channels, which is a property of the output. -->
+    <ProjectReference Include="..\..\src\RaceIntelligence.RaceRoom.Telemetry\RaceIntelligence.RaceRoom.Telemetry.csproj" />
+  </ItemGroup>
+
+</Project>

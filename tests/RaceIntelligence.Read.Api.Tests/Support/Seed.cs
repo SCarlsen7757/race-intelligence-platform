@@ -1,3 +1,4 @@
+using RaceIntelligence.RaceRoom.Telemetry;
 using System.Net.Http.Json;
 using MessagePack;
 using RaceIntelligence.Ingest.Contracts;
@@ -83,7 +84,7 @@ internal sealed class Seed(ReadAppFixture fixture)
     public async Task TelemetryAsync(Guid sessionId, int lapNumber, int count, long startSequence = 0)
     {
         var anchor = DateTimeOffset.UtcNow;
-        var samples = new List<TelemetrySampleDto>(count);
+        var samples = new List<RaceRoomTelemetrySample>(count);
 
         for (int i = 0; i < count; i++)
         {
@@ -96,7 +97,7 @@ internal sealed class Seed(ReadAppFixture fixture)
             sessionId,
             startSequence,
             startSequence + count - 1,
-            samples);
+            samples, []);
 
         byte[] bytes = MessagePackSerializer.Serialize(batch, TelemetryMessagePackOptions.Default);
 
@@ -116,7 +117,7 @@ internal sealed class Seed(ReadAppFixture fixture)
     /// <summary>The throttle a sample at <paramref name="sequence"/> is seeded with.</summary>
     public static float ThrottleFor(long sequence) => (sequence % 10) / 10f;
 
-    private static TelemetrySampleDto Sample(Guid sessionId, long sequence, int lapNumber, DateTimeOffset timestamp) => new()
+    private static RaceRoomTelemetrySample Sample(Guid sessionId, long sequence, int lapNumber, DateTimeOffset timestamp) => new()
     {
         SessionId = sessionId,
         SequenceNumber = sequence,
@@ -133,32 +134,25 @@ internal sealed class Seed(ReadAppFixture fixture)
         LapNumber = lapNumber,
         Sector = 1,
         Position = 3,
-        WheelSpeedFrontLeft = 45.1f,
-        WheelSpeedFrontRight = 45.2f,
-        WheelSpeedRearLeft = 44.9f,
-        WheelSpeedRearRight = 45.0f,
-        SuspensionTravelFrontLeft = 0.05f,
-        SuspensionTravelFrontRight = 0.05f,
-        SuspensionTravelRearLeft = 0.06f,
-        SuspensionTravelRearRight = 0.06f,
-        TyrePressureFrontLeft = 180f,
-        TyrePressureFrontRight = 180f,
-        TyrePressureRearLeft = 175f,
-        TyrePressureRearRight = 175f,
-        TyreWearFrontLeft = 0.1f,
-        TyreWearFrontRight = 0.1f,
-        TyreWearRearLeft = 0.12f,
-        TyreWearRearRight = 0.12f,
-        TyreTemperatureFrontLeft = Temperature(),
-        TyreTemperatureFrontRight = Temperature(),
-        TyreTemperatureRearLeft = Temperature(),
-        TyreTemperatureRearRight = Temperature(),
         TrackPositionFraction = 0.42f,
-        Extras = "{}",
+        WheelSpeedFl = 45.1f,
+        WheelSpeedFr = 45.2f,
+        WheelSpeedRl = 44.9f,
+        WheelSpeedRr = 45.0f,
+        TyrePressureFl = 180f,
+        TyrePressureFr = 180f,
+        TyrePressureRl = 175f,
+        TyrePressureRr = 175f,
+        TyreWearFl = 0.1f,
+        TyreWearFr = 0.1f,
+        TyreWearRl = 0.12f,
+        TyreWearRr = 0.12f,
+        TyreTempFlInner = 85f,
+        TyreTempFlMiddle = 90f,
+        TyreTempFlOuter = 88f,
+        TyreGripFl = 0.97f,
+        CamberFl = -0.06f,
     };
-
-    private static TyreTemperatureDto Temperature() =>
-        new() { Inner = 85, Middle = 90, Outer = 88, Optimal = 90, Cold = 70, Hot = 110 };
 
     private async Task<HttpResponseMessage> PostJsonAsync<T>(string path, T body)
     {

@@ -27,7 +27,7 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
         (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var samples = DtoFactory.TelemetryBatch(session.SessionId, count: 20);
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples);
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples, []);
 
         var first = await PostBatchAsync(session.SessionId, batch);
         first.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -55,7 +55,7 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
 
         var sessionId = Guid.CreateVersion7();
         var samples = DtoFactory.TelemetryBatch(sessionId, count: 5);
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current, sessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples);
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, sessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples, []);
 
         var response = await PostBatchAsync(sessionId, batch);
 
@@ -74,7 +74,7 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
         (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var samples = DtoFactory.TelemetryBatch(session.SessionId, count: 3);
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current + 1, session.SessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples);
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current + 1, session.SessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples, []);
 
         var response = await PostBatchAsync(session.SessionId, batch);
 
@@ -91,7 +91,7 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
 
         var sessionId = Guid.CreateVersion7();
         var samples = DtoFactory.TelemetryBatch(sessionId, count: 1);
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current, sessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples);
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, sessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples, []);
         var bytes = MessagePackSerializer.Serialize(batch, TelemetryMessagePackOptions.Default);
 
         using var message = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/sessions/{sessionId}/telemetry:batch")
@@ -117,7 +117,7 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
 
         // `required`/non-nullable is a C# compile-time promise; MessagePack decodes nil into it
         // regardless, which is why null! here produces a payload a real client could hand-write.
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 0, null!);
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 0, null!, []);
 
         using var response = await PostBatchAsync(session.SessionId, batch);
 
@@ -125,8 +125,14 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
         (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).ShouldContain("Samples");
     }
 
+    /// <summary>
+    /// The one nil a sample can still arrive as. Every channel on it is a value type or a nullable
+    /// one, so a <c>nil</c> in the payload lands as the null that already means "not reported" —
+    /// there is no required reference member left to omit, and no JSON string to validate, which is
+    /// what the four tests that used to sit here were guarding.
+    /// </summary>
     [Fact]
-    public async Task Batch_with_a_nil_tyre_temperature_member_returns_400()
+    public async Task Batch_with_a_nil_sample_returns_400_naming_the_index()
     {
         if (!fixture.IsAvailable)
         {
@@ -136,70 +142,23 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
         var session = DtoFactory.SessionCreateRequest();
         (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var samples = new[] { DtoFactory.TelemetrySample(session.SessionId, 0) with { TyreTemperatureRearRight = null! } };
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 0, samples);
-
-        using var response = await PostBatchAsync(session.SessionId, batch);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
-            .ShouldContain(nameof(TelemetrySampleDto.TyreTemperatureRearRight));
-    }
-
-    [Fact]
-    public async Task Batch_with_nil_extras_returns_400()
-    {
-        if (!fixture.IsAvailable)
-        {
-            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
-        }
-
-        var session = DtoFactory.SessionCreateRequest();
-        (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        var samples = new[] { DtoFactory.TelemetrySample(session.SessionId, 0) with { Extras = null! } };
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 0, samples);
-
-        using var response = await PostBatchAsync(session.SessionId, batch);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
-            .ShouldContain(nameof(TelemetrySampleDto.Extras));
-    }
-
-    [Theory]
-    [InlineData("{not json")]
-    [InlineData("")]
-    [InlineData("{\"a\":}")]
-    public async Task Batch_with_malformed_extras_is_a_400_naming_the_sample(string malformed)
-    {
-        if (!fixture.IsAvailable)
-        {
-            Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
-        }
-
-        // Extras is client text that travels uninspected to a jsonb column, so this endpoint is the
-        // only thing between it and a database error that names no sample.
-        var session = DtoFactory.SessionCreateRequest();
-        (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        var samples = new[]
-        {
-            DtoFactory.TelemetrySample(session.SessionId, 0),
-            DtoFactory.TelemetrySample(session.SessionId, 1) with { Extras = malformed },
-        };
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 1, samples);
+        var samples = new[] { DtoFactory.TelemetrySample(session.SessionId, 0), null! };
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 1, samples, []);
 
         using var response = await PostBatchAsync(session.SessionId, batch);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
-        body.ShouldContain(nameof(TelemetrySampleDto.Extras));
         body.ShouldContain("index 1", Case.Insensitive);
     }
 
+    /// <summary>
+    /// The operating windows ride on the batch rather than having an endpoint of their own, and the
+    /// server keeps the first row per <c>(session, corner, compound)</c> — so the same four rows
+    /// arriving on every batch is the normal case, not a conflict.
+    /// </summary>
     [Fact]
-    public async Task Batch_with_valid_extras_is_stored_verbatim()
+    public async Task Repeated_operating_windows_are_accepted_rather_than_conflicting()
     {
         if (!fixture.IsAvailable)
         {
@@ -209,13 +168,17 @@ public sealed class TelemetryBatchEndpointTests(AspireAppFixture fixture)
         var session = DtoFactory.SessionCreateRequest();
         (await PostJsonAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        const string extras = """{"pushToPass":{"usesRemaining":5},"tags":["traffic"]}""";
-        var samples = new[] { DtoFactory.TelemetrySample(session.SessionId, 0) with { Extras = extras } };
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current, session.SessionId, 0, 0, samples);
+        var windows = DtoFactory.OperatingWindows();
 
-        using var response = await PostBatchAsync(session.SessionId, batch);
+        for (var batchIndex = 0; batchIndex < 2; batchIndex++)
+        {
+            var samples = DtoFactory.TelemetryBatch(session.SessionId, count: 2, startSequence: batchIndex * 2);
+            var batch = new TelemetryBatchRequest(
+                SchemaVersion.Current, session.SessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples, windows);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+            using var response = await PostBatchAsync(session.SessionId, batch);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
     }
 
     [Fact]

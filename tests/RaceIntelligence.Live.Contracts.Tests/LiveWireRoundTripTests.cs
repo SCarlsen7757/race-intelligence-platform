@@ -72,16 +72,36 @@ public sealed class LiveWireRoundTripTests
     /// the <c>-1</c> a simulator writes for a channel it does not report. Anything that "helpfully"
     /// normalised that in transit would turn "not reported" into "undamaged".
     /// </summary>
+    /// <summary>
+    /// The slow frame carries the whole sample and the operating windows, so the round trip has to
+    /// carry a hundred and seventy-five channels and four window rows — including their nulls, which
+    /// is the half that used to be a <c>-1</c> in a JSON string nothing typed.
+    /// </summary>
     [Fact]
-    public void ExtrasFrame_survives_the_round_trip_with_its_sentinels_intact()
+    public void SlowFrame_survives_the_round_trip_with_its_nulls_intact()
     {
-        var frame = new LiveExtrasFrame(
+        var frame = new LiveSlowFrame(
             SessionId: Guid.Parse("11111111-2222-3333-4444-555555555555"),
             SimDriverId: "4242",
             CapturedAtUtc: new DateTimeOffset(2026, 8, 16, 12, 0, 0, TimeSpan.Zero),
-            ExtrasJson: """{"damage":{"engine":0.5,"transmission":-1.0,"aerodynamics":1.0,"suspension":-1.0}}""");
+            Sample: LiveDtoFactory.FullyPopulatedSample() with
+            {
+                DamageEngine = 0.5f,
+                DamageTransmission = null,
+                DamageAerodynamics = 1.0f,
+                DamageSuspension = null,
+            },
+            OperatingWindows: LiveDtoFactory.OperatingWindows());
 
-        RoundTrip(frame).ShouldBe(frame);
+        var decoded = RoundTrip(frame);
+
+        decoded.Sample.DamageEngine.ShouldBe(0.5f);
+        decoded.Sample.DamageTransmission.ShouldBeNull();
+        decoded.Sample.DamageAerodynamics.ShouldBe(1.0f);
+        decoded.Sample.DamageSuspension.ShouldBeNull();
+        decoded.OperatingWindows.Count.ShouldBe(4);
+        decoded.OperatingWindows[0].ShouldBe(frame.OperatingWindows[0]);
+        decoded.OperatingWindows[3].TyreHotCelsius.ShouldBeNull();
     }
 
     /// <summary>
@@ -99,7 +119,7 @@ public sealed class LiveWireRoundTripTests
             LiveStandingsContractMapper.ToFrame(LiveDtoFactory.FullyPopulatedStandings()),
             LiveStandingsContractMapper.ToSelfFrame(LiveDtoFactory.FullyPopulatedSample(), "4242"),
             new LiveGoodbye(Guid.NewGuid(), null),
-            new LiveExtrasFrame(Guid.NewGuid(), "4242", DateTimeOffset.UnixEpoch, "{}"),
+            new LiveSlowFrame(Guid.NewGuid(), "4242", DateTimeOffset.UnixEpoch, LiveDtoFactory.FullyPopulatedSample(), LiveDtoFactory.OperatingWindows()),
         ];
 
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -342,10 +362,11 @@ public sealed class LiveWireRoundTripTests
         // The unreported rear-right wheel stays null rather than reading as a brand-new tyre.
         frame.TyreWear.ShouldBe(new LiveWheelValues(0.1f, 0.2f, 0.3f, null));
 
-        // All three tread readings and the simulator's window survive the live path. The front left
-        // is enough to pin it: if the record were being flattened to one number again, the shoulders
-        // and the band would be the members that vanished.
-        frame.TyreTemperature.FrontLeft.ShouldBe(new LiveTreadTemperatures(80f, 81f, 82f, 90f, 60f, 110f));
-        frame.TyreTemperature.RearRight.ShouldBe(new LiveTreadTemperatures(89f, 90f, 91f, 90f, 60f, 110f));
+        // All three tread readings survive the live path. The front left is enough to pin it: if the
+        // record were being flattened to one number again, the shoulders would be the members that
+        // vanished. The band that used to ride here now travels on the slow frame, keyed by
+        // compound, because it never moved between frames.
+        frame.TyreTemperature.FrontLeft.ShouldBe(new LiveTreadTemperatures(80f, 81f, 82f));
+        frame.TyreTemperature.RearRight.ShouldBe(new LiveTreadTemperatures(89f, 90f, 91f));
     }
 }

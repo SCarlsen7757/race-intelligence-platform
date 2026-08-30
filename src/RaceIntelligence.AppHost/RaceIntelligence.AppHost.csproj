@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
+﻿<Project Sdk="Aspire.AppHost.Sdk/13.5.3">
 
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Identity.Api\RaceIntelligence.Identity.Api.csproj" />
@@ -16,6 +16,15 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <UserSecretsId>0c7d49b7-54f9-428f-a25c-80816c22e7df</UserSecretsId>
+
+    <!--
+      Aspire 13.5 added ASPIRE010, which warns that an AppHost without the CLI bundle cannot offer
+      the features that need it. This one is opted in rather than suppressed: the bundle is what
+      `aspire run` and `aspire exec` drive the local topology with, and this AppHost exists for local
+      development and for the Aspire.Hosting.Testing suites. Turning the warning off instead would
+      keep the build quiet and leave the tooling half-wired.
+    -->
+    <AspireUseCliBundle>true</AspireUseCliBundle>
   </PropertyGroup>
 
 </Project>

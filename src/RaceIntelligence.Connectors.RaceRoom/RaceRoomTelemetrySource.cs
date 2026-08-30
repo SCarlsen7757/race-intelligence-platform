@@ -6,7 +6,8 @@ using RaceIntelligence.Connectors.RaceRoom.Interop;
 using RaceIntelligence.Core.Capabilities;
 using RaceIntelligence.Core.Games;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Connectors.RaceRoom;
 
@@ -492,40 +493,40 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
 
         _run.LastTicks = raw.Player.GameSimulationTicks;
 
-        EmitExtrasIfDue(events, now, sample);
+        EmitSlowChannelsIfDue(events, now, sample, in raw);
         EmitStandingsIfDue(events, now, in raw);
     }
 
     /// <summary>
-    /// Re-publishes the local car's extras document, no more often than
-    /// <see cref="RaceRoomConnectorOptions.ExtrasInterval"/>.
+    /// Re-publishes the local car's slow-moving channels, no more often than
+    /// <see cref="RaceRoomConnectorOptions.SlowChannelInterval"/>.
     /// </summary>
     /// <remarks>
-    /// Takes the string off the sample that was just mapped rather than building a second one. The
-    /// mapper writes it for every sample regardless — the archive path stores it per row — so
-    /// reusing it makes this channel free to produce and leaves the rate limit purely about how
-    /// often anything downstream has to parse it.
+    /// Republishes the sample that was just mapped rather than reading the block a second time. Every
+    /// channel is on it already — the archive path stores all of them per row — so this channel is
+    /// free to produce, and the rate limit is purely about how often anything downstream has to look
+    /// at values that move once a lap.
     /// </remarks>
-    private void EmitExtrasIfDue(List<TelemetryEvent> events, DateTimeOffset now, TelemetrySample sample)
+    private void EmitSlowChannelsIfDue(List<TelemetryEvent> events, DateTimeOffset now, RaceRoomTelemetrySample sample, in R3ESharedRaw raw)
     {
-        // Any negative interval disables extras, not only Timeout.InfiniteTimeSpan — see the same
-        // reasoning spelled out on EmitStandingsIfDue.
-        if (_options.ExtrasInterval < TimeSpan.Zero)
+        // Any negative interval disables the channel, not only Timeout.InfiniteTimeSpan — see the
+        // same reasoning spelled out on EmitStandingsIfDue.
+        if (_options.SlowChannelInterval < TimeSpan.Zero)
         {
             return;
         }
 
-        if (now - _run.LastExtrasAtUtc < _options.ExtrasInterval)
+        if (now - _run.LastSlowChannelsAtUtc < _options.SlowChannelInterval)
         {
             return;
         }
 
-        _run.LastExtrasAtUtc = now;
-        events.Add(new ExtrasUpdated
+        _run.LastSlowChannelsAtUtc = now;
+        events.Add(new SlowChannelsUpdated
         {
             OccurredAtUtc = now,
-            SessionId = sample.SessionId,
-            ExtrasJson = sample.Extras,
+            Sample = sample,
+            OperatingWindows = R3ETelemetryMapper.ToOperatingWindows(in raw),
         });
     }
 
@@ -773,10 +774,10 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
 
         /// <summary>
         /// When the extras document was last published — the clock behind
-        /// <see cref="RaceRoomConnectorOptions.ExtrasInterval"/>. Never set reads as due, so the
+        /// <see cref="RaceRoomConnectorOptions.SlowChannelInterval"/>. Never set reads as due, so the
         /// first sample of a session always carries one.
         /// </summary>
-        public DateTimeOffset LastExtrasAtUtc;
+        public DateTimeOffset LastSlowChannelsAtUtc;
 
         /// <summary>
         /// How this game fills its sector triples. Held per session and re-established each time,
@@ -802,7 +803,7 @@ public sealed class RaceRoomTelemetrySource : ITelemetrySource
             SequenceNumber = 0;
             SuspendedAtUtc = default;
             LastStandingsAtUtc = default;
-            LastExtrasAtUtc = default;
+            LastSlowChannelsAtUtc = default;
             SectorTimeConvention = R3ESectorTimeConvention.Cumulative;
         }
 

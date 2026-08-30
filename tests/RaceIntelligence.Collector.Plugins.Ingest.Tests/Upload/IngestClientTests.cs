@@ -51,7 +51,7 @@ public class IngestClientTests
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
         var client = CreateClient(handler, out var httpClient);
         var sessionId = Guid.NewGuid();
-        var request = new SessionUpdateRequest(SchemaVersion.Current, DateTimeOffset.UtcNow, null, null, null);
+        var request = new SessionUpdateRequest(SchemaVersion.Current, DateTimeOffset.UtcNow, null);
 
         await client.UpdateSessionAsync(sessionId, request, TestContext.Current.CancellationToken);
 
@@ -91,8 +91,8 @@ public class IngestClientTests
         });
         var client = CreateClient(handler, out var httpClient);
         var sessionId = Guid.NewGuid();
-        var sample = TelemetrySampleContractMapper.ToDto(TelemetrySampleFactory.Create(sessionId, 0));
-        var batch = new TelemetryBatchRequest(SchemaVersion.Current, sessionId, 0, 0, [sample]);
+        var sample = TelemetrySampleFactory.Create(sessionId, 0);
+        var batch = new TelemetryBatchRequest(SchemaVersion.Current, sessionId, 0, 0, [sample], []);
 
         var response = await client.UploadTelemetryBatchAsync(sessionId, batch, TestContext.Current.CancellationToken);
 

@@ -1,7 +1,8 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RaceIntelligence.Collector.Abstractions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Collector;
 
@@ -35,13 +36,13 @@ public sealed class TelemetryCollectorService(
     IEnumerable<ISessionObserver> sessionObservers,
     IEnumerable<ISampleObserver> sampleObservers,
     IEnumerable<IStandingsObserver> standingsObservers,
-    IEnumerable<IExtrasObserver> extrasObservers,
+    IEnumerable<ISlowChannelObserver> slowChannelObservers,
     ILogger<TelemetryCollectorService> logger) : BackgroundService
 {
     private readonly ISessionObserver[] _sessionObservers = [.. sessionObservers];
     private readonly ISampleObserver[] _sampleObservers = [.. sampleObservers];
     private readonly IStandingsObserver[] _standingsObservers = [.. standingsObservers];
-    private readonly IExtrasObserver[] _extrasObservers = [.. extrasObservers];
+    private readonly ISlowChannelObserver[] _slowChannelObservers = [.. slowChannelObservers];
 
     private Guid? _currentSessionId;
 
@@ -92,7 +93,7 @@ public sealed class TelemetryCollectorService(
         SessionStarted started => HandleSessionStartedAsync(started, cancellationToken),
         TelemetrySampleReceived sample => HandleSampleReceived(sample, cancellationToken),
         StandingsUpdated standings => HandleStandingsUpdated(standings),
-        ExtrasUpdated extras => HandleExtrasUpdated(extras),
+        SlowChannelsUpdated slowChannels => HandleSlowChannelsUpdated(slowChannels),
         LapCompleted lap => DispatchSessionAsync(
             observer => observer.OnLapCompletedAsync(lap.Lap, cancellationToken),
             nameof(ISessionObserver.OnLapCompletedAsync)),
@@ -171,17 +172,17 @@ public sealed class TelemetryCollectorService(
         return Task.CompletedTask;
     }
 
-    private Task HandleExtrasUpdated(ExtrasUpdated extrasUpdated)
+    private Task HandleSlowChannelsUpdated(SlowChannelsUpdated update)
     {
-        foreach (var observer in _extrasObservers)
+        foreach (var observer in _slowChannelObservers)
         {
             try
             {
-                observer.OnExtras(extrasUpdated.SessionId, extrasUpdated.ExtrasJson);
+                observer.OnSlowChannels(update.Sample, update.OperatingWindows);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                LogObserverFailure(ex, observer, nameof(IExtrasObserver.OnExtras));
+                LogObserverFailure(ex, observer, nameof(ISlowChannelObserver.OnSlowChannels));
             }
         }
 

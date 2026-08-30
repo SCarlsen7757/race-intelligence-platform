@@ -58,9 +58,16 @@ Rules:
   shipping code that called itself `RaceIntelligence.Persistence`, which named a project that no
   longer exists.
 - **`src/RaceIntelligence.Persistence.Core` declares no schema, and must not start.** It owns the
-  entity types, converters, mappers and repositories; a simulator owns the `ToTable` calls and the
+  shared entity types, converters and repositories; a simulator owns the `ToTable` calls and the
   migrations. `SchemaOwnershipTests` asserts this rather than trusting it, because a configuration
   put in the obvious-looking project compiles and passes everything else.
+- **The telemetry sample is RaceRoom's, and its channels are declared once.**
+  `channels/raceroom-telemetry.channels` is the single declaration; a Roslyn source generator
+  (`src/RaceIntelligence.RaceRoom.Channels.Generator`) emits the MessagePack DTO, the storage entity,
+  its EF configuration, the bulk writer's column list **and the positional order it writes them in**,
+  and the read API's channel allowlist. Add or rename a channel *there*, never in the generated
+  output. The writer's two lists are the reason: a binary `COPY` checks neither against the other, so
+  a mismatch writes camber into ride height and reports success.
 - The database schema reaches the graph through `docs/schema.sql`, a generated DDL dump of the EF
   Core migrations — the tables and their foreign keys are real nodes, so no database has to be
   running. After adding a migration, regenerate it in the same commit:

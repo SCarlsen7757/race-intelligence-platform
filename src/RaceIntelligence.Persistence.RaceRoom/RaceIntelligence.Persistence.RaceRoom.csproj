@@ -9,4 +9,14 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
 
+  <!-- The sample entity, its column list and the COPY row writer are all generated from the one
+       channel manifest, so the writer cannot name its columns in an order it does not write them
+       in. See src/RaceIntelligence.RaceRoom.Channels.Generator. -->
+  <ItemGroup>
+    <ProjectReference Include="..\RaceIntelligence.RaceRoom.Channels.Generator\RaceIntelligence.RaceRoom.Channels.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <AdditionalFiles Include="..\..\channels\raceroom-telemetry.channels" />
+  </ItemGroup>
+
 </Project>

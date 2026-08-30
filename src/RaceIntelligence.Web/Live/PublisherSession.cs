@@ -158,8 +158,8 @@ public sealed class PublisherSession(
                 rooms.ApplyStint(identity.ClientId, stint);
                 break;
 
-            case LiveExtrasFrame extras:
-                rooms.ApplyExtras(identity.ClientId, extras);
+            case LiveSlowFrame extras:
+                rooms.ApplySlowChannels(identity.ClientId, extras);
                 break;
 
             case LiveGoodbye goodbye:

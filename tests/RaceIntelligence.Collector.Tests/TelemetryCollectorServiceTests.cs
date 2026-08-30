@@ -3,7 +3,8 @@ using RaceIntelligence.Collector.Abstractions;
 using RaceIntelligence.Collector.TestSupport;
 using RaceIntelligence.Collector.Tests.Support;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using Shouldly;
 
 namespace RaceIntelligence.Collector.Tests;

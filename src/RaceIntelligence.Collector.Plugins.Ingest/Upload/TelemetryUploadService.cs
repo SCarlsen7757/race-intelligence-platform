@@ -1,8 +1,9 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using RaceIntelligence.Core.Buffering;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Buffering;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Ingest.Contracts;
 using RaceIntelligence.Ingest.Contracts.Mapping;
 using RaceIntelligence.Ingest.Contracts.Telemetry;
@@ -49,6 +50,7 @@ public sealed class TelemetryUploadService(
     IIngestClient ingestClient,
     IOptions<IngestOptions> options,
     OpenBatchTracker openBatch,
+    LatestOperatingWindows operatingWindows,
     TimeProvider timeProvider,
     ILogger<TelemetryUploadService> logger) : BackgroundService
 {
@@ -62,7 +64,7 @@ public sealed class TelemetryUploadService(
     /// <summary>Mutable state for the batch currently being assembled, threaded through one <see cref="ExecuteAsync"/> run.</summary>
     private sealed class OpenBatch(int maxBatchSize)
     {
-        public List<TelemetrySample> Samples { get; } = new(maxBatchSize);
+        public List<RaceRoomTelemetrySample> Samples { get; } = new(maxBatchSize);
 
         public Guid SessionId { get; set; }
 
@@ -202,9 +204,16 @@ public sealed class TelemetryUploadService(
         }
 
         var sessionId = batch.SessionId;
-        var samples = batch.Samples.Select(TelemetrySampleContractMapper.ToDto).ToList();
+        // No conversion step any more: the connector produces the wire type directly, so the
+        // samples in the batch are already what goes on the wire.
+        var samples = batch.Samples.ToList();
         var request = new TelemetryBatchRequest(
-            SchemaVersion.Current, sessionId, samples[0].SequenceNumber, samples[^1].SequenceNumber, samples);
+            SchemaVersion.Current,
+            sessionId,
+            samples[0].SequenceNumber,
+            samples[^1].SequenceNumber,
+            samples,
+            operatingWindows.Current);
 
         try
         {

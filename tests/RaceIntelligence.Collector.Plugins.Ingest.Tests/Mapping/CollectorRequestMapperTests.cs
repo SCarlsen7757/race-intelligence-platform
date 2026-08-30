@@ -166,8 +166,6 @@ public class CollectorRequestMapperTests
 
         // Everything else must stay null: on a PATCH, null means "leave unchanged", and the
         // collector performs no analysis so it has nothing else to say about a finished session.
-        request.WeatherJson.ShouldBeNull();
-        request.SetupJson.ShouldBeNull();
         request.ExtrasJson.ShouldBeNull();
     }
 

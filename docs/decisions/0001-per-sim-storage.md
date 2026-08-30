@@ -1,11 +1,12 @@
 # 0001 — Per-simulator storage
 
-**Status:** Accepted. **All four steps of the migration path are built**, and the per-simulator
-project split they imply has landed: `Persistence.Core` holds the canonical types and declares no
-schema, `Persistence.RaceRoom` owns RaceRoom's tables, migrations and bulk writer, and
-`Ingest.RaceRoom` hosts the shared endpoints against it. RaceRoom's push-to-pass, tyre subtype,
-cut-track warning and damage channels are promoted into typed nullable columns while unrecognised
-data remains in `extras`.
+**Status:** Accepted, and **amended in place by #109**, which extended the decision from storage to
+the wire. All four steps of the migration path are built and the per-simulator project split has
+landed: `Persistence.Core` holds the shared entities and declares no schema, `Persistence.RaceRoom`
+owns RaceRoom's tables, migrations, bulk writer and — since #109 — the telemetry sample itself, and
+`Ingest.RaceRoom` hosts the endpoints against it. Every RaceRoom channel is now a typed column;
+`telemetry_samples.extras` is gone. **See "The wire, reconsidered" below**, which reverses this
+decision's central "the wire does not become per-simulator" and says why.
 **Supersedes:** the "one database holds every simulator" assumption in [architecture.md](../architecture.md).
 **Depends on:** [0002 — the cross-simulator translator](0002-cross-sim-translator.md), which is what makes this decision survivable.
 
@@ -32,13 +33,16 @@ RaceRoom, push-to-pass is not exotic metadata — it is a strategy input.
 **Storage becomes per-simulator: one ingest API image and one PostgreSQL database per simulator,
 each free to shape its schema to what that simulator actually exposes.**
 
-The wire does **not** become per-simulator. The collector keeps posting the canonical model plus its
+~~The wire does **not** become per-simulator. The collector keeps posting the canonical model plus its
 raw `extras` document, and each simulator's ingest API decides how to store what arrives. One
-collector, one contract, N storage shapes.
+collector, one contract, N storage shapes.~~
 
-That boundary is the whole reason this is affordable. Were the wire per-sim, adding a simulator would
+~~That boundary is the whole reason this is affordable. Were the wire per-sim, adding a simulator would
 mean a collector build, an ingest contract, a schema and a read API. As drawn, it means a connector
-and a storage image — and the connector was always going to be per-simulator.
+and a storage image — and the connector was always going to be per-simulator.~~
+
+**Reversed by #109 — see "The wire, reconsidered".** The bill this paragraph names is real and has
+been accepted; it was not overlooked.
 
 ## What becomes per-simulator
 
@@ -49,10 +53,12 @@ and a storage image — and the connector was always going to be per-simulator.
 | Read/query API | ✅ | |
 | Analysis plugins | ✅ (mirroring the collector's plugin model) | |
 | Reference tables (`drivers`, `tracks`, `cars`) | ✅ duplicated | |
-| `RaceIntelligence.Core` canonical model | | ✅ |
-| `Ingest.Contracts` (the collector→ingest wire) | | ✅ |
-| Collector, connectors, collector plugins | | ✅ |
-| Live hub and `Live.Contracts` | | ✅ (in memory; unaffected) |
+| `RaceIntelligence.Core` (sessions, laps, capabilities, analysis) | | ✅ |
+| The telemetry sample (`RaceRoom.Telemetry`) | ✅ — since #109 | |
+| `Ingest.Contracts` (the collector→ingest wire) | ✅ — since #109 | |
+| `Live.Contracts` (the publisher and viewer wires) | ✅ — since #109 | |
+| The live hub itself (rooms, viewers, fan-out) | | ✅ |
+| Collector, connectors, collector plugins | | ✅ (one connector per sim, as always) |
 | Cross-sim driver identity registry | | ✅ — see 0002 |
 
 ## What collapses inside a per-sim schema
@@ -68,9 +74,10 @@ The database *is* the game, so the scoping disappears:
   and that argument is unchanged.
 
 And the point of the exercise: channels a simulator treats as first-class get promoted out of
-`extras` into typed, indexable columns. For RaceRoom that is push-to-pass, tyre subtype, cut-track
-warnings and car damage. **`extras` stays** as the escape hatch for anything not yet promoted — a new
-channel should still cost a connector, not a migration.
+`extras` into typed, indexable columns. For RaceRoom that began as push-to-pass, tyre subtype,
+cut-track warnings and car damage, and **#109 finished the job**: every channel is a column and
+`telemetry_samples.extras` no longer exists. A session's `extras` does — it is written once per
+session and nothing queries by it, which is the case a jsonb column is actually for.
 
 Two conventions survive unchanged, because they are already right:
 
@@ -102,6 +109,72 @@ Two conventions survive unchanged, because they are already right:
   tyre usage compare across simulators" directly. This is the load-bearing loss, and 0002 exists
   solely to answer it. **If the translator is not built, this decision costs the platform its
   cross-simulator analysis outright.**
+
+## The wire, reconsidered (#109)
+
+**The wire is per-simulator too.** Both of them: `Ingest.Contracts` and `Live.Contracts` are
+RaceRoom's, and every channel on each is a typed member rather than a JSON string.
+
+### What was actually costing
+
+The shared wire carried thirty-seven typed fields plus `Extras`, a raw JSON *string*, and
+twenty-nine RaceRoom channels travelled inside it. Measured on the deployed test database — five
+sessions, 357,152 samples:
+
+| | Size | Share |
+|---|---|---|
+| `telemetry_samples` total | 724 MB | |
+| `extras` (jsonb) | 396 MB | **55%** |
+| `tyre_temperature` (jsonb) | 95 MB | 13% |
+
+**68% of the telemetry table was JSON** — about 1,164 bytes of `extras` per row carrying perhaps 300
+bytes of values, the same twenty-nine key names repeated 357,152 times. Reading a channel meant
+`extras->'tyreGrip'->>0`: unindexable, untypeable, and wrong only at runtime.
+
+Three things followed from typing it that were not visible before:
+
+- **The operating-window values were constants.** Across 122,562 samples of one session the tyre and
+  brake `optimal`/`cold`/`hot` bounds each had exactly one distinct value, against 119,146 for the
+  reading they bound. They are their own table now, keyed `(session, corner, compound)` so a
+  mid-session tyre change stays correct.
+- **`wheel_speed` carried RaceRoom's raw sign** — every sample negative, magnitude matching road
+  speed — so wheel slip was uncomputable without knowing that. Normalised at the connector.
+- **An entire struct was never read.** `R3EPlayerData` had been transcribed field by field and
+  nothing touched it, so acceleration, camber, ride height, suspension velocity, downforce and world
+  position had been described and left on the floor (#104). They are columns now.
+
+### The cost, accepted rather than avoided
+
+The paragraph struck through above is right about the bill: a second simulator now needs a collector
+build, an ingest contract, a schema and a read API rather than a connector and a storage image. That
+is accepted, for two reasons.
+
+**Only RaceRoom ships.** `ITelemetrySource` has exactly one implementation and `Program.cs`
+constructs the RaceRoom source directly. Much of #109 acknowledges what was already true rather than
+changing it.
+
+**The generalisation is better designed against two simulators than one.** A shared abstraction with
+one implementation is a guess; the second simulator is when it can be drawn against something real.
+
+### What makes it affordable in practice
+
+The hundred and seventy-five channels are declared once, in
+`channels/raceroom-telemetry.channels`, and a Roslyn source generator emits the MessagePack DTO, the
+storage entity, its EF configuration, the bulk writer's column list **and the positional order it
+writes them in**, and the read API's channel allowlist.
+
+That last pair is the load-bearing one. A binary `COPY` takes a column list and a stream of
+positional values and checks neither against the other: a mismatch writes camber into ride height and
+reports success. Two hand-kept lists of a hundred and seventy-five entries would be a matter of time.
+One loop over one list makes the mismatch unexpressible.
+
+### What was removed rather than filled
+
+`sessions.weather` and `sessions.setup` are gone. Both were `NULL` on every row ever written and
+always would have been: RaceRoom has no dynamic weather and exports none, and there is no readable
+setup export in any form a connector could persist. They were not channels waiting to be captured —
+they were capabilities the simulator does not offer, and a column that can only ever be null
+documents a feature that does not exist.
 
 ## Migration path
 
@@ -156,5 +229,9 @@ another ingest API, another migration bundle, and now another read API.
   by the translator. Unchanged by the above, which deliberately answers only the single-simulator
   case: `Read.Api` is per-sim by construction and knows nothing of any other. Still leaning to the
   translator, since it has to produce a canonical dataset anyway.
+- **What the second simulator's sample type shares with RaceRoom's, if anything.** #109 deliberately
+  declined to guess: the manifest and its generator are RaceRoom's, and whether a second simulator
+  gets its own manifest, its own generator, or a shared one with a per-sim manifest is a question to
+  answer when there is a second manifest to look at.
 - Whether the analysis warehouse in 0002 is PostgreSQL or a columnar format. Not urgent; it does not
   change anything here.

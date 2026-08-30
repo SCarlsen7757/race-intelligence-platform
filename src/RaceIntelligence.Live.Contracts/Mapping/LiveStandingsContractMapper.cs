@@ -1,5 +1,5 @@
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Live.Contracts.Publish;
 
 namespace RaceIntelligence.Live.Contracts.Mapping;
@@ -209,7 +209,7 @@ public static class LiveStandingsContractMapper
     /// <param name="sample">The sample to publish.</param>
     /// <param name="simDriverId">
     /// The local driver's simulator identity, carried alongside because a
-    /// <see cref="TelemetrySample"/> does not know whose car it describes — the session does.
+    /// <see cref="RaceRoomTelemetrySample"/> does not know whose car it describes — the session does.
     /// </param>
     /// <remarks>
     /// A deliberate subset of the sample, not all of it. Wheel speed, suspension travel and the
@@ -217,7 +217,7 @@ public static class LiveStandingsContractMapper
     /// a live dashboard, and carrying them would roughly double a frame sent at the full poll rate.
     /// The archive path still stores every one of them.
     /// </remarks>
-    public static LiveSelfFrame ToSelfFrame(TelemetrySample sample, string? simDriverId)
+    public static LiveSelfFrame ToSelfFrame(RaceRoomTelemetrySample sample, string? simDriverId)
     {
         ArgumentNullException.ThrowIfNull(sample);
 
@@ -238,10 +238,10 @@ public static class LiveStandingsContractMapper
             sample.EngineRpm,
             sample.FuelLeft,
             new LiveWheelValues(
-                sample.BrakePressure.FrontLeft,
-                sample.BrakePressure.FrontRight,
-                sample.BrakePressure.RearLeft,
-                sample.BrakePressure.RearRight),
+                sample.BrakePressureFl,
+                sample.BrakePressureFr,
+                sample.BrakePressureRl,
+                sample.BrakePressureRr),
             sample.Clutch,
             sample.AbsSetting,
             sample.AbsActive,
@@ -254,12 +254,12 @@ public static class LiveStandingsContractMapper
     /// Builds the stint frame — the tyre channels, at their own slower rate.
     /// </summary>
     /// <remarks>
-    /// Takes the same <see cref="TelemetrySample"/> the self frame does, and the publisher decides
+    /// Takes the same <see cref="RaceRoomTelemetrySample"/> the self frame does, and the publisher decides
     /// how often to call it. Nothing about the sample says which of its channels are fast and which
     /// are slow; that judgement lives in the two mapping functions and in the interval the outbox
     /// applies, which is the only place it can be changed once rather than in every consumer.
     /// </remarks>
-    public static LiveStintFrame ToStintFrame(TelemetrySample sample, string? simDriverId)
+    public static LiveStintFrame ToStintFrame(RaceRoomTelemetrySample sample, string? simDriverId)
     {
         ArgumentNullException.ThrowIfNull(sample);
 
@@ -268,39 +268,20 @@ public static class LiveStandingsContractMapper
             simDriverId,
             sample.Timestamp,
             new LiveWheelValues(
-                sample.TyrePressure.FrontLeft,
-                sample.TyrePressure.FrontRight,
-                sample.TyrePressure.RearLeft,
-                sample.TyrePressure.RearRight),
+                sample.TyrePressureFl,
+                sample.TyrePressureFr,
+                sample.TyrePressureRl,
+                sample.TyrePressureRr),
             new LiveWheelValues(
-                sample.TyreWear.FrontLeft,
-                sample.TyreWear.FrontRight,
-                sample.TyreWear.RearLeft,
-                sample.TyreWear.RearRight),
+                sample.TyreWearFl,
+                sample.TyreWearFr,
+                sample.TyreWearRl,
+                sample.TyreWearRr),
             new LiveTyreTemperatures(
-                ToTreadTemperatures(sample.TyreTemperature.FrontLeft),
-                ToTreadTemperatures(sample.TyreTemperature.FrontRight),
-                ToTreadTemperatures(sample.TyreTemperature.RearLeft),
-                ToTreadTemperatures(sample.TyreTemperature.RearRight)));
+                new LiveTreadTemperatures(sample.TyreTempFlInner, sample.TyreTempFlMiddle, sample.TyreTempFlOuter),
+                new LiveTreadTemperatures(sample.TyreTempFrInner, sample.TyreTempFrMiddle, sample.TyreTempFrOuter),
+                new LiveTreadTemperatures(sample.TyreTempRlInner, sample.TyreTempRlMiddle, sample.TyreTempRlOuter),
+                new LiveTreadTemperatures(sample.TyreTempRrInner, sample.TyreTempRrMiddle, sample.TyreTempRrOuter)));
     }
 
-    /// <summary>
-    /// Carries one tyre's readings onto the wire whole.
-    /// </summary>
-    /// <remarks>
-    /// This used to select <c>Middle</c> and drop the other five, on the reasoning that
-    /// inner/middle/outer is a setup signal read across a stint rather than something watched in
-    /// real time. The reasoning was sound about the tread and wrong about the consequence: the
-    /// archive kept all six, so the analysis the argument pointed at was possible — but only after
-    /// the session, and only for the person holding the database. A race engineer watching a stint
-    /// could not see the shoulder running away, and could not see the window the simulator was
-    /// perfectly willing to name. Five floats per tyre is a cheap price for both.
-    /// </remarks>
-    private static LiveTreadTemperatures ToTreadTemperatures(TyreTemperature temperature) => new(
-        temperature.Inner,
-        temperature.Middle,
-        temperature.Outer,
-        temperature.Optimal,
-        temperature.Cold,
-        temperature.Hot);
 }

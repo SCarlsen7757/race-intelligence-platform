@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 using RaceIntelligence.Collector.Abstractions;
 using RaceIntelligence.Collector.Plugins.Ingest.Buffering;
 using RaceIntelligence.Collector.Plugins.Ingest.Upload;
-using RaceIntelligence.Core.Buffering;
+using RaceIntelligence.Collector.Abstractions.Buffering;
 
 namespace RaceIntelligence.Collector.Plugins.Ingest;
 
@@ -42,6 +42,7 @@ public sealed class IngestPlugin : ITelemetryPlugin
         // Lets the end-of-session drain see how many samples are sitting in the uploader's
         // not-yet-flushed batch — samples that have left the buffer but are not uploaded yet.
         builder.Services.AddSingleton<OpenBatchTracker>();
+        builder.Services.AddSingleton<LatestOperatingWindows>();
 
         builder.Services.AddSingleton<ITelemetryBuffer>(sp =>
         {
@@ -65,6 +66,7 @@ public sealed class IngestPlugin : ITelemetryPlugin
         builder.Services.AddSingleton<IngestObserver>();
         builder.Services.AddSingleton<ISessionObserver>(sp => sp.GetRequiredService<IngestObserver>());
         builder.Services.AddSingleton<ISampleObserver>(sp => sp.GetRequiredService<IngestObserver>());
+        builder.Services.AddSingleton<ISlowChannelObserver>(sp => sp.GetRequiredService<IngestObserver>());
 
         // Both are registered before the collect loop, and the host stops hosted services in reverse
         // registration order — so on shutdown the loop stops first and these keep running to drain

@@ -11,7 +11,7 @@ namespace RaceIntelligence.Collector.Abstractions;
 /// These are the only events rare enough to be awaited. A session begins and ends once, and a lap
 /// arrives at most every minute or so, so a plugin may do real work — an HTTP call — inline. The
 /// high-rate channels (<see cref="ISampleObserver"/>, <see cref="IStandingsObserver"/>,
-/// <see cref="IExtrasObserver"/>) are synchronous and must never block, precisely because they are
+/// <see cref="ISlowChannelObserver"/>) are synchronous and must never block, precisely because they are
 /// not rare.
 /// </para>
 /// <para>

@@ -1,0 +1,173 @@
+# RaceRoom telemetry channels — the single declaration of what one sample is.
+#
+# Everything downstream is generated from this file: the MessagePack DTO on the ingest wire, the
+# storage entity, its EF Core configuration, the bulk writer's column list AND the positional order
+# it writes them in, and the read API's channel allowlist. That last pair is the reason this file
+# exists. A binary COPY whose column list and write order disagree does not throw — it writes every
+# value into the wrong column and reports success. Generating both from one loop over one list makes
+# that mismatch unexpressible rather than merely tested for.
+#
+# Format, whitespace-separated:
+#
+#   group <name>                                    everything after this line belongs to <group>
+#   one    <name> <column> <clrType> <storeType>    a single channel
+#   wheels <name> <column> <clrType> <storeType>    expands to four: Fl, Fr, Rl, Rr
+#   tread  <name> <column> <clrType> <storeType>    expands to twelve: corner x inner/middle/outer
+#
+# A clrType ending in ? is a nullable column; anything else is NOT NULL. The group is what the read
+# API's ?channels= allowlist offers as a coarse selector, and what a widget asks for.
+#
+# Order is the contract. Position in this file decides the MessagePack key, the column order in the
+# table, and the COPY write order — all three derived, none hand-numbered. Reordering is free while
+# the project is pre-v1 (see CLAUDE.md); renumbering by hand is what this replaces.
+#
+# Sentinels are not expressed here. -1 becomes NULL in the connector, which is the only place that
+# knows what RaceRoom means by a negative (ADR 0002 section 3), and a handful of channels break that
+# rule for reasons only a human can state — see R3ETelemetryMapper.
+
+group key
+one    sessionId                     session_id                        Guid            uuid
+one    timestamp                     timestamp                         DateTimeOffset  timestamp with time zone
+one    sequenceNumber                sequence_number                   long            bigint
+one    simulationTime                simulation_time                   double          double precision
+
+group canonical
+one    lapNumber                     lap_number                        int             integer
+one    sector                        sector                            int             integer
+one    speed                         speed                             float           real
+one    throttle                      throttle                          float?          real
+one    brake                         brake                             float?          real
+one    clutch                        clutch                            float?          real
+one    steering                      steering                          float           real
+one    gear                          gear                              short?          smallint
+one    engineRpm                     engine_rpm                        float           real
+one    fuelLeft                      fuel_left                         float           real
+one    position                      position                          short?          smallint
+one    trackPositionFraction         track_position_fraction           float?          real
+
+group tyres
+wheels tyreGrip                      tyre_grip                         float?          real
+wheels tyreLoadNewtons               tyre_load_newtons                 float?          real
+wheels tyreDirt                      tyre_dirt                         float?          real
+wheels tyreFlatspot                  tyre_flatspot                     short?          smallint
+wheels tyreSurfaceMaterial           tyre_surface_material             short?          smallint
+wheels tyreRotationRadiansPerSecond  tyre_rotation_radians_per_second  float?          real
+wheels wheelSpeed                    wheel_speed                       float?          real
+wheels tyrePressure                  tyre_pressure                     float?          real
+wheels tyreWear                      tyre_wear                         float?          real
+tread  tyreTemp                      tyre_temp                         float?          real
+one    tyreTypeFront                 tyre_type_front                   int?            integer
+one    tyreTypeRear                  tyre_type_rear                    int?            integer
+one    tyreSubtypeFront              tyre_subtype_front                int?            integer
+one    tyreSubtypeRear               tyre_subtype_rear                 int?            integer
+
+group brakes
+wheels brakeTemp                     brake_temp                        float?          real
+wheels brakePressure                 brake_pressure                    float?          real
+one    brakeBias                     brake_bias                        float?          real
+
+group suspension
+wheels suspensionTravel              suspension_travel                 float?          real
+wheels suspensionVelocity            suspension_velocity               float?          real
+wheels rideHeight                    ride_height                       float?          real
+wheels camber                        camber                            float?          real
+one    thirdSpringTravelFront        third_spring_travel_front         float?          real
+one    thirdSpringTravelRear         third_spring_travel_rear          float?          real
+one    thirdSpringVelocityFront      third_spring_velocity_front       float?          real
+one    thirdSpringVelocityRear       third_spring_velocity_rear        float?          real
+one    frontRollAngle                front_roll_angle                  float?          real
+one    rearRollAngle                 rear_roll_angle                   float?          real
+one    frontWingHeight               front_wing_height                 float?          real
+
+group dynamics
+one    worldPositionX                world_position_x                  double?         double precision
+one    worldPositionY                world_position_y                  double?         double precision
+one    worldPositionZ                world_position_z                  double?         double precision
+one    localVelocityLongitudinal     local_velocity_longitudinal       float?          real
+one    localVelocityLateral          local_velocity_lateral            float?          real
+one    localVelocityVertical         local_velocity_vertical           float?          real
+one    accelerationLongitudinal      acceleration_longitudinal         float?          real
+one    accelerationLateral           acceleration_lateral              float?          real
+one    accelerationVertical          acceleration_vertical             float?          real
+one    gforceLongitudinal            gforce_longitudinal               float?          real
+one    gforceLateral                 gforce_lateral                    float?          real
+one    gforceVertical                gforce_vertical                   float?          real
+one    orientationPitch              orientation_pitch                 float?          real
+one    orientationYaw                orientation_yaw                   float?          real
+one    orientationRoll               orientation_roll                  float?          real
+one    angularAccelerationPitch      angular_acceleration_pitch        float?          real
+one    angularAccelerationYaw        angular_acceleration_yaw          float?          real
+one    angularAccelerationRoll       angular_acceleration_roll         float?          real
+one    pitchRate                     pitch_rate                        float?          real
+one    yawRate                       yaw_rate                          float?          real
+one    rollRate                      roll_rate                         float?          real
+one    downforceNewtons              downforce_newtons                 float?          real
+one    engineTorqueNewtonMetres      engine_torque_newton_metres       float?          real
+one    steeringForce                 steering_force                    float?          real
+one    steeringForcePercent          steering_force_percent            float?          real
+
+group engine
+one    engineTempCelsius             engine_temp_celsius               float?          real
+one    engineOilTempCelsius          engine_oil_temp_celsius           float?          real
+one    engineOilPressureKpa          engine_oil_pressure_kpa           float?          real
+one    fuelPressureKpa               fuel_pressure_kpa                 float?          real
+one    turboPressureBar              turbo_pressure_bar                float?          real
+one    engineMapSetting              engine_map_setting                int?            integer
+one    engineBrakeSetting            engine_brake_setting              int?            integer
+one    batteryStateOfChargePercent   battery_state_of_charge_percent   float?          real
+one    virtualEnergyLeftMj           virtual_energy_left_mj            float?          real
+one    virtualEnergyCapacityMj       virtual_energy_capacity_mj        float?          real
+one    virtualEnergyPerLapMj         virtual_energy_per_lap_mj         float?          real
+
+group aids
+one    absSetting                    abs_setting                       int?            integer
+one    absActive                     abs_active                        bool?           boolean
+one    tractionControlSetting        traction_control_setting          int?            integer
+one    tractionControlActive         traction_control_active           bool?           boolean
+one    tractionControlPercent        traction_control_percent          float?          real
+one    controlType                   control_type                      short?          smallint
+
+group pushToPass
+one    pushToPassAvailable           push_to_pass_available            int?            integer
+one    pushToPassEngaged             push_to_pass_engaged              int?            integer
+one    pushToPassAmountLeft          push_to_pass_amount_left          int?            integer
+one    pushToPassEngagedTimeLeftSeconds  push_to_pass_engaged_time_left_seconds  float?  real
+one    pushToPassWaitTimeLeftSeconds     push_to_pass_wait_time_left_seconds     float?  real
+
+group drs
+one    drsEquipped                   drs_equipped                      short?          smallint
+one    drsAvailable                  drs_available                     short?          smallint
+one    drsEngaged                    drs_engaged                       short?          smallint
+one    drsActivationsLeft            drs_activations_left              int?            integer
+one    drsActivationsUnlimited       drs_activations_unlimited         bool?           boolean
+one    drsActivationsTotal           drs_activations_total             int?            integer
+
+group pit
+one    pitWindowStatus               pit_window_status                 short?          smallint
+one    pitWindowStart                pit_window_start                  int?            integer
+one    pitWindowEnd                  pit_window_end                    int?            integer
+one    pitState                      pit_state                         short?          smallint
+one    pitAction                     pit_action                        int?            integer
+one    pitStopsPerformed             pit_stops_performed               int?            integer
+one    pitTotalDurationSeconds       pit_total_duration_seconds        float?          real
+one    pitElapsedTimeSeconds         pit_elapsed_time_seconds          float?          real
+
+group flags
+one    flagYellow                    flag_yellow                       short?          smallint
+one    flagBlue                      flag_blue                         short?          smallint
+one    flagBlack                     flag_black                        short?          smallint
+one    flagGreen                     flag_green                        short?          smallint
+one    flagCheckered                 flag_checkered                    short?          smallint
+one    flagWhite                     flag_white                        short?          smallint
+one    flagBlackAndWhite             flag_black_and_white              short?          smallint
+
+group damage
+one    damageEngine                  damage_engine                     float?          real
+one    damageTransmission            damage_transmission               float?          real
+one    damageAerodynamics            damage_aerodynamics               float?          real
+one    damageSuspension              damage_suspension                 float?          real
+
+group penalties
+one    incidentPoints                incident_points                   int?            integer
+one    maxIncidentPoints             max_incident_points               int?            integer
+one    cutTrackWarnings              cut_track_warnings                int?            integer

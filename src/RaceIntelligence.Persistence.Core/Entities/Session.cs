@@ -110,11 +110,11 @@ public sealed class Session
     /// </summary>
     public int SchemaVersion { get; set; }
 
-    /// <summary>Weather conditions for this session, if captured. Simulator-specific shape, stored as jsonb.</summary>
-    public JsonElement? Weather { get; set; }
-
-    /// <summary>Car setup used for this session, if captured. Simulator-specific shape, stored as jsonb.</summary>
-    public JsonElement? Setup { get; set; }
+    // Weather and setup used to be jsonb columns here. They were NULL on every row of every
+    // session ever recorded, and always would be: RaceRoom has no dynamic weather and exports none,
+    // and it has no readable setup export in any form a connector could persist. They were not
+    // channels waiting to be captured — they were capabilities the simulator does not offer, and a
+    // column that can only ever be null documents a feature that does not exist (#109).
 
     /// <summary>Simulator-specific session metadata with no canonical equivalent, stored as jsonb.</summary>
     public JsonElement Extras { get; set; }
@@ -128,6 +128,6 @@ public sealed class Session
     /// <summary>Per-lap summary statistics recorded for this session.</summary>
     public ICollection<Lap> Laps { get; set; } = new List<Lap>();
 
-    /// <summary>Raw telemetry samples recorded for this session.</summary>
-    public ICollection<TelemetrySample> TelemetrySamples { get; set; } = new List<TelemetrySample>();
+    // No telemetry navigation. The sample is RaceRoom's type in RaceRoom's assembly since #109,
+    // and this one is shared; the foreign key is configured from that side instead.
 }
