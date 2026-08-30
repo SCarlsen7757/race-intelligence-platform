@@ -93,15 +93,36 @@ internal static class R3ETelemetryMapper
     }
 
 
+    /// <summary>Maps one tyre's tread and window temperatures, resolving which edge is inboard.</summary>
     /// <remarks>
+    /// <para>
+    /// <b><paramref name="isLeftSide"/> is what makes this correct, and leaving it out is a silent
+    /// bug rather than a loud one.</b> RaceRoom's array is
+    /// <c>TireTemperature&lt;T&gt; { Left; Center; Right; }</c> — sides of the <i>tyre</i>, not
+    /// positions relative to the car. Index 0 is the left edge of that tyre whichever corner it is
+    /// fitted to, so <c>Left == Inner</c> holds only on the right-hand side of the car. On a
+    /// left-side tyre the left edge is the <i>outer</i> edge.
+    /// </para>
+    /// <para>
+    /// Mapping all four the same way put the front-left's shoulders the wrong way round, which is
+    /// exactly the reading the tread heatmap exists for: a tyre hot on its inner shoulder and cold
+    /// on its outer is a camber and pressure story, and told backwards it argues for taking off the
+    /// camber that should be going on. Averaged over a lap the stored data showed both right tyres
+    /// inner-hot and both left tyres outer-hot — a clean split by side, which is a labelling
+    /// inversion rather than anything the car did.
+    /// </para>
+    /// <para>
     /// Tread and window temperatures use the same <c>-1.0 = N/A</c> convention as the rest of the
     /// shared memory block, so they get the same sentinel treatment. Passing -1 through would look
     /// like a plausible sub-zero tread reading and quietly corrupt tyre degradation analysis.
+    /// </para>
     /// </remarks>
-    private static TyreTemperature MapTyreTemperature(R3ETireTemp t) =>
-        new(Inner: NullIfNegative(t.CurrentTemp[0]),
+    /// <param name="t">The raw per-tyre temperatures, indexed left, centre, right across the tread.</param>
+    /// <param name="isLeftSide">Whether this tyre is on the left of the car, which is what decides which edge is inboard.</param>
+    private static TyreTemperature MapTyreTemperature(R3ETireTemp t, bool isLeftSide) =>
+        new(Inner: NullIfNegative(t.CurrentTemp[isLeftSide ? 2 : 0]),
             Middle: NullIfNegative(t.CurrentTemp[1]),
-            Outer: NullIfNegative(t.CurrentTemp[2]),
+            Outer: NullIfNegative(t.CurrentTemp[isLeftSide ? 0 : 2]),
             Optimal: NullIfNegative(t.OptimalTemp),
             Cold: NullIfNegative(t.ColdTemp),
             Hot: NullIfNegative(t.HotTemp));
@@ -121,11 +142,12 @@ internal static class R3ETelemetryMapper
             (float)raw.Player.SuspensionDeflection[2],
             (float)raw.Player.SuspensionDeflection[3]);
 
+        // FL, FR, RL, RR — the platform's order everywhere, so the left-hand tyres are 0 and 2.
         var tyreTemperature = new WheelData<TyreTemperature>(
-            MapTyreTemperature(raw.TireTemp[0]),
-            MapTyreTemperature(raw.TireTemp[1]),
-            MapTyreTemperature(raw.TireTemp[2]),
-            MapTyreTemperature(raw.TireTemp[3]));
+            MapTyreTemperature(raw.TireTemp[0], isLeftSide: true),
+            MapTyreTemperature(raw.TireTemp[1], isLeftSide: false),
+            MapTyreTemperature(raw.TireTemp[2], isLeftSide: true),
+            MapTyreTemperature(raw.TireTemp[3], isLeftSide: false));
 
         var tyrePressure = new WheelData<float?>(
             NullIfNegative(raw.TirePressure[0]),
