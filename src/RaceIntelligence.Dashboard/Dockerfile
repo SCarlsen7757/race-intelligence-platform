@@ -2,10 +2,10 @@
 #
 # Build from the REPOSITORY ROOT, not from this directory:
 #   docker build -f src/RaceIntelligence.Dashboard/Dockerfile \
-#       --build-arg HUB_URL=https://race-api.example.com .
+#       --build-arg HUB_URL=https://race-api.example.com #       --build-arg READ_URL=https://race-read.example.com .
 #
 # ---------------------------------------------------------------------------------------------
-# HUB_URL IS A BUILD ARGUMENT, NOT A RUNTIME VARIABLE. Setting it in compose's `environment:`
+# HUB_URL AND READ_URL ARE BUILD ARGUMENTS, NOT RUNTIME VARIABLES. Setting either in compose's `environment:`
 # does nothing.
 #
 # vite.config.ts resolves it at config time and `define`s it into the client bundle, because the
@@ -36,8 +36,17 @@ COPY src/RaceIntelligence.Dashboard/ ./
 
 ARG HUB_URL
 ENV HUB_URL=${HUB_URL}
+
+# The read API's origin, and it has to be declared here for the same reason HUB_URL does: Vite reads
+# it at config time and bakes it into the client bundle, so a value that only reaches compose is a
+# value the build never sees. Leaving it out does not fail — the bundle quietly falls back to
+# localhost:5049 and the history view breaks only in a browser, which is the most expensive place to
+# find out.
+ARG READ_URL
+ENV READ_URL=${READ_URL}
+
 # `npm run build` runs `tsc --noEmit` first, so a type error fails the image build rather than
-# shipping. Vite bakes HUB_URL in here.
+# shipping. Vite bakes HUB_URL and READ_URL in here.
 RUN npm run build
 
 FROM node:24-slim AS app
