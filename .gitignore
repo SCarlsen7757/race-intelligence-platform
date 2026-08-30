@@ -38,6 +38,10 @@ TestResults/
 .env
 *.env
 .env.*
+# The one exception, and it holds no secrets: it is the template of which variables a deployment
+# has to set, and `docs/deployment.md` opens by telling you to copy it. Ignored by `.env.*` above
+# without this line, which would leave a fresh clone with nothing to copy.
+!.env.example
 appsettings.Local.json
 appsettings.*.Local.json
 secrets.json

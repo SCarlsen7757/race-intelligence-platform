@@ -459,7 +459,16 @@ So a deployed dashboard is repointed by rebuilding, not by restarting. See
 
 `dist/` and `node_modules/` are generated and gitignored. **`dotnet publish` no longer builds the
 dashboard** — it is deployed as a Node service of its own, so `npm ci && npm run build && npm start`
-on the host that serves it, or a container built from the same three commands.
+on the host that serves it, or a container built from the same three commands
+(`src/RaceIntelligence.Dashboard/Dockerfile`; see `docs/deployment.md`).
+
+`npm start` runs **`server.mjs`**, not the build output directly. `vite build` emits
+`dist/server/server.js`, but that file is not a server — it exports a `fetch` handler and nothing
+else, so running it starts no listener and Node exits 0 immediately, which looks like success.
+`server.mjs` is the entry that hosts it: it serves the handler with `srvx` and serves the hashed
+bundles in `dist/client/` in front of it, since the SSR handler renders references to those files
+but does not serve them. It reads `PORT` and `HOST` at run time — unlike `HUB_URL`, which is a
+build-time value and cannot be changed by restarting.
 
 `app/routeTree.gen.ts` is generated from `app/routes/` by the Vite plugin and **is** tracked, so
 `npm run typecheck` works without building first. Adding or renaming a route means committing the

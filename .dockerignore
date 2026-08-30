@@ -1,0 +1,52 @@
+# Build context exclusions.
+#
+# Without this file the context ships node_modules/ and every bin/ and obj/ in the repo — hundreds
+# of megabytes, sent to the daemon on every build. Worse than slow: a host-built obj/ carries
+# absolute Windows paths and NuGet asset files that make a Linux restore inside the image fail in
+# ways that read as unrelated compile errors.
+
+.git/
+.gitignore
+.github/
+.vs/
+.vscode/
+.idea/
+.claude/
+.aspire/
+
+# .NET build output — regenerated inside the image.
+**/bin/
+**/obj/
+artifacts/
+TestResults/
+**/*.trx
+
+# Dashboard — node_modules is reinstalled from package-lock.json by `npm ci`, and dist/ is rebuilt.
+**/node_modules/
+src/RaceIntelligence.Dashboard/dist/
+src/RaceIntelligence.Dashboard/.tanstack/
+src/RaceIntelligence.Dashboard/.nitro/
+**/.vite/
+
+# Derived entirely from the sources it indexes, and megabytes of it.
+graphify-out/
+
+# Secrets must reach a container through the environment, never baked into an image layer.
+.env
+*.env
+.env.*
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+**/secrets.json
+
+# Nothing in the test tree is needed to build a runtime image.
+tests/
+
+# Local-only inner loop: the Aspire graph is explicitly not the deployed topology.
+src/RaceIntelligence.AppHost/
+
+# Docs, plans and large capture fixtures.
+docs/
+*.md
+!README.md
+**/*.telemetry.bin

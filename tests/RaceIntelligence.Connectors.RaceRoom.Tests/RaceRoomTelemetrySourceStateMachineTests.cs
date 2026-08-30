@@ -789,4 +789,41 @@ public class RaceRoomTelemetrySourceStateMachineTests
         reconnected.State.ShouldBe(ConnectionState.Connected);
         viewsOpened.ShouldBe(2, "a stale-frame disconnect must be followed by a genuine reconnect attempt.");
     }
+
+    /// <summary>
+    /// An unrecognised failure to open the block must not end the run. Faulted is reached from
+    /// TryConnect's catch-all, which means "we do not know what this was" rather than "this cannot
+    /// get better", and the errors that land there in practice — a transient permissions or mapping
+    /// error while the game is starting — clear on their own. When Faulted was terminal the loop
+    /// spun at the full poll rate producing nothing, so a fault a retry would have cleared instead
+    /// cost the whole session and needed the collector restarted by hand.
+    /// </summary>
+    [Fact]
+    public async Task UnexpectedOpenFailure_FaultsButKeepsRetrying()
+    {
+        var view = new FakeSharedMemoryView(new R3ESharedRawBuilder().InMenus().Build().ToBytes());
+        int viewsOpened = 0;
+
+        // Fails once with an exception TryConnect does not recognise, then behaves.
+        await using var source = new RaceRoomTelemetrySource(FastOptions, () =>
+        {
+            viewsOpened++;
+            return viewsOpened == 1
+                ? throw new InvalidOperationException("something nobody anticipated")
+                : view;
+        });
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var enumerator = source.ReadAllAsync(cts.Token).GetAsyncEnumerator();
+
+        var faulted = await NextAsync<ConnectionStateChanged>(enumerator);
+        faulted.State.ShouldBe(ConnectionState.Faulted);
+        faulted.Reason.ShouldNotBeNull().ShouldContain("something nobody anticipated");
+
+        // The point of the test: the next tick retries instead of sitting dead forever.
+        var connected = await NextAsync<ConnectionStateChanged>(enumerator);
+        connected.State.ShouldBe(ConnectionState.Connected);
+        viewsOpened.ShouldBe(2, "a faulted source must attempt to reopen the shared memory block.");
+    }
 }

@@ -37,7 +37,14 @@ public enum ConnectionState
     /// </remarks>
     SessionSuspended,
 
-    /// <summary>The source encountered an unrecoverable error and stopped producing events.</summary>
+    /// <summary>The source encountered an error it did not anticipate and is not currently connected.</summary>
+    /// <remarks>
+    /// Distinct from <see cref="WaitingForSimulator"/>, which names a diagnosed cause ("the game is
+    /// not running"); this one means the source does not know what went wrong. It is <b>not</b>
+    /// terminal — a source is expected to keep retrying, because an unrecognised error is not the
+    /// same as a permanent one, and the alternative is losing a session to a fault that would have
+    /// cleared on the next attempt.
+    /// </remarks>
     Faulted,
 }
 
