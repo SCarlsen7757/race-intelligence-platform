@@ -98,6 +98,7 @@ jobs:
             tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj
             tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj
             tests/RaceIntelligence.Persistence.RaceRoom.Tests/RaceIntelligence.Persistence.RaceRoom.Tests.csproj
+            tests/RaceIntelligence.Read.Api.Tests/RaceIntelligence.Read.Api.Tests.csproj
             tests/RaceIntelligence.Web.Tests/RaceIntelligence.Web.Tests.csproj
           )
 
