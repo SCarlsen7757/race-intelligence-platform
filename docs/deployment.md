@@ -101,11 +101,17 @@ to cover idle timeouts.
 
 ```bash
 git pull
-docker compose -f compose.test.yml up --build -d
+docker compose -f compose.test.yml build --pull
+docker compose -f compose.test.yml up -d
 ```
 
 Rebuilding runs the migration container again; it is a no-op when there is nothing to apply. If a
 change moved the hub's public hostname, rebuild the dashboard image explicitly.
+
+**`--pull` matters.** `global.json` names an exact SDK, and the Dockerfiles build on the floating
+`mcr.microsoft.com/dotnet/sdk:10.0` tag. A base image cached before that tag moved forward will fail
+the restore with `Requested SDK version: 10.0.400 ... Installed SDKs: 10.0.302` — which reads as a
+repository problem and is a stale layer.
 
 ---
 
