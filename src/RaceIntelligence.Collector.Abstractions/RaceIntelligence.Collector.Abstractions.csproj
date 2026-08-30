@@ -6,5 +6,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
+    <!-- The telemetry seams below the collector are RaceRoom's now (issue #109 / ADR 0001 as
+         amended): one sample type, typed end to end, rather than a canonical model plus a JSON
+         escape hatch. RaceIntelligence.Core keeps what stays shared — sessions, laps, capabilities,
+         the analysis abstractions — and gains no reference to this. -->
+    <ProjectReference Include="..\RaceIntelligence.RaceRoom.Telemetry\RaceIntelligence.RaceRoom.Telemetry.csproj" />
   </ItemGroup>
 </Project>

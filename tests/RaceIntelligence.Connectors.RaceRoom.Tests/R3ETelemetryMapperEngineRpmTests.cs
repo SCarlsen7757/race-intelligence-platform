@@ -4,7 +4,7 @@ namespace RaceIntelligence.Connectors.RaceRoom.Tests;
 
 /// <summary>
 /// Verifies <see cref="R3ETelemetryMapper.RadiansPerSecondToRpm"/>, the rad/s -&gt; RPM conversion
-/// applied to RaceRoom's <c>engine_rps</c> field before it reaches <see cref="RaceIntelligence.Core.Telemetry.TelemetrySample.EngineRpm"/>.
+/// applied to RaceRoom's <c>engine_rps</c> field before it reaches <see cref="RaceIntelligence.Collector.Abstractions.Telemetry.TelemetrySample.EngineRpm"/>.
 /// </summary>
 public class R3ETelemetryMapperEngineRpmTests
 {

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    RaceRoom's telemetry sample, and nothing else. It sits in its own assembly because everything
+    from the connector to the bulk writer needs it and none of them should have to reference each
+    other to get it: the collector, the ingest wire, the live wire and storage all speak this type.
+
+    Per ADR 0001 as amended by #109 the sample is per-simulator, so this is deliberately not in
+    RaceIntelligence.Core. Core keeps what is genuinely shared — sessions, laps, capabilities,
+    buffering, the analysis abstractions — and a second simulator brings its own sample assembly
+    rather than bending this one.
+  -->
+  <ItemGroup>
+    <PackageReference Include="MessagePack" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RaceIntelligence.RaceRoom.Channels.Generator\RaceIntelligence.RaceRoom.Channels.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <AdditionalFiles Include="..\..\channels\raceroom-telemetry.channels" />
+  </ItemGroup>
+
+</Project>

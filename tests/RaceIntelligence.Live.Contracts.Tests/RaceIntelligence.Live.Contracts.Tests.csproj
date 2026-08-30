@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\RaceIntelligence.Live.Contracts\RaceIntelligence.Live.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\RaceIntelligence.Collector.Abstractions\RaceIntelligence.Collector.Abstractions.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Collector.TestSupport\RaceIntelligence.Collector.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

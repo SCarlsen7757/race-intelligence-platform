@@ -194,7 +194,7 @@ public sealed class LiveRoom
     /// the car it is driving, since there is no tower row to attach the document to and guessing one
     /// would show a race engineer another driver's damage.
     /// </returns>
-    public ExtrasFrameMessage? ApplyExtras(Guid clientId, LiveExtrasFrame frame, DateTimeOffset nowUtc)
+    public SlowFrameMessage? ApplySlowChannels(Guid clientId, LiveSlowFrame frame, DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(frame);
 
@@ -208,14 +208,14 @@ public sealed class LiveRoom
             // Kept per publisher, so a viewer that focuses a driver mid-session is answered from
             // what the hub already holds rather than waiting out an extras interval — a second of a
             // blank damage panel that would read as "no damage".
-            state.Extras = frame;
+            state.SlowFrame = frame;
             _lastUpdatedAtUtc = nowUtc;
 
             string? driverKey = LocalDriverKeyFor(state, frame.SimDriverId);
 
             return driverKey is null
                 ? null
-                : new ExtrasFrameMessage(RoomId, driverKey, frame.CapturedAtUtc, frame.ExtrasJson);
+                : new SlowFrameMessage(RoomId, driverKey, frame.CapturedAtUtc, frame.Sample, frame.OperatingWindows);
         }
     }
 
@@ -280,7 +280,7 @@ public sealed class LiveRoom
     /// <summary>
     /// The most recent extras document for a driver, for a viewer that has just focused them.
     /// </summary>
-    public ExtrasFrameMessage? LatestExtrasFor(string driverKey)
+    public SlowFrameMessage? LatestSlowFrameFor(string driverKey)
     {
         ArgumentNullException.ThrowIfNull(driverKey);
 
@@ -288,7 +288,7 @@ public sealed class LiveRoom
         {
             foreach (var state in _publishers.Values)
             {
-                if (state.Extras is not { } frame)
+                if (state.SlowFrame is not { } frame)
                 {
                     continue;
                 }
@@ -297,7 +297,7 @@ public sealed class LiveRoom
 
                 if (string.Equals(key, driverKey, StringComparison.Ordinal))
                 {
-                    return new ExtrasFrameMessage(RoomId, driverKey, frame.CapturedAtUtc, frame.ExtrasJson);
+                    return new SlowFrameMessage(RoomId, driverKey, frame.CapturedAtUtc, frame.Sample, frame.OperatingWindows);
                 }
             }
 
@@ -715,10 +715,7 @@ public sealed class LiveRoom
     private static TreadTemperatures ToTread(LiveTreadTemperatures tread) => new(
         tread.Inner,
         tread.Middle,
-        tread.Outer,
-        tread.Optimal,
-        tread.Cold,
-        tread.Hot);
+        tread.Outer);
 }
 
 /// <summary>
@@ -799,7 +796,7 @@ internal sealed class LivePublisherState(LivePublisherIdentity identity)
     /// what the hub holds instead of waiting out an extras interval. At roughly 1 Hz that wait is a
     /// second of an empty damage panel, which reads as "no damage" rather than "not known yet".
     /// </remarks>
-    public LiveExtrasFrame? Extras { get; set; }
+    public LiveSlowFrame? SlowFrame { get; set; }
 
     /// <summary>The last tyre readings this publisher sent, for a viewer that focuses mid-stint.</summary>
     public LiveStintFrame? Stint { get; set; }

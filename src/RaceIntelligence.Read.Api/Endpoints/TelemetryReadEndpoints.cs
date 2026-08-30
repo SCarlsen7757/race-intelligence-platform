@@ -1,4 +1,5 @@
-using RaceIntelligence.Persistence.Core.Repositories;
+using RaceIntelligence.Persistence.RaceRoom.Repositories;
+using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Read.Api.Contracts;
 using RaceIntelligence.Read.Api.Mapping;
 
@@ -35,6 +36,11 @@ public static class TelemetryReadEndpoints
     /// </remarks>
     public const int MaxSamplesPerLap = 36_000;
 
+    // The default response is the fifteen canonical fields, and stays that way. A sample is a
+    // hundred and seventy-five columns; returning all of them would be about 650 bytes times several
+    // thousand samples, for a chart that plots three. Anything beyond the default is asked for by
+    // name — see TryResolveChannels.
+
     /// <summary>Maps the telemetry read endpoints. Returns the builder so a host can chain.</summary>
     public static IEndpointRouteBuilder MapTelemetryReadEndpoints(this IEndpointRouteBuilder app)
     {
@@ -46,18 +52,90 @@ public static class TelemetryReadEndpoints
         return app;
     }
 
+    /// <summary>
+    /// Resolves a <c>?channels=</c> list against the manifest.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An allowlist, and the only one there can be.</b> The names come from
+    /// <c>channels/raceroom-telemetry.channels</c>, which is also what generated the columns, so a
+    /// name that resolves here is a column that exists and a name that does not is refused before it
+    /// reaches any SQL.
+    /// </para>
+    /// <para>
+    /// A group name resolves to every channel in it, because that is how a widget asks: a tyre chart
+    /// wants "tyres", not a list of forty names it would have to keep in step with the manifest.
+    /// </para>
+    /// </remarks>
+    private static bool TryResolveChannels(
+        string? requested,
+        out List<RaceRoomChannels.Channel> channels,
+        out string? unknown)
+    {
+        channels = [];
+        unknown = null;
+
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            return true;
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var name in requested.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (RaceRoomChannels.ByName.TryGetValue(name, out var channel))
+            {
+                if (seen.Add(channel.Name))
+                {
+                    channels.Add(channel);
+                }
+
+                continue;
+            }
+
+            if (RaceRoomChannels.ByGroup.TryGetValue(name, out var group))
+            {
+                foreach (var member in group)
+                {
+                    if (seen.Add(member))
+                    {
+                        channels.Add(RaceRoomChannels.ByName[member]);
+                    }
+                }
+
+                continue;
+            }
+
+            unknown = name;
+            return false;
+        }
+
+        return true;
+    }
+
     private static async Task<IResult> GetLapTelemetryAsync(
         Guid id,
         SessionReadRepository sessions,
         TelemetryReadRepository telemetry,
         CancellationToken ct,
-        int? lap = null)
+        int? lap = null,
+        string? channels = null)
     {
         // Required, not defaulted to lap 1. Defaulting would turn "I forgot the parameter" into a
         // plausible-looking chart of the out-lap, which is the wrong answer delivered convincingly.
         if (lap is not { } lapNumber)
         {
             return ProblemResults.InvalidQuery("lap", "is required; telemetry is read one lap at a time.");
+        }
+
+        // Refused by name, before any query runs. A misspelling that silently returned fewer
+        // channels would draw a chart with a line missing and say nothing about why.
+        if (!TryResolveChannels(channels, out var requested, out var unknown))
+        {
+            return ProblemResults.InvalidQuery(
+                "channels",
+                $"names '{unknown}', which is neither a channel nor a channel group.");
         }
 
         if (!await sessions.ExistsAsync(id, ct).ConfigureAwait(false))
@@ -78,11 +156,15 @@ public static class TelemetryReadEndpoints
         }
 
         var samples = await telemetry.ListForLapAsync(id, lapNumber, ct).ConfigureAwait(false);
+        var extra = await telemetry
+            .ListChannelsForLapAsync(id, lapNumber, requested, ct)
+            .ConfigureAwait(false);
 
         return Results.Ok(new LapTelemetryResponse(
             id,
             lapNumber,
-            [.. samples.Select(s => s.ToResponse())]));
+            [.. samples.Select((sample, index) => sample.ToResponse(
+                extra.Count == samples.Count ? extra[index] : null))]));
     }
 
     private static async Task<IResult> GetSampledLapsAsync(

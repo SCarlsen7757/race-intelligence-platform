@@ -1,5 +1,6 @@
-import { useExtras } from '../../shared/live/useLive';
-import type { ExtrasSnapshot } from '../../shared/live/store';
+import { useSlowFrame } from '../../shared/live/useLive';
+import type { RaceRoomSample } from '../../shared/live/contracts';
+import type { SlowSnapshot } from '../../shared/live/store';
 import type { SimPanelProps } from '../registry';
 
 /**
@@ -12,12 +13,12 @@ import type { SimPanelProps } from '../registry';
 const WARNING_FRACTION = 0.75;
 
 /**
- * Reads the driver's incident count out of the extras document.
+ * Reads the driver's incident count off the sample.
  *
- * **`-1` is "not available", not "no incidents".** Extras cross the wire exactly as the connector
- * wrote them, so nothing upstream has translated the simulator's sentinel, and a panel rendering it
- * would report a number the simulator never gave. Zero is a different thing entirely: it is a real
- * answer, and a clean sheet is worth showing.
+ * **Absent is "not available", not "no incidents".** It used to be `-1`, and the sentinel reached
+ * here untranslated, so a panel that rendered the number reported one the simulator never gave. The
+ * connector translates it now; what remains here is the distinction that survives translation —
+ * zero is a real answer, and a clean sheet is worth showing.
  */
 export function toIncidentCount(value: number | undefined): number | null {
   if (value === undefined || Number.isNaN(value) || value < 0) {
@@ -28,7 +29,7 @@ export function toIncidentCount(value: number | undefined): number | null {
 }
 
 /**
- * Whether an extras frame carries no incident count this panel could honestly show.
+ * Whether a slow frame carries no incident count this panel could honestly show.
  *
  * Answers for `FocusPanel` the same question the component answers for itself when it returns null,
  * and answers it from the same `toIncidentCount` — so the frame around the panel and the panel
@@ -36,16 +37,16 @@ export function toIncidentCount(value: number | undefined): number | null {
  * directly: `FocusPanel` has to know before it renders the heading, and a panel that has already
  * returned null has already cost a section title.
  */
-export function incidentsPanelIsEmpty(extras: ExtrasSnapshot | null): boolean {
-  return toIncidentCount(extras?.document?.incidentPoints) === null;
+export function incidentsPanelIsEmpty(slow: SlowSnapshot | null): boolean {
+  return toIncidentCount(slow?.message.sample.incidentPoints) === null;
 }
 
 /**
  * Reads the server's incident limit, which most sessions do not have.
  *
- * `-1` is the simulator's "not available" — offline, or a server that disqualifies nobody. Zero is
- * rejected as well, and that is the one place this differs from the count: a limit of zero would
- * render as `4 / 0` and divide into a meaningless ratio, so there is nothing it can usefully mean.
+ * Absent means offline, or a server that disqualifies nobody. Zero is rejected as well, and that is
+ * the one place this differs from the count: a limit of zero would render as `4 / 0` and divide into
+ * a meaningless ratio, so there is nothing it can usefully mean.
  */
 export function toIncidentLimit(value: number | undefined): number | null {
   if (value === undefined || Number.isNaN(value) || value <= 0) {
@@ -56,7 +57,7 @@ export function toIncidentLimit(value: number | undefined): number | null {
 }
 
 /**
- * Incident points, from the low-rate extras channel.
+ * Incident points, from the low-rate slow channel.
  *
  * A `Self`-tier readout by necessity: RaceRoom reports incident points at the root of the shared
  * block, for the car the simulator is running and for no other, so this belongs beside fuel, tyre
@@ -70,15 +71,15 @@ export function toIncidentLimit(value: number | undefined): number | null {
  *   and `0` would be the specific lie that the driver has a clean sheet.
  */
 export function IncidentsPanel({ driverKey }: SimPanelProps) {
-  const parsed = useExtras(driverKey)?.document ?? null;
+  const sample: RaceRoomSample | null = useSlowFrame(driverKey)?.message.sample ?? null;
 
-  const points = toIncidentCount(parsed?.incidentPoints);
+  const points = toIncidentCount(sample?.incidentPoints);
 
   if (points === null) {
     return null;
   }
 
-  const limit = toIncidentLimit(parsed?.maxIncidentPoints);
+  const limit = toIncidentLimit(sample?.maxIncidentPoints);
 
   // Only where a limit is actually reported: without one there is nothing to be close to, and any
   // count would be as alarming as any other.

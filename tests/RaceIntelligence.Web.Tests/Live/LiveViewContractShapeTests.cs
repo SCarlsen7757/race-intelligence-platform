@@ -1,3 +1,5 @@
+using RaceIntelligence.RaceRoom.Telemetry;
+using RaceIntelligence.Collector.TestSupport;
 using System.Text.Json;
 using RaceIntelligence.Live.Contracts.View;
 using RaceIntelligence.Web.Live;
@@ -291,10 +293,10 @@ public sealed class LiveViewContractShapeTests
             [180f, 181f, 175f, 176f],
             [0.1f, 0.1f, 0.1f, 0.1f],
             [
-                new TreadTemperatures(84f, 85f, 86f, 90f, 70f, 110f),
-                new TreadTemperatures(85f, 86f, 87f, 90f, 70f, 110f),
-                new TreadTemperatures(81f, 82f, 83f, 90f, 70f, 110f),
-                new TreadTemperatures(82f, 83f, 84f, 90f, 70f, null),
+                new TreadTemperatures(84f, 85f, 86f),
+                new TreadTemperatures(85f, 86f, 87f),
+                new TreadTemperatures(81f, 82f, 83f),
+                new TreadTemperatures(82f, 83f, null),
             ]);
 
         var json = Serialize(message);
@@ -309,47 +311,65 @@ public sealed class LiveViewContractShapeTests
 
         json.GetProperty("tyrePressureKpa").GetArrayLength().ShouldBe(4);
 
-        // A tyre temperature is an object per corner, not a number: three tread readings plus the
-        // window the simulator says they belong in. The live path used to send only the middle
-        // reading, which left the dashboard unable to draw either the shoulder spread or the band.
+        // A tyre temperature is an object per corner, not a number: three tread readings. The live
+        // path used to send only the middle one, which left the dashboard unable to draw the
+        // shoulder spread at all. The operating window used to be here too and is now on the slow
+        // frame, keyed by compound — it never changed between frames, so sending it per tyre per
+        // frame was five constants riding a 1 Hz message.
         var frontLeft = json.GetProperty("tyreTemperatureCelsius")[0];
-        PropertyNames(frontLeft).ShouldBe(
-            ["inner", "middle", "outer", "optimal", "cold", "hot"],
-            ignoreOrder: true);
+        PropertyNames(frontLeft).ShouldBe(["inner", "middle", "outer"], ignoreOrder: true);
         frontLeft.GetProperty("inner").GetSingle().ShouldBe(84f);
-        frontLeft.GetProperty("optimal").GetSingle().ShouldBe(90f);
 
-        // And a window bound the simulator did not report is absent rather than zero — the same
-        // rule as everywhere else here. A hot threshold of 0 °C would put every tyre on the car
-        // permanently over its limit.
-        PropertyNames(json.GetProperty("tyreTemperatureCelsius")[3]).ShouldNotContain("hot");
+        // A reading the simulator did not report is absent rather than zero — the same rule as
+        // everywhere else here. A tread at 0 °C would read as a tyre that had never been driven.
+        PropertyNames(json.GetProperty("tyreTemperatureCelsius")[3]).ShouldNotContain("outer");
     }
 
     /// <summary>
-    /// The payload is a string, not an object. The hub does not parse it and neither does this
-    /// contract — a simulator exposing a field nobody anticipated costs a connector and a dashboard
-    /// panel, not a change here.
+    /// The slow channels, typed. This used to be an opaque JSON string the hub carried through
+    /// without parsing, with a warning that its <c>-1</c> sentinels were untranslated; the channels
+    /// are named and nullable now, so an absent reading is absent rather than alarming.
     /// </summary>
     [Fact]
-    public void An_extras_frame_carries_the_names_the_dashboard_reads()
+    public void A_slow_frame_carries_the_names_the_dashboard_reads()
     {
-        var message = new ExtrasFrameMessage(
+        var message = new SlowFrameMessage(
             "room-1",
             "id:1",
             DateTimeOffset.UnixEpoch,
-            """{"damage":{"engine":0.5,"transmission":-1.0}}""");
+            TelemetrySampleFactory.Create(Guid.Empty) with
+            {
+                DamageEngine = 0.5f,
+                DamageTransmission = null,
+            },
+            OperatingWindowFactory.Create());
 
         var json = Serialize(message);
-        json.GetProperty("type").GetString().ShouldBe("extrasFrame");
+        json.GetProperty("type").GetString().ShouldBe("slowFrame");
 
         PropertyNames(json).ShouldBe(
-            ["type", "roomId", "driverKey", "capturedAtUtc", "extras"],
+            ["type", "roomId", "driverKey", "capturedAtUtc", "sample", "operatingWindows"],
             ignoreOrder: true);
 
-        // Verbatim, sentinel and all. A dashboard that reads -1 as zero damage says the car is fine
-        // when the truth is that nobody knows.
-        json.GetProperty("extras").GetString()
-            .ShouldBe("""{"damage":{"engine":0.5,"transmission":-1.0}}""");
+        var sample = json.GetProperty("sample");
+        sample.GetProperty("damageEngine").GetSingle().ShouldBe(0.5f);
+
+        // Nulls are omitted by design, so a channel the simulator did not report is an absent
+        // property. That is what makes it impossible for a damage panel to say "undamaged" when the
+        // truth is "not known" — there is no number there to misread.
+        PropertyNames(sample).ShouldNotContain("damageTransmission");
+
+        // The bands, one per corner, keyed by the compound they belong to.
+        var windows = json.GetProperty("operatingWindows");
+        windows.GetArrayLength().ShouldBe(4);
+        PropertyNames(windows[0]).ShouldContain("corner");
+        PropertyNames(windows[0]).ShouldContain("compound");
+        PropertyNames(windows[0]).ShouldContain("tyreOptimalCelsius");
+        PropertyNames(windows[0]).ShouldContain("brakeOptimalCelsius");
+
+        // The rear right reports no ceiling, and an absent bound stays absent: a hot threshold of
+        // 0 °C would put every tyre on the car permanently over its limit.
+        PropertyNames(windows[3]).ShouldNotContain("tyreHotCelsius");
     }
 
     [Fact]

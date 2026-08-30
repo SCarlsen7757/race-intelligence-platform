@@ -50,6 +50,9 @@ public abstract class TelemetryDbContext(DbContextOptions options) : DbContext(o
 
     public DbSet<Lap> Laps => Set<Lap>();
 
-    /// <summary>Raw, immutable telemetry samples. See remarks on this type for the insert-only write path.</summary>
-    public DbSet<TelemetrySample> TelemetrySamples => Set<TelemetrySample>();
+    // There is deliberately no telemetry DbSet here. Since #109 the sample is RaceRoom's — a
+    // hundred and seventy-five columns naming push-to-pass, DRS and third-spring velocity are not a
+    // shape a second simulator would inherit — so it is declared, configured and exposed by
+    // RaceRoomDbContext. What stays above is what genuinely is shared: sessions, laps, and the
+    // reference data they point at.
 }

@@ -10,8 +10,8 @@ namespace RaceIntelligence.Collector.Plugins.Ingest.Mapping;
 /// DTOs the ingest API accepts.
 /// </summary>
 /// <remarks>
-/// <c>RaceIntelligence.Ingest.Contracts.Mapping</c> ships mappers for both directions of
-/// <c>TelemetrySampleDto</c> and <c>GameVersionDto</c> — reused here via
+/// <c>RaceIntelligence.Ingest.Contracts.Mapping</c> ships both directions of
+/// <c>GameVersionDto</c> — reused here via
 /// <see cref="GameVersionContractMapper.ToDto"/> rather than duplicated — but only the
 /// DTO-to-Core direction for sessions and laps (the direction the ingest API itself needs). The
 /// collector is the only component that ever needs the reverse, Core-to-DTO direction for a
@@ -51,8 +51,6 @@ internal static class CollectorRequestMapper
     public static SessionUpdateRequest ToSessionEndedRequest(DateTimeOffset endedAtUtc) => new(
         SchemaVersion.Current,
         endedAtUtc,
-        WeatherJson: null,
-        SetupJson: null,
         ExtrasJson: null);
 
     /// <summary>Builds the <c>POST /api/v1/sessions/{id}/laps</c> request body for a completed lap.</summary>

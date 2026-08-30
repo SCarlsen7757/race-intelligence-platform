@@ -1,3 +1,4 @@
+using RaceIntelligence.RaceRoom.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using RaceIntelligence.Persistence.RaceRoom.Tests.Support;
 using Shouldly;
@@ -65,8 +66,25 @@ public sealed class MigrationsTests(PostgresFixture fixture)
         (await PrimaryKeyColumnsAsync(connection, "telemetry_samples")).ShouldBe(["session_id", "timestamp", "sequence_number"]);
     }
 
+    /// <summary>
+    /// Every channel the manifest declares exists in the migrated table, with the type and
+    /// nullability it declared.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The heuristic this replaces — "columns starting <c>damage_</c> or ending <c>_seconds</c> are
+    /// real, the rest integer" — was a fair reading of twelve promoted columns and is nonsense across
+    /// a hundred and seventy-five of mixed type. The manifest says what each column is, so the test
+    /// asks it rather than guessing.
+    /// </para>
+    /// <para>
+    /// This is what catches a manifest channel the migration never grew: the entity configuration and
+    /// the migration are generated and hand-written respectively, and only the database settles
+    /// whether they agree.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task RaceRoom_promoted_telemetry_columns_are_nullable_and_have_expected_types()
+    public async Task Every_manifest_channel_exists_in_the_migrated_table_with_its_declared_type()
     {
         if (!fixture.IsAvailable)
         {
@@ -82,47 +100,46 @@ public sealed class MigrationsTests(PostgresFixture fixture)
             """
             SELECT column_name, data_type, is_nullable
             FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = 'telemetry_samples'
-              AND column_name = ANY(@columns)
+            WHERE table_schema = 'public' AND table_name = 'telemetry_samples'
             """;
-        var parameter = cmd.CreateParameter();
-        parameter.ParameterName = "columns";
-        parameter.Value = new[]
-        {
-            "push_to_pass_available",
-            "push_to_pass_engaged",
-            "push_to_pass_amount_left",
-            "push_to_pass_engaged_time_left_seconds",
-            "push_to_pass_wait_time_left_seconds",
-            "tyre_subtype_front",
-            "tyre_subtype_rear",
-            "cut_track_warnings",
-            "damage_engine",
-            "damage_transmission",
-            "damage_aerodynamics",
-            "damage_suspension",
-        };
-        cmd.Parameters.Add(parameter);
 
-        var actual = new Dictionary<string, (string DataType, string IsNullable)>();
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        var actual = new Dictionary<string, (string DataType, bool IsNullable)>(StringComparer.Ordinal);
+        await using (var reader = await cmd.ExecuteReaderAsync())
         {
-            actual.Add(reader.GetString(0), (reader.GetString(1), reader.GetString(2)));
+            while (await reader.ReadAsync())
+            {
+                actual.Add(reader.GetString(0), (reader.GetString(1), reader.GetString(2) == "YES"));
+            }
         }
 
-        actual.Count.ShouldBe(12);
-        foreach (var (column, metadata) in actual)
+        RaceRoomChannels.All.Count.ShouldBeGreaterThan(150);
+
+        foreach (var channel in RaceRoomChannels.All)
         {
-            metadata.IsNullable.ShouldBe("YES", $"{column} must preserve RaceRoom's unavailable sentinel as null");
-            metadata.DataType.ShouldBe(
-                column.StartsWith("damage_", StringComparison.Ordinal)
-                || column.EndsWith("_seconds", StringComparison.Ordinal)
-                    ? "real"
-                    : "integer");
+            actual.ShouldContainKey(channel.Column, $"the migration has no column for channel '{channel.Name}'");
+
+            var (dataType, isNullable) = actual[channel.Column];
+            dataType.ShouldBe(ExpectedDataType(channel.StoreType), $"{channel.Column} has the wrong stored type");
+            isNullable.ShouldBe(
+                channel.IsNullable,
+                $"{channel.Column} must be {(channel.IsNullable ? "nullable" : "NOT NULL")}: an unreported reading is not a zero");
         }
+
+        // And nothing else. A column left behind by an edited migration would still hold data and
+        // still be selected by `INSERT ... SELECT`, but nothing would ever write it.
+        actual.Keys.ShouldBe(RaceRoomChannels.All.Select(channel => channel.Column), ignoreOrder: true);
     }
+
+    /// <summary>
+    /// The manifest names PostgreSQL types as the schema writes them; <c>information_schema</c> names
+    /// them as the catalogue does.
+    /// </summary>
+    private static string ExpectedDataType(string storeType) => storeType switch
+    {
+        "timestamp with time zone" => "timestamp with time zone",
+        "double precision" => "double precision",
+        _ => storeType,
+    };
 
     private static async Task<List<string>> PrimaryKeyColumnsAsync(System.Data.Common.DbConnection connection, string table)
     {

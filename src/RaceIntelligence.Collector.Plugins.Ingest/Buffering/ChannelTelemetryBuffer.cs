@@ -1,7 +1,8 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
-using RaceIntelligence.Core.Buffering;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Buffering;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Collector.Plugins.Ingest.Buffering;
 
@@ -34,7 +35,7 @@ namespace RaceIntelligence.Collector.Plugins.Ingest.Buffering;
 /// </remarks>
 public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
 {
-    private readonly Channel<TelemetrySample> _channel;
+    private readonly Channel<RaceRoomTelemetrySample> _channel;
     private readonly ILogger<ChannelTelemetryBuffer> _logger;
     private readonly BoundedChannelFullMode _fullMode;
     private readonly int _capacity;
@@ -68,7 +69,7 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
         // WaitToReadAsync calls in flight across consecutive iterations (one raced against a
         // Task.Delay and abandoned when the delay wins), which the single-reader fast path does
         // not support.
-        _channel = Channel.CreateBounded<TelemetrySample>(new BoundedChannelOptions(capacity)
+        _channel = Channel.CreateBounded<RaceRoomTelemetrySample>(new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.Wait, // the underlying channel always uses Wait; DropWrite semantics are implemented explicitly below so a drop can be logged (see TryWrite).
             SingleWriter = true,
@@ -77,7 +78,7 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
     }
 
     /// <inheritdoc />
-    public bool TryWrite(TelemetrySample sample, CancellationToken cancellationToken = default)
+    public bool TryWrite(RaceRoomTelemetrySample sample, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sample);
 
@@ -126,7 +127,7 @@ public sealed class ChannelTelemetryBuffer : ITelemetryBuffer
         _channel.Reader.WaitToReadAsync(cancellationToken);
 
     /// <inheritdoc />
-    public bool TryRead(out TelemetrySample sample)
+    public bool TryRead(out RaceRoomTelemetrySample sample)
     {
         if (_channel.Reader.TryRead(out var read))
         {

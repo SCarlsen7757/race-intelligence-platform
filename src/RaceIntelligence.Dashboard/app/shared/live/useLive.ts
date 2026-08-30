@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
 import type { LapHistoryMessage, StintFrameMessage } from './contracts';
 import type { LiveConnection } from './connection';
-import type { ExtrasSnapshot, LapFeedEntry, LapSummary, LiveStore, RaceEvent } from './store';
+import type { SlowSnapshot, LapFeedEntry, LapSummary, LiveStore, RaceEvent } from './store';
 
 // A stable empty reference: useSyncExternalStore compares snapshots by identity, and a fresh [] per
 // read would look like a change on every emit and loop.
@@ -100,14 +100,14 @@ export function useLapHistory(driverKey: string): LapHistoryMessage | null {
 }
 
 /**
- * The latest extras frame for one focused driver, at roughly 1 Hz.
+ * The latest slow-channel frame for one focused driver, at roughly 1 Hz.
  *
  * Per driver for the same reason lap history is: two cars can be compared at once, and a single
  * slot would have both damage panels showing whichever frame arrived last.
  */
-export function useExtras(driverKey: string): ExtrasSnapshot | null {
+export function useSlowFrame(driverKey: string): SlowSnapshot | null {
   const { store } = useLive();
-  const read = useCallback(() => store.getExtras()[driverKey] ?? null, [store, driverKey]);
+  const read = useCallback(() => store.getSlowFrames()[driverKey] ?? null, [store, driverKey]);
 
   return useStoreSlice(store, read);
 }
@@ -167,13 +167,13 @@ export function useLapFeed(): readonly LapFeedEntry[] {
 }
 
 /**
- * Every focused driver's latest extras frame as one stable snapshot.
+ * Every focused driver's latest slow frame as one stable snapshot.
  *
  * FocusPanel decides whether a comparison row exists across all drivers at once. Reading the whole
  * record keeps that decision in one hook call; a per-driver hook in its section loop would make the
  * number of hooks depend on how many cars are compared.
  */
-export function useAllExtras(): Readonly<Record<string, ExtrasSnapshot>> {
+export function useAllSlowFrames(): Readonly<Record<string, SlowSnapshot>> {
   const { store } = useLive();
-  return useStoreSlice(store, store.getExtras);
+  return useStoreSlice(store, store.getSlowFrames);
 }

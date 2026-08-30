@@ -1,5 +1,6 @@
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Collector.Plugins.Live;
 
@@ -51,10 +52,10 @@ public interface ILiveOutbox
     /// </summary>
     /// <param name="sample">The sample to publish.</param>
     /// <param name="simDriverId">
-    /// The local driver's simulator identity, which a <see cref="TelemetrySample"/> does not carry —
+    /// The local driver's simulator identity, which a <see cref="RaceRoomTelemetrySample"/> does not carry —
     /// it describes a car, and only the session knows whose.
     /// </param>
-    void PublishSelf(TelemetrySample sample, string? simDriverId);
+    void PublishSelf(RaceRoomTelemetrySample sample, string? simDriverId);
 
     /// <summary>
     /// Publishes the local car's stint channels — the tyres. Conflated: only the newest survives.
@@ -66,19 +67,24 @@ public interface ILiveOutbox
     /// </remarks>
     /// <param name="sample">The sample to take the tyre channels from.</param>
     /// <param name="simDriverId">The local driver's simulator identity, as on <see cref="PublishSelf"/>.</param>
-    void PublishStint(TelemetrySample sample, string? simDriverId);
+    void PublishStint(RaceRoomTelemetrySample sample, string? simDriverId);
 
     /// <summary>
     /// Publishes the local car's simulator-specific document. Conflated: only the newest survives.
     /// </summary>
     /// <param name="sessionId">The session the values were captured in.</param>
-    /// <param name="extrasJson">The connector's raw JSON, sentinels untranslated.</param>
+    /// <param name="sample">The sample the slow channels were read from.</param>
+    /// <param name="operatingWindows">The tyre and brake bands in force, one per corner.</param>
     /// <param name="capturedAtUtc">Capture time on this machine.</param>
     /// <param name="simDriverId">
     /// The local driver's simulator identity, carried for the same reason it is on
     /// <see cref="PublishSelf"/>: the document describes a car, and only the session knows whose.
     /// </param>
-    void PublishExtras(Guid sessionId, string extrasJson, DateTimeOffset capturedAtUtc, string? simDriverId);
+    void PublishSlowChannels(
+        RaceRoomTelemetrySample sample,
+        IReadOnlyList<OperatingWindow> operatingWindows,
+        DateTimeOffset capturedAtUtc,
+        string? simDriverId);
 
     /// <summary>Announces that this collector has stopped publishing a session, so the hub need not wait for a timeout.</summary>
     void PublishSessionEnded(Guid sessionId, string? reason);

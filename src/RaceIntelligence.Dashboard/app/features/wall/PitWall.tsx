@@ -10,7 +10,7 @@ import {
   type ResizeHandleAxis,
 } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
-import { useAllExtras, useLive } from '../../shared/live/useLive';
+import { useAllSlowFrames, useLive } from '../../shared/live/useLive';
 import { downloadViewFile, readViewFile } from '../../shared/view/viewFile';
 import {
   loadWallView,
@@ -161,7 +161,7 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
   // reports none, for instance. Honoured here for the same reason #46 made the old strip honour it:
   // a frame around four dashes is worse than no frame, and worse still on a wall, where the user
   // put the tile there on purpose and deserves to know it is waiting rather than broken.
-  const extras = useAllExtras();
+  const slowFrames = useAllSlowFrames();
 
   // Sorted and deduplicated: with two collectors in a room the same capability arrives twice, and
   // an unstable list would rebuild the picker on every room-list message.
@@ -859,7 +859,7 @@ export function PitWall({ gameKey, capabilities, driverKey, displayName }: PitWa
                     />
                   ) : !isDriverWidget(entry) ? (
                     <entry.component store={store} />
-                  ) : entry.isEmpty?.(extras[driverKey] ?? null) === true ? (
+                  ) : entry.isEmpty?.(slowFrames[driverKey] ?? null) === true ? (
                     <UnavailableWidget reason="Nothing reported for this car yet." />
                   ) : hasChannels(entry) ? (
                     <entry.component

@@ -1,5 +1,7 @@
+using RaceIntelligence.Collector.TestSupport;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Live.Contracts.Tests.Support;
 
@@ -80,7 +82,7 @@ internal static class LiveDtoFactory
         },
     };
 
-    public static TelemetrySample FullyPopulatedSample() => new()
+    public static RaceRoomTelemetrySample FullyPopulatedSample() => new()
     {
         SessionId = Guid.Parse("11111111-2222-3333-4444-555555555555"),
         SequenceNumber = 987,
@@ -96,19 +98,44 @@ internal static class LiveDtoFactory
         LapNumber = 13,
         Sector = 2,
         Position = 3,
-        WheelSpeed = new WheelData<float>(1f, 2f, 3f, 4f),
-        SuspensionTravel = new WheelData<float>(5f, 6f, 7f, 8f),
-        TyreTemperature = new WheelData<TyreTemperature>(
-            new TyreTemperature(80f, 81f, 82f, 90f, 60f, 110f),
-            new TyreTemperature(83f, 84f, 85f, 90f, 60f, 110f),
-            new TyreTemperature(86f, 87f, 88f, 90f, 60f, 110f),
-            new TyreTemperature(89f, 90f, 91f, 90f, 60f, 110f)),
-        TyrePressure = new WheelData<float?>(180f, 181f, 182f, 183f),
-        TyreWear = new WheelData<float?>(0.1f, 0.2f, 0.3f, null),
-        // The rear right is unreported, so it can prove a missing corner stays missing rather than
-        // arriving as a brake that did nothing.
-        BrakePressure = new WheelData<float?>(3.1f, 3.2f, 1.4f, null),
+        WheelSpeedFl = 1f,
+        WheelSpeedFr = 2f,
+        WheelSpeedRl = 3f,
+        WheelSpeedRr = 4f,
+        SuspensionTravelFl = 5f,
+        SuspensionTravelFr = 6f,
+        SuspensionTravelRl = 7f,
+        SuspensionTravelRr = 8f,
+        TyreTempFlInner = 80f,
+        TyreTempFlMiddle = 81f,
+        TyreTempFlOuter = 82f,
+        TyreTempFrInner = 83f,
+        TyreTempFrMiddle = 84f,
+        TyreTempFrOuter = 85f,
+        TyreTempRlInner = 86f,
+        TyreTempRlMiddle = 87f,
+        TyreTempRlOuter = 88f,
+        TyreTempRrInner = 89f,
+        TyreTempRrMiddle = 90f,
+        TyreTempRrOuter = 91f,
+        TyrePressureFl = 180f,
+        TyrePressureFr = 181f,
+        TyrePressureRl = 182f,
+        TyrePressureRr = 183f,
+        TyreWearFl = 0.1f,
+        TyreWearFr = 0.2f,
+        TyreWearRl = 0.3f,
+        // The rear right is unreported throughout, so it can prove a missing corner stays missing
+        // rather than arriving as a tyre with no wear or a brake that did nothing.
+        TyreWearRr = null,
+        BrakePressureFl = 3.1f,
+        BrakePressureFr = 3.2f,
+        BrakePressureRl = 1.4f,
+        BrakePressureRr = null,
         TrackPositionFraction = 0.4242f,
-        Extras = """{"pushToPass":{"engaged":1}}""",
+        PushToPassEngaged = 1,
     };
+
+    /// <summary>One operating window per corner. Shared with the collector suites.</summary>
+    public static IReadOnlyList<OperatingWindow> OperatingWindows() => OperatingWindowFactory.Create();
 }

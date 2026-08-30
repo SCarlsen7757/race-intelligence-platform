@@ -19,17 +19,13 @@ public static class SessionMapper
     /// <param name="trackLayoutId">The resolved <c>track_layouts</c> row id, if the track/layout were known.</param>
     /// <param name="carId">The resolved <c>cars</c> row id, if <see cref="CoreSessions.SessionInfo.CarName"/> was known.</param>
     /// <param name="schemaVersion">The canonical telemetry model's schema version this session's samples conform to.</param>
-    /// <param name="weather">Weather conditions, if captured separately from <see cref="CoreSessions.SessionInfo.Extras"/>.</param>
-    /// <param name="setup">Car setup, if captured separately from <see cref="CoreSessions.SessionInfo.Extras"/>.</param>
     public static Entities.Session ToEntity(
         CoreSessions.SessionInfo info,
         Guid gameVersionId,
         Guid? driverId,
         Guid? trackLayoutId,
         Guid? carId,
-        int schemaVersion,
-        JsonElement? weather = null,
-        JsonElement? setup = null) => new()
+        int schemaVersion) => new()
         {
             Id = info.SessionId,
             GameVersionId = gameVersionId,
@@ -45,8 +41,6 @@ public static class SessionMapper
             TyreWearRate = info.TyreWearRate,
             Capabilities = info.Capabilities,
             SchemaVersion = schemaVersion,
-            Weather = weather,
-            Setup = setup,
             Extras = info.Extras,
             StartedAt = info.StartedAtUtc,
             EndedAt = info.EndedAtUtc,

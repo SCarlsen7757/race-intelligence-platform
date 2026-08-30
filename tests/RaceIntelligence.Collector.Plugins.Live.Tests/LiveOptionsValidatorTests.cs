@@ -34,7 +34,7 @@ public class LiveOptionsValidatorTests
         BaseUrl = baseUrl,
         ApiKey = apiKey,
         StandingsInterval = standingsInterval ?? TimeSpan.FromMilliseconds(100),
-        ExtrasInterval = extrasInterval ?? TimeSpan.FromSeconds(1),
+        SlowChannelInterval = extrasInterval ?? TimeSpan.FromSeconds(1),
     };
 
     [Fact]
@@ -105,7 +105,7 @@ public class LiveOptionsValidatorTests
             pollInterval: TimeSpan.FromMilliseconds(100));
 
         result.Failed.ShouldBeTrue();
-        result.FailureMessage.ShouldContain("Collector:Live:ExtrasInterval");
+        result.FailureMessage.ShouldContain("Collector:Live:SlowChannelInterval");
         result.FailureMessage.ShouldContain("Collector:PollInterval");
     }
 
@@ -114,7 +114,7 @@ public class LiveOptionsValidatorTests
     {
         var options = Configured();
 
-        options.ExtrasInterval.ShouldBe(TimeSpan.FromSeconds(1));
+        options.SlowChannelInterval.ShouldBe(TimeSpan.FromSeconds(1));
         Validate(options).Succeeded.ShouldBeTrue();
     }
 }

@@ -1,4 +1,4 @@
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Persistence.Core.Bulk;
 
@@ -30,6 +30,6 @@ public interface ITelemetryWriter
     /// <returns>How many rows were inserted, and how many were already there.</returns>
     Task<TelemetryWriteResult> WriteAsync(
         Guid sessionId,
-        IReadOnlyList<TelemetrySample> samples,
+        IReadOnlyList<RaceRoomTelemetrySample> samples,
         CancellationToken ct = default);
 }

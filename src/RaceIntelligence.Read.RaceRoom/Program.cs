@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using RaceIntelligence.Persistence.Core;
-using RaceIntelligence.Persistence.Core.Repositories;
+using RaceIntelligence.Persistence.RaceRoom.Repositories;
 using RaceIntelligence.Persistence.RaceRoom;
 using RaceIntelligence.Read.Api.Endpoints;
 using RaceIntelligence.Read.RaceRoom;

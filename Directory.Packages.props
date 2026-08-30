@@ -27,6 +27,27 @@
   <ItemGroup Label="Serialization">
     <PackageVersion Include="MessagePack" Version="3.1.8" />
   </ItemGroup>
+  <!-- The channel source generator runs inside the compiler, so it targets netstandard2.0 and
+       references Roslyn directly.
+
+       This version is bounded on both sides and neither bound is optional:
+
+       - Not lower. Central transitive pinning applies it to every project, and
+         Microsoft.EntityFrameworkCore.Design 10.0.11 pulls Microsoft.CodeAnalysis.CSharp 5.0.0, so
+         anything below that fails restore across the whole solution as a package downgrade.
+       - Not higher than the SDK's own Roslyn. A generator can only be loaded by a compiler at or
+         above the version it was compiled against; above it, the compiler reports CS9057 and skips
+         the analyzer, which here means the partial types get no members and the build fails in
+         hundreds of places rather than in one. SDK 10.0.400 ships Roslyn 5.9.0 — the version below —
+         and 10.0.302 shipped 5.6.0, which is why global.json moved up with this. Check
+         `sdk/<version>/Roslyn/bincore/Microsoft.CodeAnalysis.CSharp.dll` before raising either. -->
+  <ItemGroup Label="Source generation">
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Common" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Workspaces.Common" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.9.0" />
+  </ItemGroup>
   <!-- Aspire.Hosting.AppHost is supplied by Aspire.AppHost.Sdk/13.4.6 and must NOT be referenced directly. -->
   <ItemGroup Label="Aspire">
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />

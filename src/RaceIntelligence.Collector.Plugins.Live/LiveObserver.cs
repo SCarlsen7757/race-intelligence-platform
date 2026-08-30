@@ -1,7 +1,8 @@
 using Microsoft.Extensions.Options;
 using RaceIntelligence.Collector.Abstractions;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Live.Contracts;
 
 namespace RaceIntelligence.Collector.Plugins.Live;
@@ -23,11 +24,11 @@ namespace RaceIntelligence.Collector.Plugins.Live;
 /// </para>
 /// </remarks>
 public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> options, TimeProvider timeProvider)
-    : ISessionObserver, ISampleObserver, IStandingsObserver, IExtrasObserver
+    : ISessionObserver, ISampleObserver, IStandingsObserver, ISlowChannelObserver
 {
     /// <summary>
     /// The current session's driver identity, carried so live frames for the local car can say whose
-    /// they are. A <see cref="TelemetrySample"/> describes a car; only the session knows the driver
+    /// they are. A <see cref="RaceRoomTelemetrySample"/> describes a car; only the session knows the driver
     /// in it.
     /// </summary>
     private string? _currentSimDriverId;
@@ -59,7 +60,7 @@ public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> optio
     public TimeSpan StandingsInterval => options.Value.StandingsInterval;
 
     /// <inheritdoc />
-    public TimeSpan ExtrasInterval => options.Value.ExtrasInterval;
+    public TimeSpan SlowChannelInterval => options.Value.SlowChannelInterval;
 
     /// <inheritdoc />
     public ValueTask OnSessionStartedAsync(SessionInfo session, CancellationToken cancellationToken)
@@ -108,7 +109,7 @@ public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> optio
     /// the stream after it arrives has already paid for every byte it discards.
     /// </para>
     /// </remarks>
-    public void OnSample(TelemetrySample sample, CancellationToken cancellationToken)
+    public void OnSample(RaceRoomTelemetrySample sample, CancellationToken cancellationToken)
     {
         outbox.PublishSelf(sample, _currentSimDriverId);
 
@@ -137,8 +138,8 @@ public sealed class LiveObserver(ILiveOutbox outbox, IOptions<LiveOptions> optio
     /// this collector sends is stamped with, which is what makes a hub's latency readout mean
     /// anything.
     /// </remarks>
-    public void OnExtras(Guid sessionId, string extrasJson) =>
-        outbox.PublishExtras(sessionId, extrasJson, timeProvider.GetUtcNow(), _currentSimDriverId);
+    public void OnSlowChannels(RaceRoomTelemetrySample sample, IReadOnlyList<OperatingWindow> operatingWindows) =>
+        outbox.PublishSlowChannels(sample, operatingWindows, timeProvider.GetUtcNow(), _currentSimDriverId);
 
     /// <inheritdoc />
     public void OnStandings(SessionStandings standings)

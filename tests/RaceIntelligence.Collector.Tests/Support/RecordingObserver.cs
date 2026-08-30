@@ -1,7 +1,8 @@
 using System.Collections.Concurrent;
 using RaceIntelligence.Collector.Abstractions;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Collector.Tests.Support;
 
@@ -16,8 +17,8 @@ namespace RaceIntelligence.Collector.Tests.Support;
 internal sealed class RecordingObserver(
     string name,
     TimeSpan? standingsInterval = null,
-    TimeSpan? extrasInterval = null)
-    : ISessionObserver, ISampleObserver, IStandingsObserver, IExtrasObserver
+    TimeSpan? slowChannelInterval = null)
+    : ISessionObserver, ISampleObserver, IStandingsObserver, ISlowChannelObserver
 {
     private readonly ConcurrentQueue<string> _calls = new();
     private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -38,7 +39,7 @@ internal sealed class RecordingObserver(
 
     public TimeSpan StandingsInterval { get; } = standingsInterval ?? TimeSpan.FromMilliseconds(100);
 
-    public TimeSpan ExtrasInterval { get; } = extrasInterval ?? TimeSpan.FromSeconds(1);
+    public TimeSpan SlowChannelInterval { get; } = slowChannelInterval ?? TimeSpan.FromSeconds(1);
 
     public ValueTask OnSessionStartedAsync(SessionInfo session, CancellationToken cancellationToken)
     {
@@ -58,7 +59,7 @@ internal sealed class RecordingObserver(
         return ValueTask.CompletedTask;
     }
 
-    public void OnSample(TelemetrySample sample, CancellationToken cancellationToken)
+    public void OnSample(RaceRoomTelemetrySample sample, CancellationToken cancellationToken)
     {
         Record("sample", sample.SequenceNumber.ToString());
 
@@ -83,9 +84,9 @@ internal sealed class RecordingObserver(
         Record("standings", standings.Drivers.Count.ToString());
     }
 
-    public void OnExtras(Guid sessionId, string extrasJson)
+    public void OnSlowChannels(RaceRoomTelemetrySample sample, IReadOnlyList<OperatingWindow> operatingWindows)
     {
-        Record("extras", extrasJson);
+        Record("slowChannels", sample.SequenceNumber.ToString());
     }
 
     private void Record(string operation, string? detail = null)

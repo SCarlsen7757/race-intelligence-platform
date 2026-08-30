@@ -97,18 +97,21 @@ dotnet test  RaceIntelligence.slnx
 
 ```
 src/
-  RaceIntelligence.Core                  Canonical telemetry model, capabilities, sessions
+  RaceIntelligence.Core                  Sessions, laps, capabilities, analysis abstractions
+  RaceIntelligence.RaceRoom.Telemetry    RaceRoom's telemetry sample, generated from the manifest
+  RaceIntelligence.RaceRoom.Channels.Generator  The generator that reads channels/*.channels
   RaceIntelligence.Connectors.RaceRoom   RaceRoom shared-memory connector
   RaceIntelligence.Collector             Poll loop and plugin host (runs on the gaming PC)
   RaceIntelligence.Collector.Abstractions  Plugin and observer interfaces
   RaceIntelligence.Collector.Plugins.Ingest  Buffering and background upload
   RaceIntelligence.Collector.Plugins.Live    WebSocket publishing to the live hub
   RaceIntelligence.Ingest.Api            Telemetry ingest endpoints
-  RaceIntelligence.Ingest.Contracts      Wire contracts shared by collector and API
-  RaceIntelligence.Live.Contracts        Wire contracts shared by collector, hub and dashboard
+  RaceIntelligence.Ingest.Contracts      RaceRoom's collector-to-API wire
+  RaceIntelligence.Live.Contracts        RaceRoom's collector-hub-dashboard wires
   RaceIntelligence.Web                   Live hub — rooms, viewer fan-out, tower projection
   RaceIntelligence.Dashboard             TanStack Start dashboard (TypeScript, runs on Node)
-  RaceIntelligence.Persistence           EF Core entities, migrations, bulk writer
+  RaceIntelligence.Persistence.Core      Shared EF Core entities and repositories (no schema)
+  RaceIntelligence.Persistence.RaceRoom  RaceRoom's tables, migrations and bulk writer
   RaceIntelligence.Analysis              Analysis engine          (started)
   RaceIntelligence.Strategy              Strategy engine          (interfaces only)
   RaceIntelligence.ML                    Model training           (interfaces only)
@@ -130,11 +133,18 @@ xUnit v3 · Testcontainers · TanStack Start · React · Vite · Vitest
 
 ## Adding a simulator
 
-Every simulator needs only a connector. Implement `ITelemetrySource`, translate the game's telemetry
-into the canonical model, and declare what the game exposes through `SimCapabilities`. No backend
-changes should be required: the collector, the wire and the live hub are simulator-agnostic, and the
-dashboard's standard views — timing tower, lap history, driver focus, track map — come from the
-canonical model, so an accurate capability set is enough to light them up.
+**A second simulator needs more than a connector, and that is a decision rather than an oversight.**
+It was one connector for a while: the collector posted a canonical model plus a JSON `extras`
+document, and each simulator's storage decided what to do with what arrived. That document turned out
+to be 68% of the telemetry table, holding twenty-nine channels nothing checked at compile time — so
+[ADR 0001](docs/decisions/0001-per-sim-storage.md) was amended and the wires became per-simulator
+too, typed end to end.
+
+So a simulator now brings a connector, a channel manifest, an ingest contract, a schema and a read
+API — and the manifest generates most of the middle three. The collector's plugin host, the live
+hub's own job (rooms, viewers, fan-out) and the dashboard's standard views — timing tower, lap
+history, driver focus — stay simulator-agnostic; an accurate `SimCapabilities` set still lights them
+up.
 
 What a new simulator *may* want is its own focus panels, for readouts that are genuinely specific in
 presentation rather than in data. Those register in `app/sims/registry.ts`, keyed by game, and each

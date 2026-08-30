@@ -3,6 +3,7 @@ import type { TreadTemperatures } from '../../shared/live/contracts';
 import { NOT_REPORTED, formatNumber } from '../../shared/format/format';
 import type { ChannelPanelProps } from '../../sims/registry';
 import { ChannelLegend } from './ChannelLegend';
+import { tyreWindow } from '../../shared/live/slowChannels';
 import { firstReportedWindow } from './operatingWindow';
 import { TREAD_HEAT_COLOURS } from './traceColours';
 import { WHEEL_CHANNELS } from './WheelTrace';
@@ -137,7 +138,11 @@ export function TyreHeatmap({
       // DOM work, and the loop stays the one place this figure is drawn.
       const latest = store.stintFor(driverKey);
       const corners: (TreadTemperatures | undefined)[] = latest?.tyreTemperatureCelsius ?? [];
-      const window = firstReportedWindow(corners);
+
+      // The band comes from the slow channel rather than from the reading. It is a property of the
+      // compound, constant for a stint, and used to ride every tread reading of every frame.
+      const windows = store.getSlowFrames()[driverKey]?.message.operatingWindows;
+      const window = firstReportedWindow([0, 1, 2, 3].map((corner) => tyreWindow(windows, corner)));
 
       for (const cell of CELLS) {
         const nodes = cellsRef.current.get(cell.key);

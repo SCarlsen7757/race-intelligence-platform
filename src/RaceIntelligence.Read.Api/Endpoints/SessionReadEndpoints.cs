@@ -1,4 +1,4 @@
-using RaceIntelligence.Persistence.Core.Repositories;
+using RaceIntelligence.Persistence.RaceRoom.Repositories;
 using RaceIntelligence.Read.Api.Contracts;
 using RaceIntelligence.Read.Api.Mapping;
 

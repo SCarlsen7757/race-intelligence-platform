@@ -33,7 +33,7 @@ public class TelemetryUploadServiceTests
 
         await using var buffer = CreateBuffer();
         var ingestClient = new RecordingIngestClient();
-        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
+        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), new LatestOperatingWindows(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
 
         var sessionId = Guid.NewGuid();
         await service.StartAsync(cts.Token);
@@ -78,7 +78,7 @@ public class TelemetryUploadServiceTests
 
         await using var buffer = CreateBuffer();
         var ingestClient = new RecordingIngestClient();
-        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
+        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), new LatestOperatingWindows(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
 
         var sessionId = Guid.NewGuid();
         await service.StartAsync(cts.Token);
@@ -119,7 +119,7 @@ public class TelemetryUploadServiceTests
 
         await using var buffer = CreateBuffer();
         var ingestClient = new RecordingIngestClient();
-        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
+        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), new LatestOperatingWindows(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
 
         var firstSessionId = Guid.NewGuid();
         var secondSessionId = Guid.NewGuid();
@@ -167,7 +167,7 @@ public class TelemetryUploadServiceTests
         await using var buffer = CreateBuffer();
         var ingestClient = new RecordingIngestClient { FailUploadsWith = new HttpRequestException("ingest API is down") };
         var logger = new CapturingLogger<TelemetryUploadService>();
-        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), timeProvider, logger);
+        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), new LatestOperatingWindows(), timeProvider, logger);
 
         var sessionId = Guid.NewGuid();
         await service.StartAsync(cts.Token);
@@ -223,7 +223,7 @@ public class TelemetryUploadServiceTests
         await using var buffer = CreateBuffer();
         var ingestClient = new RecordingIngestClient();
         var service = new TelemetryUploadService(
-            buffer, ingestClient, ingestOptions, new OpenBatchTracker(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
+            buffer, ingestClient, ingestOptions, new OpenBatchTracker(), new LatestOperatingWindows(), timeProvider, NullLogger<TelemetryUploadService>.Instance);
 
         var sessionId = Guid.NewGuid();
         await service.StartAsync(cts.Token);
@@ -259,7 +259,7 @@ public class TelemetryUploadServiceTests
         await using var buffer = CreateBuffer();
         var ingestClient = new RecordingIngestClient { FailUploadsWith = new HttpRequestException("ingest API is down") };
         var logger = new CapturingLogger<TelemetryUploadService>();
-        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), timeProvider, logger);
+        var service = new TelemetryUploadService(buffer, ingestClient, ingestOptions, new OpenBatchTracker(), new LatestOperatingWindows(), timeProvider, logger);
 
         await service.StartAsync(cts.Token);
         buffer.TryWrite(TelemetrySampleFactory.Create(Guid.NewGuid(), 0));

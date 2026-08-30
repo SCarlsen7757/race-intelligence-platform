@@ -86,7 +86,7 @@ public sealed class ViewerQueue
     private readonly ConcurrentDictionary<string, StintFrameMessage> _stints =
         new(StringComparer.Ordinal);
 
-    private readonly ConcurrentDictionary<string, ExtrasFrameMessage> _extras =
+    private readonly ConcurrentDictionary<string, SlowFrameMessage> _extras =
         new(StringComparer.Ordinal);
 
     private RoomListMessage? _latestRoomList;
@@ -185,7 +185,7 @@ public sealed class ViewerQueue
     }
 
     /// <summary>Offers a focused driver's extras document, replacing any of theirs not yet sent.</summary>
-    public void OfferExtras(ExtrasFrameMessage message)
+    public void OfferSlowFrame(SlowFrameMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
 

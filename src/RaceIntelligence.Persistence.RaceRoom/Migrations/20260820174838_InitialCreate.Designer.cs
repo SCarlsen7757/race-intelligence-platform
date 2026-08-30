@@ -251,10 +251,6 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                         .HasColumnType("smallint")
                         .HasColumnName("session_type");
 
-                    b.Property<string>("Setup")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("setup");
-
                     b.Property<string>("SimCarClassId")
                         .HasColumnType("text")
                         .HasColumnName("sim_car_class_id");
@@ -279,10 +275,6 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                         .HasColumnType("smallint")
                         .HasColumnName("tyre_wear_rate");
 
-                    b.Property<string>("Weather")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("weather");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CarId");
@@ -296,161 +288,6 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                         .HasDatabaseName("ix_sessions_driver_wear_rates");
 
                     b.ToTable("sessions", (string)null);
-                });
-
-            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.TelemetrySample", b =>
-                {
-                    b.Property<Guid>("SessionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("session_id");
-
-                    b.Property<DateTimeOffset>("Timestamp")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("timestamp");
-
-                    b.Property<long>("SequenceNumber")
-                        .HasColumnType("bigint")
-                        .HasColumnName("sequence_number");
-
-                    b.Property<float?>("Brake")
-                        .HasColumnType("real")
-                        .HasColumnName("brake");
-
-                    b.Property<float?>("Clutch")
-                        .HasColumnType("real")
-                        .HasColumnName("clutch");
-
-                    b.Property<int?>("CutTrackWarnings")
-                        .HasColumnType("integer")
-                        .HasColumnName("cut_track_warnings");
-
-                    b.Property<float?>("DamageAerodynamics")
-                        .HasColumnType("real")
-                        .HasColumnName("damage_aerodynamics");
-
-                    b.Property<float?>("DamageEngine")
-                        .HasColumnType("real")
-                        .HasColumnName("damage_engine");
-
-                    b.Property<float?>("DamageSuspension")
-                        .HasColumnType("real")
-                        .HasColumnName("damage_suspension");
-
-                    b.Property<float?>("DamageTransmission")
-                        .HasColumnType("real")
-                        .HasColumnName("damage_transmission");
-
-                    b.Property<float>("EngineRpm")
-                        .HasColumnType("real")
-                        .HasColumnName("engine_rpm");
-
-                    b.Property<string>("Extras")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("extras");
-
-                    b.Property<float>("FuelLeft")
-                        .HasColumnType("real")
-                        .HasColumnName("fuel_left");
-
-                    b.Property<short?>("Gear")
-                        .HasColumnType("smallint")
-                        .HasColumnName("gear");
-
-                    b.Property<int>("LapNumber")
-                        .HasColumnType("integer")
-                        .HasColumnName("lap_number");
-
-                    b.Property<short?>("Position")
-                        .HasColumnType("smallint")
-                        .HasColumnName("position");
-
-                    b.Property<int?>("PushToPassAmountLeft")
-                        .HasColumnType("integer")
-                        .HasColumnName("push_to_pass_amount_left");
-
-                    b.Property<int?>("PushToPassAvailable")
-                        .HasColumnType("integer")
-                        .HasColumnName("push_to_pass_available");
-
-                    b.Property<float?>("PushToPassEngagedTimeLeftSeconds")
-                        .HasColumnType("real")
-                        .HasColumnName("push_to_pass_engaged_time_left_seconds");
-
-                    b.Property<int?>("PushToPassEngaged")
-                        .HasColumnType("integer")
-                        .HasColumnName("push_to_pass_engaged");
-
-                    b.Property<float?>("PushToPassWaitTimeLeftSeconds")
-                        .HasColumnType("real")
-                        .HasColumnName("push_to_pass_wait_time_left_seconds");
-
-                    b.Property<int>("Sector")
-                        .HasColumnType("integer")
-                        .HasColumnName("sector");
-
-                    b.Property<double>("SimulationTime")
-                        .HasColumnType("double precision")
-                        .HasColumnName("simulation_time");
-
-                    b.Property<float>("Speed")
-                        .HasColumnType("real")
-                        .HasColumnName("speed");
-
-                    b.Property<float>("Steering")
-                        .HasColumnType("real")
-                        .HasColumnName("steering");
-
-                    b.PrimitiveCollection<float[]>("SuspensionTravel")
-                        .IsRequired()
-                        .HasColumnType("real[]")
-                        .HasColumnName("suspension_travel");
-
-                    b.Property<float?>("Throttle")
-                        .HasColumnType("real")
-                        .HasColumnName("throttle");
-
-                    b.Property<float?>("TrackPositionFraction")
-                        .HasColumnType("real")
-                        .HasColumnName("track_position_fraction");
-
-                    b.PrimitiveCollection<float?[]>("TyrePressure")
-                        .HasColumnType("real[]")
-                        .HasColumnName("tyre_pressure");
-
-                    b.Property<string>("TyreTemperature")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("tyre_temperature");
-
-                    b.Property<int?>("TyreSubtypeFront")
-                        .HasColumnType("integer")
-                        .HasColumnName("tyre_subtype_front");
-
-                    b.Property<int?>("TyreSubtypeRear")
-                        .HasColumnType("integer")
-                        .HasColumnName("tyre_subtype_rear");
-
-                    b.PrimitiveCollection<float?[]>("TyreWear")
-                        .HasColumnType("real[]")
-                        .HasColumnName("tyre_wear");
-
-                    b.PrimitiveCollection<float[]>("WheelSpeed")
-                        .IsRequired()
-                        .HasColumnType("real[]")
-                        .HasColumnName("wheel_speed");
-
-                    b.HasKey("SessionId", "Timestamp", "SequenceNumber");
-
-                    b.HasIndex("Timestamp")
-                        .HasDatabaseName("ix_telemetry_timestamp_brin");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Timestamp"), "brin");
-
-                    b.HasIndex("SessionId", "LapNumber")
-                        .HasDatabaseName("ix_telemetry_session_lap");
-
-                    b.ToTable("telemetry_samples", (string)null);
                 });
 
             modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Track", b =>
@@ -497,6 +334,777 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                         .IsUnique();
 
                     b.ToTable("track_layouts", (string)null);
+                });
+
+            modelBuilder.Entity("RaceIntelligence.Persistence.RaceRoom.Entities.OperatingWindowRow", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<float?>("BrakeColdCelsius")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_cold_celsius");
+
+                    b.Property<float?>("BrakeHotCelsius")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_hot_celsius");
+
+                    b.Property<float?>("BrakeOptimalCelsius")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_optimal_celsius");
+
+                    b.Property<int?>("Compound")
+                        .HasColumnType("integer")
+                        .HasColumnName("compound");
+
+                    b.Property<short>("Corner")
+                        .HasColumnType("smallint")
+                        .HasColumnName("corner");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.Property<float?>("TyreColdCelsius")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_cold_celsius");
+
+                    b.Property<float?>("TyreHotCelsius")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_hot_celsius");
+
+                    b.Property<float?>("TyreOptimalCelsius")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_optimal_celsius");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId", "Corner", "Compound")
+                        .IsUnique()
+                        .HasDatabaseName("ux_operating_windows_session_corner_compound");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("SessionId", "Corner", "Compound"), false);
+
+                    b.ToTable("operating_windows", (string)null);
+                });
+
+            modelBuilder.Entity("RaceIntelligence.Persistence.RaceRoom.Entities.TelemetrySample", b =>
+                {
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<long>("SequenceNumber")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sequence_number");
+
+                    b.Property<bool?>("AbsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("abs_active");
+
+                    b.Property<int?>("AbsSetting")
+                        .HasColumnType("integer")
+                        .HasColumnName("abs_setting");
+
+                    b.Property<float?>("AccelerationLateral")
+                        .HasColumnType("real")
+                        .HasColumnName("acceleration_lateral");
+
+                    b.Property<float?>("AccelerationLongitudinal")
+                        .HasColumnType("real")
+                        .HasColumnName("acceleration_longitudinal");
+
+                    b.Property<float?>("AccelerationVertical")
+                        .HasColumnType("real")
+                        .HasColumnName("acceleration_vertical");
+
+                    b.Property<float?>("AngularAccelerationPitch")
+                        .HasColumnType("real")
+                        .HasColumnName("angular_acceleration_pitch");
+
+                    b.Property<float?>("AngularAccelerationRoll")
+                        .HasColumnType("real")
+                        .HasColumnName("angular_acceleration_roll");
+
+                    b.Property<float?>("AngularAccelerationYaw")
+                        .HasColumnType("real")
+                        .HasColumnName("angular_acceleration_yaw");
+
+                    b.Property<float?>("BatteryStateOfChargePercent")
+                        .HasColumnType("real")
+                        .HasColumnName("battery_state_of_charge_percent");
+
+                    b.Property<float?>("Brake")
+                        .HasColumnType("real")
+                        .HasColumnName("brake");
+
+                    b.Property<float?>("BrakeBias")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_bias");
+
+                    b.Property<float?>("BrakePressureFl")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_pressure_fl");
+
+                    b.Property<float?>("BrakePressureFr")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_pressure_fr");
+
+                    b.Property<float?>("BrakePressureRl")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_pressure_rl");
+
+                    b.Property<float?>("BrakePressureRr")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_pressure_rr");
+
+                    b.Property<float?>("BrakeTempFl")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_temp_fl");
+
+                    b.Property<float?>("BrakeTempFr")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_temp_fr");
+
+                    b.Property<float?>("BrakeTempRl")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_temp_rl");
+
+                    b.Property<float?>("BrakeTempRr")
+                        .HasColumnType("real")
+                        .HasColumnName("brake_temp_rr");
+
+                    b.Property<float?>("CamberFl")
+                        .HasColumnType("real")
+                        .HasColumnName("camber_fl");
+
+                    b.Property<float?>("CamberFr")
+                        .HasColumnType("real")
+                        .HasColumnName("camber_fr");
+
+                    b.Property<float?>("CamberRl")
+                        .HasColumnType("real")
+                        .HasColumnName("camber_rl");
+
+                    b.Property<float?>("CamberRr")
+                        .HasColumnType("real")
+                        .HasColumnName("camber_rr");
+
+                    b.Property<float?>("Clutch")
+                        .HasColumnType("real")
+                        .HasColumnName("clutch");
+
+                    b.Property<short?>("ControlType")
+                        .HasColumnType("smallint")
+                        .HasColumnName("control_type");
+
+                    b.Property<int?>("CutTrackWarnings")
+                        .HasColumnType("integer")
+                        .HasColumnName("cut_track_warnings");
+
+                    b.Property<float?>("DamageAerodynamics")
+                        .HasColumnType("real")
+                        .HasColumnName("damage_aerodynamics");
+
+                    b.Property<float?>("DamageEngine")
+                        .HasColumnType("real")
+                        .HasColumnName("damage_engine");
+
+                    b.Property<float?>("DamageSuspension")
+                        .HasColumnType("real")
+                        .HasColumnName("damage_suspension");
+
+                    b.Property<float?>("DamageTransmission")
+                        .HasColumnType("real")
+                        .HasColumnName("damage_transmission");
+
+                    b.Property<float?>("DownforceNewtons")
+                        .HasColumnType("real")
+                        .HasColumnName("downforce_newtons");
+
+                    b.Property<int?>("DrsActivationsLeft")
+                        .HasColumnType("integer")
+                        .HasColumnName("drs_activations_left");
+
+                    b.Property<int?>("DrsActivationsTotal")
+                        .HasColumnType("integer")
+                        .HasColumnName("drs_activations_total");
+
+                    b.Property<bool?>("DrsActivationsUnlimited")
+                        .HasColumnType("boolean")
+                        .HasColumnName("drs_activations_unlimited");
+
+                    b.Property<short?>("DrsAvailable")
+                        .HasColumnType("smallint")
+                        .HasColumnName("drs_available");
+
+                    b.Property<short?>("DrsEngaged")
+                        .HasColumnType("smallint")
+                        .HasColumnName("drs_engaged");
+
+                    b.Property<short?>("DrsEquipped")
+                        .HasColumnType("smallint")
+                        .HasColumnName("drs_equipped");
+
+                    b.Property<int?>("EngineBrakeSetting")
+                        .HasColumnType("integer")
+                        .HasColumnName("engine_brake_setting");
+
+                    b.Property<int?>("EngineMapSetting")
+                        .HasColumnType("integer")
+                        .HasColumnName("engine_map_setting");
+
+                    b.Property<float?>("EngineOilPressureKpa")
+                        .HasColumnType("real")
+                        .HasColumnName("engine_oil_pressure_kpa");
+
+                    b.Property<float?>("EngineOilTempCelsius")
+                        .HasColumnType("real")
+                        .HasColumnName("engine_oil_temp_celsius");
+
+                    b.Property<float>("EngineRpm")
+                        .HasColumnType("real")
+                        .HasColumnName("engine_rpm");
+
+                    b.Property<float?>("EngineTempCelsius")
+                        .HasColumnType("real")
+                        .HasColumnName("engine_temp_celsius");
+
+                    b.Property<float?>("EngineTorqueNewtonMetres")
+                        .HasColumnType("real")
+                        .HasColumnName("engine_torque_newton_metres");
+
+                    b.Property<short?>("FlagBlack")
+                        .HasColumnType("smallint")
+                        .HasColumnName("flag_black");
+
+                    b.Property<short?>("FlagBlackAndWhite")
+                        .HasColumnType("smallint")
+                        .HasColumnName("flag_black_and_white");
+
+                    b.Property<short?>("FlagBlue")
+                        .HasColumnType("smallint")
+                        .HasColumnName("flag_blue");
+
+                    b.Property<short?>("FlagCheckered")
+                        .HasColumnType("smallint")
+                        .HasColumnName("flag_checkered");
+
+                    b.Property<short?>("FlagGreen")
+                        .HasColumnType("smallint")
+                        .HasColumnName("flag_green");
+
+                    b.Property<short?>("FlagWhite")
+                        .HasColumnType("smallint")
+                        .HasColumnName("flag_white");
+
+                    b.Property<short?>("FlagYellow")
+                        .HasColumnType("smallint")
+                        .HasColumnName("flag_yellow");
+
+                    b.Property<float?>("FrontRollAngle")
+                        .HasColumnType("real")
+                        .HasColumnName("front_roll_angle");
+
+                    b.Property<float?>("FrontWingHeight")
+                        .HasColumnType("real")
+                        .HasColumnName("front_wing_height");
+
+                    b.Property<float>("FuelLeft")
+                        .HasColumnType("real")
+                        .HasColumnName("fuel_left");
+
+                    b.Property<float?>("FuelPressureKpa")
+                        .HasColumnType("real")
+                        .HasColumnName("fuel_pressure_kpa");
+
+                    b.Property<short?>("Gear")
+                        .HasColumnType("smallint")
+                        .HasColumnName("gear");
+
+                    b.Property<float?>("GforceLateral")
+                        .HasColumnType("real")
+                        .HasColumnName("gforce_lateral");
+
+                    b.Property<float?>("GforceLongitudinal")
+                        .HasColumnType("real")
+                        .HasColumnName("gforce_longitudinal");
+
+                    b.Property<float?>("GforceVertical")
+                        .HasColumnType("real")
+                        .HasColumnName("gforce_vertical");
+
+                    b.Property<int?>("IncidentPoints")
+                        .HasColumnType("integer")
+                        .HasColumnName("incident_points");
+
+                    b.Property<int>("LapNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("lap_number");
+
+                    b.Property<float?>("LocalVelocityLateral")
+                        .HasColumnType("real")
+                        .HasColumnName("local_velocity_lateral");
+
+                    b.Property<float?>("LocalVelocityLongitudinal")
+                        .HasColumnType("real")
+                        .HasColumnName("local_velocity_longitudinal");
+
+                    b.Property<float?>("LocalVelocityVertical")
+                        .HasColumnType("real")
+                        .HasColumnName("local_velocity_vertical");
+
+                    b.Property<int?>("MaxIncidentPoints")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_incident_points");
+
+                    b.Property<float?>("OrientationPitch")
+                        .HasColumnType("real")
+                        .HasColumnName("orientation_pitch");
+
+                    b.Property<float?>("OrientationRoll")
+                        .HasColumnType("real")
+                        .HasColumnName("orientation_roll");
+
+                    b.Property<float?>("OrientationYaw")
+                        .HasColumnType("real")
+                        .HasColumnName("orientation_yaw");
+
+                    b.Property<int?>("PitAction")
+                        .HasColumnType("integer")
+                        .HasColumnName("pit_action");
+
+                    b.Property<float?>("PitElapsedTimeSeconds")
+                        .HasColumnType("real")
+                        .HasColumnName("pit_elapsed_time_seconds");
+
+                    b.Property<short?>("PitState")
+                        .HasColumnType("smallint")
+                        .HasColumnName("pit_state");
+
+                    b.Property<int?>("PitStopsPerformed")
+                        .HasColumnType("integer")
+                        .HasColumnName("pit_stops_performed");
+
+                    b.Property<float?>("PitTotalDurationSeconds")
+                        .HasColumnType("real")
+                        .HasColumnName("pit_total_duration_seconds");
+
+                    b.Property<int?>("PitWindowEnd")
+                        .HasColumnType("integer")
+                        .HasColumnName("pit_window_end");
+
+                    b.Property<int?>("PitWindowStart")
+                        .HasColumnType("integer")
+                        .HasColumnName("pit_window_start");
+
+                    b.Property<short?>("PitWindowStatus")
+                        .HasColumnType("smallint")
+                        .HasColumnName("pit_window_status");
+
+                    b.Property<float?>("PitchRate")
+                        .HasColumnType("real")
+                        .HasColumnName("pitch_rate");
+
+                    b.Property<short?>("Position")
+                        .HasColumnType("smallint")
+                        .HasColumnName("position");
+
+                    b.Property<int?>("PushToPassAmountLeft")
+                        .HasColumnType("integer")
+                        .HasColumnName("push_to_pass_amount_left");
+
+                    b.Property<int?>("PushToPassAvailable")
+                        .HasColumnType("integer")
+                        .HasColumnName("push_to_pass_available");
+
+                    b.Property<int?>("PushToPassEngaged")
+                        .HasColumnType("integer")
+                        .HasColumnName("push_to_pass_engaged");
+
+                    b.Property<float?>("PushToPassEngagedTimeLeftSeconds")
+                        .HasColumnType("real")
+                        .HasColumnName("push_to_pass_engaged_time_left_seconds");
+
+                    b.Property<float?>("PushToPassWaitTimeLeftSeconds")
+                        .HasColumnType("real")
+                        .HasColumnName("push_to_pass_wait_time_left_seconds");
+
+                    b.Property<float?>("RearRollAngle")
+                        .HasColumnType("real")
+                        .HasColumnName("rear_roll_angle");
+
+                    b.Property<float?>("RideHeightFl")
+                        .HasColumnType("real")
+                        .HasColumnName("ride_height_fl");
+
+                    b.Property<float?>("RideHeightFr")
+                        .HasColumnType("real")
+                        .HasColumnName("ride_height_fr");
+
+                    b.Property<float?>("RideHeightRl")
+                        .HasColumnType("real")
+                        .HasColumnName("ride_height_rl");
+
+                    b.Property<float?>("RideHeightRr")
+                        .HasColumnType("real")
+                        .HasColumnName("ride_height_rr");
+
+                    b.Property<float?>("RollRate")
+                        .HasColumnType("real")
+                        .HasColumnName("roll_rate");
+
+                    b.Property<int>("Sector")
+                        .HasColumnType("integer")
+                        .HasColumnName("sector");
+
+                    b.Property<double>("SimulationTime")
+                        .HasColumnType("double precision")
+                        .HasColumnName("simulation_time");
+
+                    b.Property<float>("Speed")
+                        .HasColumnType("real")
+                        .HasColumnName("speed");
+
+                    b.Property<float>("Steering")
+                        .HasColumnType("real")
+                        .HasColumnName("steering");
+
+                    b.Property<float?>("SteeringForce")
+                        .HasColumnType("real")
+                        .HasColumnName("steering_force");
+
+                    b.Property<float?>("SteeringForcePercent")
+                        .HasColumnType("real")
+                        .HasColumnName("steering_force_percent");
+
+                    b.Property<float?>("SuspensionTravelFl")
+                        .HasColumnType("real")
+                        .HasColumnName("suspension_travel_fl");
+
+                    b.Property<float?>("SuspensionTravelFr")
+                        .HasColumnType("real")
+                        .HasColumnName("suspension_travel_fr");
+
+                    b.Property<float?>("SuspensionTravelRl")
+                        .HasColumnType("real")
+                        .HasColumnName("suspension_travel_rl");
+
+                    b.Property<float?>("SuspensionTravelRr")
+                        .HasColumnType("real")
+                        .HasColumnName("suspension_travel_rr");
+
+                    b.Property<float?>("SuspensionVelocityFl")
+                        .HasColumnType("real")
+                        .HasColumnName("suspension_velocity_fl");
+
+                    b.Property<float?>("SuspensionVelocityFr")
+                        .HasColumnType("real")
+                        .HasColumnName("suspension_velocity_fr");
+
+                    b.Property<float?>("SuspensionVelocityRl")
+                        .HasColumnType("real")
+                        .HasColumnName("suspension_velocity_rl");
+
+                    b.Property<float?>("SuspensionVelocityRr")
+                        .HasColumnType("real")
+                        .HasColumnName("suspension_velocity_rr");
+
+                    b.Property<float?>("ThirdSpringTravelFront")
+                        .HasColumnType("real")
+                        .HasColumnName("third_spring_travel_front");
+
+                    b.Property<float?>("ThirdSpringTravelRear")
+                        .HasColumnType("real")
+                        .HasColumnName("third_spring_travel_rear");
+
+                    b.Property<float?>("ThirdSpringVelocityFront")
+                        .HasColumnType("real")
+                        .HasColumnName("third_spring_velocity_front");
+
+                    b.Property<float?>("ThirdSpringVelocityRear")
+                        .HasColumnType("real")
+                        .HasColumnName("third_spring_velocity_rear");
+
+                    b.Property<float?>("Throttle")
+                        .HasColumnType("real")
+                        .HasColumnName("throttle");
+
+                    b.Property<float?>("TrackPositionFraction")
+                        .HasColumnType("real")
+                        .HasColumnName("track_position_fraction");
+
+                    b.Property<bool?>("TractionControlActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("traction_control_active");
+
+                    b.Property<float?>("TractionControlPercent")
+                        .HasColumnType("real")
+                        .HasColumnName("traction_control_percent");
+
+                    b.Property<int?>("TractionControlSetting")
+                        .HasColumnType("integer")
+                        .HasColumnName("traction_control_setting");
+
+                    b.Property<float?>("TurboPressureBar")
+                        .HasColumnType("real")
+                        .HasColumnName("turbo_pressure_bar");
+
+                    b.Property<float?>("TyreDirtFl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_dirt_fl");
+
+                    b.Property<float?>("TyreDirtFr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_dirt_fr");
+
+                    b.Property<float?>("TyreDirtRl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_dirt_rl");
+
+                    b.Property<float?>("TyreDirtRr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_dirt_rr");
+
+                    b.Property<short?>("TyreFlatspotFl")
+                        .HasColumnType("smallint")
+                        .HasColumnName("tyre_flatspot_fl");
+
+                    b.Property<short?>("TyreFlatspotFr")
+                        .HasColumnType("smallint")
+                        .HasColumnName("tyre_flatspot_fr");
+
+                    b.Property<short?>("TyreFlatspotRl")
+                        .HasColumnType("smallint")
+                        .HasColumnName("tyre_flatspot_rl");
+
+                    b.Property<short?>("TyreFlatspotRr")
+                        .HasColumnType("smallint")
+                        .HasColumnName("tyre_flatspot_rr");
+
+                    b.Property<float?>("TyreGripFl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_grip_fl");
+
+                    b.Property<float?>("TyreGripFr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_grip_fr");
+
+                    b.Property<float?>("TyreGripRl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_grip_rl");
+
+                    b.Property<float?>("TyreGripRr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_grip_rr");
+
+                    b.Property<float?>("TyreLoadNewtonsFl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_load_newtons_fl");
+
+                    b.Property<float?>("TyreLoadNewtonsFr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_load_newtons_fr");
+
+                    b.Property<float?>("TyreLoadNewtonsRl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_load_newtons_rl");
+
+                    b.Property<float?>("TyreLoadNewtonsRr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_load_newtons_rr");
+
+                    b.Property<float?>("TyrePressureFl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_pressure_fl");
+
+                    b.Property<float?>("TyrePressureFr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_pressure_fr");
+
+                    b.Property<float?>("TyrePressureRl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_pressure_rl");
+
+                    b.Property<float?>("TyrePressureRr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_pressure_rr");
+
+                    b.Property<float?>("TyreRotationRadiansPerSecondFl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_rotation_radians_per_second_fl");
+
+                    b.Property<float?>("TyreRotationRadiansPerSecondFr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_rotation_radians_per_second_fr");
+
+                    b.Property<float?>("TyreRotationRadiansPerSecondRl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_rotation_radians_per_second_rl");
+
+                    b.Property<float?>("TyreRotationRadiansPerSecondRr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_rotation_radians_per_second_rr");
+
+                    b.Property<int?>("TyreSubtypeFront")
+                        .HasColumnType("integer")
+                        .HasColumnName("tyre_subtype_front");
+
+                    b.Property<int?>("TyreSubtypeRear")
+                        .HasColumnType("integer")
+                        .HasColumnName("tyre_subtype_rear");
+
+                    b.Property<short?>("TyreSurfaceMaterialFl")
+                        .HasColumnType("smallint")
+                        .HasColumnName("tyre_surface_material_fl");
+
+                    b.Property<short?>("TyreSurfaceMaterialFr")
+                        .HasColumnType("smallint")
+                        .HasColumnName("tyre_surface_material_fr");
+
+                    b.Property<short?>("TyreSurfaceMaterialRl")
+                        .HasColumnType("smallint")
+                        .HasColumnName("tyre_surface_material_rl");
+
+                    b.Property<short?>("TyreSurfaceMaterialRr")
+                        .HasColumnType("smallint")
+                        .HasColumnName("tyre_surface_material_rr");
+
+                    b.Property<float?>("TyreTempFlInner")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_fl_inner");
+
+                    b.Property<float?>("TyreTempFlMiddle")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_fl_middle");
+
+                    b.Property<float?>("TyreTempFlOuter")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_fl_outer");
+
+                    b.Property<float?>("TyreTempFrInner")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_fr_inner");
+
+                    b.Property<float?>("TyreTempFrMiddle")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_fr_middle");
+
+                    b.Property<float?>("TyreTempFrOuter")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_fr_outer");
+
+                    b.Property<float?>("TyreTempRlInner")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_rl_inner");
+
+                    b.Property<float?>("TyreTempRlMiddle")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_rl_middle");
+
+                    b.Property<float?>("TyreTempRlOuter")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_rl_outer");
+
+                    b.Property<float?>("TyreTempRrInner")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_rr_inner");
+
+                    b.Property<float?>("TyreTempRrMiddle")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_rr_middle");
+
+                    b.Property<float?>("TyreTempRrOuter")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_temp_rr_outer");
+
+                    b.Property<int?>("TyreTypeFront")
+                        .HasColumnType("integer")
+                        .HasColumnName("tyre_type_front");
+
+                    b.Property<int?>("TyreTypeRear")
+                        .HasColumnType("integer")
+                        .HasColumnName("tyre_type_rear");
+
+                    b.Property<float?>("TyreWearFl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_wear_fl");
+
+                    b.Property<float?>("TyreWearFr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_wear_fr");
+
+                    b.Property<float?>("TyreWearRl")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_wear_rl");
+
+                    b.Property<float?>("TyreWearRr")
+                        .HasColumnType("real")
+                        .HasColumnName("tyre_wear_rr");
+
+                    b.Property<float?>("VirtualEnergyCapacityMj")
+                        .HasColumnType("real")
+                        .HasColumnName("virtual_energy_capacity_mj");
+
+                    b.Property<float?>("VirtualEnergyLeftMj")
+                        .HasColumnType("real")
+                        .HasColumnName("virtual_energy_left_mj");
+
+                    b.Property<float?>("VirtualEnergyPerLapMj")
+                        .HasColumnType("real")
+                        .HasColumnName("virtual_energy_per_lap_mj");
+
+                    b.Property<float?>("WheelSpeedFl")
+                        .HasColumnType("real")
+                        .HasColumnName("wheel_speed_fl");
+
+                    b.Property<float?>("WheelSpeedFr")
+                        .HasColumnType("real")
+                        .HasColumnName("wheel_speed_fr");
+
+                    b.Property<float?>("WheelSpeedRl")
+                        .HasColumnType("real")
+                        .HasColumnName("wheel_speed_rl");
+
+                    b.Property<float?>("WheelSpeedRr")
+                        .HasColumnType("real")
+                        .HasColumnName("wheel_speed_rr");
+
+                    b.Property<double?>("WorldPositionX")
+                        .HasColumnType("double precision")
+                        .HasColumnName("world_position_x");
+
+                    b.Property<double?>("WorldPositionY")
+                        .HasColumnType("double precision")
+                        .HasColumnName("world_position_y");
+
+                    b.Property<double?>("WorldPositionZ")
+                        .HasColumnType("double precision")
+                        .HasColumnName("world_position_z");
+
+                    b.Property<float?>("YawRate")
+                        .HasColumnType("real")
+                        .HasColumnName("yaw_rate");
+
+                    b.HasKey("SessionId", "Timestamp", "SequenceNumber");
+
+                    b.HasIndex("Timestamp")
+                        .HasDatabaseName("ix_telemetry_timestamp_brin");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Timestamp"), "brin");
+
+                    b.HasIndex("SessionId", "LapNumber")
+                        .HasDatabaseName("ix_telemetry_session_lap");
+
+                    b.ToTable("telemetry_samples", (string)null);
                 });
 
             modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Car", b =>
@@ -559,17 +1167,6 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                     b.Navigation("TrackLayout");
                 });
 
-            modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.TelemetrySample", b =>
-                {
-                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.Session", "Session")
-                        .WithMany("TelemetrySamples")
-                        .HasForeignKey("SessionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Session");
-                });
-
             modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.TrackLayout", b =>
                 {
                     b.HasOne("RaceIntelligence.Persistence.Core.Entities.Track", "Track")
@@ -579,6 +1176,24 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
                         .IsRequired();
 
                     b.Navigation("Track");
+                });
+
+            modelBuilder.Entity("RaceIntelligence.Persistence.RaceRoom.Entities.OperatingWindowRow", b =>
+                {
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.Session", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RaceIntelligence.Persistence.RaceRoom.Entities.TelemetrySample", b =>
+                {
+                    b.HasOne("RaceIntelligence.Persistence.Core.Entities.Session", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Car", b =>
@@ -609,8 +1224,6 @@ namespace RaceIntelligence.Persistence.RaceRoom.Migrations
             modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Session", b =>
                 {
                     b.Navigation("Laps");
-
-                    b.Navigation("TelemetrySamples");
                 });
 
             modelBuilder.Entity("RaceIntelligence.Persistence.Core.Entities.Track", b =>

@@ -103,6 +103,16 @@ public sealed record LapResponse(
 /// <param name="FuelLeft">Fuel remaining, litres.</param>
 /// <param name="Position">Race position, or <see langword="null"/>.</param>
 /// <param name="TrackPositionFraction">Position around the lap, 0–1, or <see langword="null"/>.</param>
+/// <param name="Channels">
+/// The extra channels this request asked for, by name, or <see langword="null"/> when it asked for
+/// none.
+/// <para>
+/// A map rather than more members, because which channels are here is the caller's choice: a sample
+/// has a hundred and seventy-five and the fields above are the fifteen every chart starts from. A
+/// channel the simulator did not report is absent rather than null — the same rule the rest of this
+/// wire follows.
+/// </para>
+/// </param>
 public sealed record TelemetrySampleResponse(
     long SequenceNumber,
     DateTimeOffset TimestampUtc,
@@ -118,7 +128,8 @@ public sealed record TelemetrySampleResponse(
     float EngineRpm,
     float FuelLeft,
     short? Position,
-    float? TrackPositionFraction);
+    float? TrackPositionFraction,
+    IReadOnlyDictionary<string, object?>? Channels = null);
 
 /// <summary>The samples recorded for one lap, in the order they were captured.</summary>
 /// <param name="SessionId">The session read.</param>
