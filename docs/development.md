@@ -418,6 +418,25 @@ That costs two things, and both are settings rather than assumptions:
 Room and driver are in the URL (`/`, `/rooms/$roomId`, `/rooms/$roomId/$driverKey`), so a refresh
 or a link restores the view.
 
+### TypeScript is held at 6, deliberately
+
+`typescript` is the one dashboard dependency not on its latest version, and it is pinned rather than
+merely stale. TypeScript 7 is the native compiler rewrite, and `typescript-eslint` refuses to load
+against it outright:
+
+```
+typescript-eslint does not support TS 7.0.
+```
+
+`tsc`, `vitest` and `vite build` are all perfectly happy on 7 — it is only linting that stops — so
+the failure appears late, in CI, after everything else has gone green. Tracking issue:
+[typescript-eslint#10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940).
+
+Raise it when typescript-eslint ships TS 7 support, and check `npm run lint` and not just
+`npm run typecheck` when you do. The documented alternative — installing TypeScript 6 side by side
+purely to give typescript-eslint an API to read — buys nothing here and costs a second compiler in
+the tree.
+
 ### Working on it
 
 Under AppHost (Option A) neither setting needs touching: it launches the dashboard as a resource
