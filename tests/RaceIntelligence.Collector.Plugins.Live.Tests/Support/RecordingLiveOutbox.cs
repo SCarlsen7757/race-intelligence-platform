@@ -1,6 +1,7 @@
 using RaceIntelligence.Collector.Plugins.Live;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Collector.Plugins.Live.Tests.Support;
 
@@ -23,9 +24,9 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
     private readonly Lock _gate = new();
     private readonly List<(SessionInfo Session, string RosterFingerprint, int RosterSize)> _startedSessions = [];
     private readonly List<SessionStandings> _publishedStandings = [];
-    private readonly List<(TelemetrySample Sample, string? SimDriverId)> _publishedSelfFrames = [];
-    private readonly List<(TelemetrySample Sample, string? SimDriverId)> _publishedStintFrames = [];
-    private readonly List<(Guid SessionId, string ExtrasJson, DateTimeOffset CapturedAtUtc, string? SimDriverId)> _publishedExtras = [];
+    private readonly List<(RaceRoomTelemetrySample Sample, string? SimDriverId)> _publishedSelfFrames = [];
+    private readonly List<(RaceRoomTelemetrySample Sample, string? SimDriverId)> _publishedStintFrames = [];
+    private readonly List<(RaceRoomTelemetrySample Sample, IReadOnlyList<OperatingWindow> OperatingWindows, DateTimeOffset CapturedAtUtc, string? SimDriverId)> _publishedSlowFrames = [];
     private readonly List<(Guid SessionId, string? Reason)> _endedSessions = [];
 
     /// <inheritdoc />
@@ -56,7 +57,7 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
     }
 
     /// <summary>Local-car frames published, in order.</summary>
-    public IReadOnlyList<(TelemetrySample Sample, string? SimDriverId)> PublishedSelfFrames
+    public IReadOnlyList<(RaceRoomTelemetrySample Sample, string? SimDriverId)> PublishedSelfFrames
     {
         get
         {
@@ -67,14 +68,14 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
         }
     }
 
-    /// <summary>Extras documents published, in order.</summary>
-    public IReadOnlyList<(Guid SessionId, string ExtrasJson, DateTimeOffset CapturedAtUtc, string? SimDriverId)> PublishedExtras
+    /// <summary>Slow-channel frames published, in order.</summary>
+    public IReadOnlyList<(RaceRoomTelemetrySample Sample, IReadOnlyList<OperatingWindow> OperatingWindows, DateTimeOffset CapturedAtUtc, string? SimDriverId)> PublishedSlowFrames
     {
         get
         {
             lock (_gate)
             {
-                return [.. _publishedExtras];
+                return [.. _publishedSlowFrames];
             }
         }
     }
@@ -110,7 +111,7 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
     }
 
     /// <inheritdoc />
-    public void PublishSelf(TelemetrySample sample, string? simDriverId)
+    public void PublishSelf(RaceRoomTelemetrySample sample, string? simDriverId)
     {
         lock (_gate)
         {
@@ -119,7 +120,7 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
     }
 
     /// <summary>Stint frames published, in order — the tyre channels, at their own slower rate.</summary>
-    public IReadOnlyList<(TelemetrySample Sample, string? SimDriverId)> PublishedStintFrames
+    public IReadOnlyList<(RaceRoomTelemetrySample Sample, string? SimDriverId)> PublishedStintFrames
     {
         get
         {
@@ -131,7 +132,7 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
     }
 
     /// <inheritdoc />
-    public void PublishStint(TelemetrySample sample, string? simDriverId)
+    public void PublishStint(RaceRoomTelemetrySample sample, string? simDriverId)
     {
         lock (_gate)
         {
@@ -140,11 +141,15 @@ internal sealed class RecordingLiveOutbox : ILiveOutbox
     }
 
     /// <inheritdoc />
-    public void PublishExtras(Guid sessionId, string extrasJson, DateTimeOffset capturedAtUtc, string? simDriverId)
+    public void PublishSlowChannels(
+        RaceRoomTelemetrySample sample,
+        IReadOnlyList<OperatingWindow> operatingWindows,
+        DateTimeOffset capturedAtUtc,
+        string? simDriverId)
     {
         lock (_gate)
         {
-            _publishedExtras.Add((sessionId, extrasJson, capturedAtUtc, simDriverId));
+            _publishedSlowFrames.Add((sample, operatingWindows, capturedAtUtc, simDriverId));
         }
     }
 

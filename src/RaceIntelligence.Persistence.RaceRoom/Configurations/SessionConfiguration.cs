@@ -52,15 +52,9 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 
         builder.Property(s => s.SchemaVersion).HasColumnName("schema_version").IsRequired();
 
-        builder.Property(s => s.Weather)
-            .HasColumnName("weather")
-            .HasConversion(JsonElementConverter.NullableConverter, JsonElementConverter.NullableComparer)
-            .HasColumnType("jsonb");
-
-        builder.Property(s => s.Setup)
-            .HasColumnName("setup")
-            .HasConversion(JsonElementConverter.NullableConverter, JsonElementConverter.NullableComparer)
-            .HasColumnType("jsonb");
+        // No weather or setup columns. RaceRoom has no dynamic weather and exports none, and no
+        // readable setup export in any form a connector could persist — both were NULL on every row
+        // ever written and always would have been (#109).
 
         builder.Property(s => s.Extras)
             .HasColumnName("extras")
@@ -82,9 +76,7 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
             .HasForeignKey(l => l.SessionId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasMany(s => s.TelemetrySamples)
-            .WithOne(t => t.Session)
-            .HasForeignKey(t => t.SessionId)
-            .OnDelete(DeleteBehavior.Restrict);
+        // The telemetry foreign key is declared from the sample's own side: the sample is RaceRoom's
+        // type in RaceRoom's assembly now, and this entity is shared.
     }
 }

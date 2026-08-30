@@ -1,5 +1,5 @@
 using RaceIntelligence.Persistence.Core.Entities;
-using RaceIntelligence.Persistence.Core.Repositories;
+using RaceIntelligence.Persistence.RaceRoom.Repositories;
 using RaceIntelligence.Read.Api.Contracts;
 
 namespace RaceIntelligence.Read.Api.Mapping;
@@ -45,8 +45,10 @@ internal static class ReadResponseMapper
         lap.MaxSpeed,
         lap.IsValid);
 
-    /// <summary>One telemetry sample.</summary>
-    public static TelemetrySampleResponse ToResponse(this LapSample sample) => new(
+    /// <summary>One telemetry sample, optionally carrying the extra channels asked for.</summary>
+    public static TelemetrySampleResponse ToResponse(
+        this LapSample sample,
+        IReadOnlyDictionary<string, object?>? channels = null) => new(
         sample.SequenceNumber,
         sample.Timestamp,
         sample.SimulationTime,
@@ -61,5 +63,6 @@ internal static class ReadResponseMapper
         sample.EngineRpm,
         sample.FuelLeft,
         sample.Position,
-        sample.TrackPositionFraction);
+        sample.TrackPositionFraction,
+        channels);
 }

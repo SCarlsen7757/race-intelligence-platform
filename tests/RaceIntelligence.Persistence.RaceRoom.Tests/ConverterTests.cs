@@ -55,21 +55,6 @@ public class ConverterTests
             .ShouldBeFalse();
     }
 
-    [Fact]
-    public void Nullable_comparer_handles_null_on_either_side()
-    {
-        JsonElementConverter.NullableComparer.Equals(null, null).ShouldBeTrue();
-        JsonElementConverter.NullableComparer.Equals(Json("""{"a":1}"""), null).ShouldBeFalse();
-        JsonElementConverter.NullableComparer.Equals(null, Json("""{"a":1}""")).ShouldBeFalse();
-    }
-
-    [Fact]
-    public void Nullable_converter_maps_null_to_null()
-    {
-        JsonElementConverter.NullableConverter.ConvertToProvider(null).ShouldBeNull();
-        JsonElementConverter.NullableConverter.ConvertFromProvider(null).ShouldBeNull();
-    }
-
     [Theory]
     [InlineData(SimCapabilities.None)]
     [InlineData(SimCapabilities.TyreWear)]

@@ -1,5 +1,6 @@
-using RaceIntelligence.Core.Buffering;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Buffering;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Collector.Plugins.Ingest.Tests.Support;
 
@@ -10,7 +11,7 @@ namespace RaceIntelligence.Collector.Plugins.Ingest.Tests.Support;
 /// </summary>
 internal sealed class LoggingTelemetryBuffer(ITelemetryBuffer inner, List<string> sharedLog) : ITelemetryBuffer
 {
-    public bool TryWrite(TelemetrySample sample, CancellationToken cancellationToken = default)
+    public bool TryWrite(RaceRoomTelemetrySample sample, CancellationToken cancellationToken = default)
     {
         bool written = inner.TryWrite(sample, cancellationToken);
         if (written)
@@ -27,7 +28,7 @@ internal sealed class LoggingTelemetryBuffer(ITelemetryBuffer inner, List<string
     public ValueTask<bool> WaitToReadAsync(CancellationToken cancellationToken = default) =>
         inner.WaitToReadAsync(cancellationToken);
 
-    public bool TryRead(out TelemetrySample sample) => inner.TryRead(out sample);
+    public bool TryRead(out RaceRoomTelemetrySample sample) => inner.TryRead(out sample);
 
     public void Complete() => inner.Complete();
 

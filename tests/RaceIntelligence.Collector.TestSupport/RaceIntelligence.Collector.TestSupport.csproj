@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
+    <ProjectReference Include="..\..\src\RaceIntelligence.Collector.Abstractions\RaceIntelligence.Collector.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

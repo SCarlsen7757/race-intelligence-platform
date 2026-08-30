@@ -1,38 +1,38 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { LiveConnection } from '../../shared/live/connection';
-import type { RaceRoomExtras } from '../../shared/live/contracts';
+import type { RaceRoomSample } from '../../shared/live/contracts';
 import { LiveStore } from '../../shared/live/store';
 import { LiveContext } from '../../shared/live/useLive';
+import { slowFrame } from '../../testing/slowFrame';
 import { EventTimeline } from './EventTimeline';
 
 const DRIVER = 'id:3';
 
 /**
- * Feeds a sequence of extras documents a second apart, as the collector would.
+ * Feeds a sequence of slow frames a second apart, as the collector would.
  *
- * The whole point of the store's event recording is that it compares each document against the last
- * one, so a test that fed a single document could never see a transition at all.
+ * The whole point of the store's event recording is that it compares each frame against the last
+ * one, so a test that fed a single frame could never see a transition at all.
  */
-function drive(documents: RaceRoomExtras[]) {
+function drive(samples: RaceRoomSample[]) {
   const store = new LiveStore();
   store.setFollowedDrivers([DRIVER]);
 
-  documents.forEach((document, index) => {
-    store.apply({
-      type: 'extrasFrame',
-      roomId: 'room-1',
-      driverKey: DRIVER,
-      capturedAtUtc: new Date(Date.UTC(2026, 7, 19, 12, 0, index)).toISOString(),
-      extras: JSON.stringify(document),
-    });
+  samples.forEach((sample, index) => {
+    store.apply(
+      slowFrame(DRIVER, sample, {
+        roomId: 'room-1',
+        capturedAtUtc: new Date(Date.UTC(2026, 7, 19, 12, 0, index)).toISOString(),
+      }),
+    );
   });
 
   return store;
 }
 
-function renderTimeline(documents: RaceRoomExtras[]) {
-  const store = drive(documents);
+function renderTimeline(samples: RaceRoomSample[]) {
+  const store = drive(samples);
 
   return render(
     <LiveContext.Provider value={{ store, connection: {} as LiveConnection }}>
@@ -43,27 +43,27 @@ function renderTimeline(documents: RaceRoomExtras[]) {
 
 describe('the event timeline', () => {
   it('says so before anything has happened', () => {
-    const view = renderTimeline([{ flags: { yellow: 0 } }]);
+    const view = renderTimeline([{ flagYellow: 0 }]);
 
     expect(view.getByText(/No flags, activations or incidents yet/)).toBeTruthy();
   });
 
   /**
-   * A viewer opening the dashboard under a yellow has not just watched it come out. The first
-   * document establishes what is already true and announces none of it.
+   * A viewer opening the dashboard under a yellow has not just watched it come out. The first frame
+   * establishes what is already true and announces none of it.
    */
   it('does not announce what was already true when the viewer joined', () => {
-    const view = renderTimeline([{ flags: { yellow: 1 } }, { flags: { yellow: 1 } }]);
+    const view = renderTimeline([{ flagYellow: 1 }, { flagYellow: 1 }]);
 
     expect(view.queryByText('Yellow flag')).toBeNull();
   });
 
   it('records a flag when it comes out, once rather than once a second', () => {
     const view = renderTimeline([
-      { flags: { yellow: 0 } },
-      { flags: { yellow: 1 } },
-      { flags: { yellow: 1 } },
-      { flags: { yellow: 1 } },
+      { flagYellow: 0 },
+      { flagYellow: 1 },
+      { flagYellow: 1 },
+      { flagYellow: 1 },
     ]);
 
     expect(view.getAllByText('Yellow flag')).toHaveLength(1);
@@ -71,45 +71,42 @@ describe('the event timeline', () => {
 
   /** A second yellow raised while the first still stands is a second event: the count went up. */
   it('records a second flag raised while the first still stands', () => {
-    const view = renderTimeline([
-      { flags: { yellow: 0 } },
-      { flags: { yellow: 1 } },
-      { flags: { yellow: 2 } },
-    ]);
+    const view = renderTimeline([{ flagYellow: 0 }, { flagYellow: 1 }, { flagYellow: 2 }]);
 
     expect(view.getAllByText('Yellow flag')).toHaveLength(2);
   });
 
   /**
-   * `amountLeft` counts activations *remaining* and falls as they are spent, so it would never
-   * register on an increase test. Engagement is what the store watches instead.
+   * `pushToPassAmountLeft` counts activations *remaining* and falls as they are spent, so it would
+   * never register on an increase test. Engagement is what the store watches instead.
    */
   it('records each push-to-pass activation as it is engaged', () => {
     const view = renderTimeline([
-      { pushToPass: { engaged: 0, amountLeft: 3 } },
-      { pushToPass: { engaged: 1, amountLeft: 2 } },
-      { pushToPass: { engaged: 0, amountLeft: 2 } },
-      { pushToPass: { engaged: 1, amountLeft: 1 } },
+      { pushToPassEngaged: 0, pushToPassAmountLeft: 3 },
+      { pushToPassEngaged: 1, pushToPassAmountLeft: 2 },
+      { pushToPassEngaged: 0, pushToPassAmountLeft: 2 },
+      { pushToPassEngaged: 1, pushToPassAmountLeft: 1 },
     ]);
 
     expect(view.getAllByText('Push to pass')).toHaveLength(2);
   });
 
-  /** `-1` is the simulator's "not available", and an unreported channel is not an event. */
-  it('does not read the not-available sentinel as something happening', () => {
-    const view = renderTimeline([
-      { incidentPoints: -1, drs: { engaged: -1 } },
-      { incidentPoints: -1, drs: { engaged: -1 } },
-    ]);
+  /**
+   * An unreported channel is not an event. It used to arrive as the simulator's `-1` and this test
+   * guarded against reading that as a value; the channel is simply absent now, and absence must be
+   * as silent as the sentinel was made to be.
+   */
+  it('does not read an unreported channel as something happening', () => {
+    const view = renderTimeline([{}, {}]);
 
     expect(view.getByText(/No flags, activations or incidents yet/)).toBeTruthy();
   });
 
   it('orders the newest first, with a clock relative to the first event seen', () => {
     const view = renderTimeline([
-      { flags: { yellow: 0 }, incidentPoints: 0 },
-      { flags: { yellow: 1 }, incidentPoints: 0 },
-      { flags: { yellow: 1 }, incidentPoints: 2 },
+      { flagYellow: 0, incidentPoints: 0 },
+      { flagYellow: 1, incidentPoints: 0 },
+      { flagYellow: 1, incidentPoints: 2 },
     ]);
 
     const labels = [...view.container.querySelectorAll('.event-timeline__label')].map(

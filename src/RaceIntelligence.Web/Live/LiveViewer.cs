@@ -196,14 +196,14 @@ public sealed class LiveViewer
     /// second subscription for a channel that always accompanies the focus would be two things to
     /// keep in step for no gain.
     /// </remarks>
-    public void OfferExtras(ExtrasFrameMessage frame)
+    public void OfferSlowFrame(SlowFrameMessage frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
 
         if (string.Equals(RoomId, frame.RoomId, StringComparison.Ordinal)
             && IsFocused(frame.DriverKey))
         {
-            Queue.OfferExtras(frame);
+            Queue.OfferSlowFrame(frame);
         }
     }
 

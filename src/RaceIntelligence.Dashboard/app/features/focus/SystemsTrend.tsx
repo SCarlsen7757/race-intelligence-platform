@@ -1,8 +1,7 @@
 import { formatNumber, NOT_REPORTED } from '../../shared/format/format';
-import type { RaceRoomExtras } from '../../shared/live/contracts';
-import { reportedNumber } from '../../shared/live/extras';
-import { TYRE_TRACE_CAPACITY, type ExtrasTraces } from '../../shared/live/store';
-import { useExtras } from '../../shared/live/useLive';
+import type { RaceRoomSample } from '../../shared/live/contracts';
+import { TYRE_TRACE_CAPACITY, type SlowTraces } from '../../shared/live/store';
+import { useSlowFrame } from '../../shared/live/useLive';
 import type { ChannelPanelProps, WidgetChannel } from '../../sims/registry';
 import { ChannelLegend } from './ChannelLegend';
 import { LiveChart, type LiveChartSpec } from './LiveChart';
@@ -19,17 +18,16 @@ import { TRACE_COLOURS } from './traceColours';
  * putting them on one axis would place an oil pressure and a water temperature at comparable
  * heights, inviting exactly the comparison that means nothing.
  *
- * Each entry names its ring and its document field separately. They answer different questions —
- * the ring is the stint, the field is this second — even though the store fills the first from the
- * second, and naming both here keeps a channel whole rather than split between a table and a
- * switch.
+ * Each entry names its ring and its channel separately. They answer different questions — the ring
+ * is the stint, the channel is this second — even though the store fills the first from the second,
+ * and naming both here keeps a channel whole rather than split between a table and a switch.
  */
 export const SYSTEM_CHANNELS = [
   {
     id: 'engineTemp',
     label: 'Water',
     stroke: TRACE_COLOURS.brake,
-    ring: (extras: ExtrasTraces) => extras.engineTempCelsius,
+    ring: (slow: SlowTraces) => slow.engineTempCelsius,
     field: 'engineTempCelsius',
     unit: '°C',
     digits: 0,
@@ -38,7 +36,7 @@ export const SYSTEM_CHANNELS = [
     id: 'oilTemp',
     label: 'Oil temp',
     stroke: TRACE_COLOURS.clutch,
-    ring: (extras: ExtrasTraces) => extras.engineOilTempCelsius,
+    ring: (slow: SlowTraces) => slow.engineOilTempCelsius,
     field: 'engineOilTempCelsius',
     unit: '°C',
     digits: 0,
@@ -47,7 +45,7 @@ export const SYSTEM_CHANNELS = [
     id: 'oilPressure',
     label: 'Oil press',
     stroke: TRACE_COLOURS.throttle,
-    ring: (extras: ExtrasTraces) => extras.engineOilPressureKpa,
+    ring: (slow: SlowTraces) => slow.engineOilPressureKpa,
     field: 'engineOilPressureKpa',
     unit: 'kPa',
     digits: 0,
@@ -56,7 +54,7 @@ export const SYSTEM_CHANNELS = [
     id: 'fuelPressure',
     label: 'Fuel press',
     stroke: TRACE_COLOURS.steering,
-    ring: (extras: ExtrasTraces) => extras.fuelPressureKpa,
+    ring: (slow: SlowTraces) => slow.fuelPressureKpa,
     field: 'fuelPressureKpa',
     unit: 'kPa',
     digits: 0,
@@ -65,7 +63,7 @@ export const SYSTEM_CHANNELS = [
     id: 'turbo',
     label: 'Turbo',
     stroke: TRACE_COLOURS.speed,
-    ring: (extras: ExtrasTraces) => extras.turboPressureBar,
+    ring: (slow: SlowTraces) => slow.turboPressureBar,
     field: 'turboPressureBar',
     unit: 'bar',
     digits: 2,
@@ -74,7 +72,7 @@ export const SYSTEM_CHANNELS = [
     id: 'battery',
     label: 'Battery',
     stroke: TRACE_COLOURS.rpm,
-    ring: (extras: ExtrasTraces) => extras.batteryStateOfChargePercent,
+    ring: (slow: SlowTraces) => slow.batteryStateOfChargePercent,
     field: 'batteryStateOfChargePercent',
     unit: '%',
     digits: 0,
@@ -87,12 +85,13 @@ export const SYSTEM_WIDGET_CHANNELS: readonly WidgetChannel[] = SYSTEM_CHANNELS.
 );
 
 /** One channel's current reading, or a dash where the simulator reported none. */
-function readingOf(document: RaceRoomExtras | null, index: number): string {
+function readingOf(sample: RaceRoomSample | null, index: number): string {
   const channel = SYSTEM_CHANNELS[index]!;
-  const raw = document === null ? undefined : document[channel.field];
-  const value = reportedNumber(typeof raw === 'number' ? raw : undefined);
+  const value = sample === null ? undefined : sample[channel.field];
 
-  return value === null ? NOT_REPORTED : `${formatNumber(value, channel.digits)}${channel.unit}`;
+  return value === undefined
+    ? NOT_REPORTED
+    : `${formatNumber(value, channel.digits)}${channel.unit}`;
 }
 
 /**
@@ -105,8 +104,7 @@ function readingOf(document: RaceRoomExtras | null, index: number): string {
  *
  * These are the channels that explain a pace loss after the fact — what a race engineer goes back
  * to when a driver reports the car went off a second a lap and nothing on the tyre charts says why.
- * All of them have been crossing the wire in the extras document since the connector was written,
- * decoded once a second, and thrown away.
+ * All of them crossed the wire untyped for a long time, decoded once a second and thrown away.
  *
  * A missing channel draws as a gap and reads as a dash. Several of these are plausible at zero —
  * **zero turbo pressure is a naturally aspirated engine and zero battery is a flat one** — so the
@@ -119,7 +117,7 @@ export function SystemsTrend({
   hiddenChannels,
   onToggleChannel,
 }: ChannelPanelProps) {
-  const extras = useExtras(driverKey);
+  const slow = useSlowFrame(driverKey);
 
   const spec: LiveChartSpec = {
     capacity: TYRE_TRACE_CAPACITY,
@@ -133,7 +131,7 @@ export function SystemsTrend({
       stroke: channel.stroke,
       scale: channel.id,
       width: 1.5,
-      buffer: () => channel.ring(store.tracesFor(driverKey).extras),
+      buffer: () => channel.ring(store.tracesFor(driverKey).slow),
     })),
   };
 
@@ -151,7 +149,7 @@ export function SystemsTrend({
         channels={SYSTEM_CHANNELS.map(({ id, label, stroke }) => ({ id, label, stroke }))}
         hidden={hiddenChannels}
         onToggle={onToggleChannel}
-        renderValue={(_, index) => readingOf(extras?.document ?? null, index)}
+        renderValue={(_, index) => readingOf(slow?.message.sample ?? null, index)}
       />
     </div>
   );

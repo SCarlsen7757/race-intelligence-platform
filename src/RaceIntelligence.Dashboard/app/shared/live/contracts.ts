@@ -200,9 +200,11 @@ export interface RaceLengthState {
 /**
  * The band a simulator says a temperature belongs in.
  *
- * Its own type because two different readings carry it — tyre tread and brake discs — and an
- * operating window is one idea. A reader who has learned it in one place should not have to learn
- * it again in the other, and a chart that draws the band can take either.
+ * Its own type because two different readings want it — tyre tread and brake discs — and an
+ * operating window is one idea. A reader who has learned it in one place should not have to learn it
+ * again in the other, and a chart that draws the band can take either. It arrives on
+ * {@link SlowFrameMessage} as an {@link OperatingWindowRow} per corner; this is the shape a chart
+ * reads it in once a corner has been picked out.
  *
  * **Every bound is optional and absent means the simulator named no band.** Draw nothing in that
  * case. A window invented from a nominal value is worse than no window: it tells an engineer their
@@ -218,16 +220,21 @@ export interface OperatingWindow {
 }
 
 /**
- * One tyre's temperatures across the tread, plus the window they belong in. Celsius.
+ * One tyre's temperatures across the tread. Celsius.
  *
  * Three readings rather than one because the spread across the tread is the question a temperature
  * is usually being asked: **inner against outer is the camber and pressure story**, and a front left
  * twenty degrees hotter on its inner shoulder is a setup that is wrong in a nameable way. The middle
  * reading alone — which is all this wire used to carry — says only "warm".
  *
+ * **The window used to be here and is not any more.** It never changed between frames, so sending
+ * it per tyre per frame was five constants riding a 1 Hz message; it comes on
+ * {@link SlowFrameMessage} now, keyed by compound, which is also what makes it stay correct across a
+ * stop onto a different tyre.
+ *
  * A null shoulder is a hole in the chart, never a zero.
  */
-export interface TreadTemperatures extends OperatingWindow {
+export interface TreadTemperatures {
   inner?: number | null;
   middle?: number | null;
   outer?: number | null;
@@ -279,8 +286,8 @@ export interface FocusFrameMessage {
  * back to about this rate. The decimation was right and was simply happening three processes too
  * late; the wire does it now.
  *
- * Typed and canonical, unlike `ExtrasFrameMessage`, which shares the cadence but is the connector's
- * own untranslated document.
+ * Shares its cadence with {@link SlowFrameMessage}, and stays a separate channel: a tyre is read
+ * across a stint where damage is read the moment it happens, and the two want different tiles.
  */
 export interface StintFrameMessage {
   type: 'stintFrame';
@@ -328,22 +335,26 @@ export interface LapHistoryMessage {
 }
 
 /**
- * The low-rate channel, carrying whatever the connector wrote into `Extras` for the focused driver.
+ * The low-rate channel: every slow-moving channel for the focused driver, typed.
  *
- * Roughly 1 Hz by design, and on its own channel precisely so parsing it never happens at focus
- * rate — `extras` is a JSON string and parsing it sixty times a second would be pure waste.
+ * Roughly 1 Hz by design. It used to be an opaque JSON string the store parsed once a frame, with a
+ * hand-written mirror of the document's shape that nothing checked and a warning attached that the
+ * simulator's `-1` sentinels were untranslated — so a panel that trusted a number reported a brake
+ * at minus one degree. The channels are named and nullable now, and the connector turned every
+ * sentinel into a `null` before the sample left the collector.
  *
- * **The values inside are raw.** Nothing upstream translates a simulator's sentinels, so a
- * consumer must know them: RaceRoom writes `-1` for "not available", which is emphatically not the
- * same as zero.
+ * **The sample is sent whole.** At 1 Hz, with nulls omitted, that costs a few hundred bytes and
+ * removes the judgement about which channels count as slow — a judgement that failed silently when
+ * it was made wrong.
  */
-export interface ExtrasFrameMessage {
-  type: 'extrasFrame';
+export interface SlowFrameMessage {
+  type: 'slowFrame';
   roomId: string;
   driverKey: string;
   capturedAtUtc: string;
-  /** The connector's raw document, still a string. Named to match the hub's `Extras` property. */
-  extras: string;
+  sample: RaceRoomSample;
+  /** The tyre and brake bands in force, one per corner. Constant for a compound, hence not on the sample. */
+  operatingWindows: OperatingWindowRow[];
 }
 
 export interface LiveErrorMessage {
@@ -359,7 +370,7 @@ export type LiveViewMessage =
   | FocusFrameMessage
   | LapHistoryMessage
   | StintFrameMessage
-  | ExtrasFrameMessage
+  | SlowFrameMessage
   | LiveErrorMessage;
 
 /** Mirrors `LiveErrorCodes`. Branch on these, never on the message text. */
@@ -424,116 +435,94 @@ export type LiveViewCommand =
 /** Wheel order on every per-wheel array crossing the wire. */
 export const WHEELS = ['FL', 'FR', 'RL', 'RR'] as const;
 
-/** RaceRoom's car damage, as it appears under `damage` in the extras document. */
-export interface RaceRoomDamage {
-  engine?: number;
-  transmission?: number;
-  aerodynamics?: number;
-  suspension?: number;
-}
-
-/** RaceRoom's flag state, as it appears under `flags`. Each is a count or a 0/1, raw. */
-export interface RaceRoomFlags {
-  yellow?: number;
-  blue?: number;
-  black?: number;
-  green?: number;
-  checkered?: number;
-  white?: number;
-  blackAndWhite?: number;
-}
-
-/** RaceRoom's DRS state, as it appears under `drs`. */
-export interface RaceRoomDrs {
-  equipped?: number;
-  available?: number;
-  numActivationsLeft?: number;
-  numActivationsTotal?: number;
-  engaged?: number;
-}
-
-/** RaceRoom's push-to-pass state, as it appears under `pushToPass`. */
-export interface RaceRoomPushToPass {
-  available?: number;
-  engaged?: number;
-  amountLeft?: number;
-  engagedTimeLeftSeconds?: number;
-  waitTimeLeftSeconds?: number;
+/**
+ * One corner's tyre and brake temperature band, keyed by the compound it belongs to.
+ *
+ * **These are constants**, which is why they are not on a sample: measured over one recorded
+ * session the six bounds had exactly one distinct value each against 119,146 for the reading they
+ * bound. They are keyed by compound because the one thing that moves them is fitting a different
+ * tyre, so a stop that switches compound gets its own row rather than rewriting the earlier stint's.
+ *
+ * `corner` is `0..3` — FL, FR, RL, RR, the same order as every per-wheel array on this wire.
+ */
+export interface OperatingWindowRow {
+  corner: number;
+  compound?: number;
+  tyreOptimalCelsius?: number;
+  tyreColdCelsius?: number;
+  tyreHotCelsius?: number;
+  brakeOptimalCelsius?: number;
+  brakeColdCelsius?: number;
+  brakeHotCelsius?: number;
 }
 
 /**
- * RaceRoom's pit state, as it appears under `pit`.
+ * One RaceRoom telemetry sample, as the slow channel sends it.
  *
- * Distinct from `PitWindowState` on the session message, which is the hub's translated view. These
- * are the simulator's own integers, sentinels and all.
+ * **Mirrored by hand from `channels/raceroom-telemetry.channels`**, which is the single declaration
+ * every C# restatement of these channels is generated from. Only the channels this dashboard reads
+ * are typed here — the manifest has a hundred and seventy-five and a wall does not draw them all —
+ * and `ReadContractShapeTests` on the C# side asserts that every name below is one the manifest
+ * declares, so a rename there fails a test rather than blanking a tile.
+ *
+ * **Absent means the simulator did not report it.** Every field is optional because the wire omits
+ * nulls, and that is the whole improvement over the JSON document this replaced: there is no `-1`
+ * left to mistake for a reading.
  */
-export interface RaceRoomPit {
-  windowStatus?: number;
-  windowStart?: number;
-  windowEnd?: number;
-  state?: number;
-  action?: number;
-  numPitstopsPerformed?: number;
-  totalDurationSeconds?: number;
-  elapsedTimeSeconds?: number;
-}
+export interface RaceRoomSample {
+  // Damage, 0..1.
+  damageEngine?: number;
+  damageTransmission?: number;
+  damageAerodynamics?: number;
+  damageSuspension?: number;
 
-/**
- * One brake's temperature and the window the simulator says it belongs in.
- *
- * The same {@link OperatingWindow} a tyre carries, for the same reason and under the same names —
- * 380 °C is cold on one car and cooking on another, and the simulator will say which. The
- * difference is only that a brake has one reading where a tyre has three across its tread.
- *
- * **Raw, like everything in this document.** These are the simulator's own numbers, so `-1` is "not
- * available" and not a reading; run them through {@link reportedNumber}.
- */
-export interface BrakeTemperature {
-  current?: number;
-  optimal?: number;
-  cold?: number;
-  hot?: number;
-}
-
-/**
- * The shape this dashboard reads out of RaceRoom's extras document.
- *
- * **Every field is optional and every value is raw.** Nothing upstream translates the simulator's
- * sentinels — `R3ETelemetryMapper` says so at each block it writes — so `-1` here means "not
- * available" and is emphatically not a reading. Run numbers through {@link reportedNumber} rather
- * than trusting them; the alternative is a panel that reports a brake at minus one degree.
- *
- * Mirrors what the mapper actually writes, and deliberately not more: a field typed here that no
- * connector produces is a promise the UI cannot keep.
- */
-export interface RaceRoomExtras {
-  damage?: RaceRoomDamage;
-  /** The simulator's accumulated cut-track warning count. `-1` means "not available". */
-  cutTrackWarnings?: number;
-  /** This driver's accumulated incident points. `-1` is the simulator's "not available". */
+  // Penalties. `maxIncidentPoints` is the server's disqualification limit, absent when there is none.
   incidentPoints?: number;
-  /** The server's disqualification limit. `-1` when there is none, e.g. offline. */
   maxIncidentPoints?: number;
+  cutTrackWarnings?: number;
 
-  /** Front-axle tyre compound/subtype identifier. Negative values are simulator sentinels. */
-  tireSubtypeFront?: number;
-  /** Rear-axle tyre compound/subtype identifier. Negative values are simulator sentinels. */
-  tireSubtypeRear?: number;
+  // Tyre compounds, per axle. RaceRoom's own subtype codes, untranslated.
+  tyreTypeFront?: number;
+  tyreTypeRear?: number;
+  tyreSubtypeFront?: number;
+  tyreSubtypeRear?: number;
 
-  // Per-wheel channels, in the platform's FL, FR, RL, RR order.
-  brakeTemperatureCelsius?: BrakeTemperature[];
+  // Per-corner channels. FL, FR, RL, RR.
+  brakeTempFl?: number;
+  brakeTempFr?: number;
+  brakeTempRl?: number;
+  brakeTempRr?: number;
   /**
    * Grip loss measured directly rather than inferred from lap time.
    *
-   * The mapper singles this one out as the reason its per-tyre block exists: a degradation model
-   * built without it can only see the symptom.
+   * The reason the connector's per-tyre block existed at all: a degradation model built without it
+   * can only see the symptom.
    */
-  tyreGrip?: number[];
-  tyreLoadNewtons?: number[];
-  tyreDirt?: number[];
-  tyreFlatspot?: number[];
-  tyreRotationRadiansPerSecond?: number[];
-  tyreSurfaceMaterial?: number[];
+  tyreGripFl?: number;
+  tyreGripFr?: number;
+  tyreGripRl?: number;
+  tyreGripRr?: number;
+  tyreLoadNewtonsFl?: number;
+  tyreLoadNewtonsFr?: number;
+  tyreLoadNewtonsRl?: number;
+  tyreLoadNewtonsRr?: number;
+  tyreDirtFl?: number;
+  tyreDirtFr?: number;
+  tyreDirtRl?: number;
+  tyreDirtRr?: number;
+  /** A tri-state, not a fraction: `0` false, `1` true, absent when unreported. */
+  tyreFlatspotFl?: number;
+  tyreFlatspotFr?: number;
+  tyreFlatspotRl?: number;
+  tyreFlatspotRr?: number;
+  tyreSurfaceMaterialFl?: number;
+  tyreSurfaceMaterialFr?: number;
+  tyreSurfaceMaterialRl?: number;
+  tyreSurfaceMaterialRr?: number;
+  tyreRotationRadiansPerSecondFl?: number;
+  tyreRotationRadiansPerSecondFr?: number;
+  tyreRotationRadiansPerSecondRl?: number;
+  tyreRotationRadiansPerSecondRr?: number;
 
   // Engine and drivetrain health. Trends rather than instants — an oil temperature that has climbed
   // for ten laps is information, and the same number seen once is not.
@@ -549,17 +538,39 @@ export interface RaceRoomExtras {
   virtualEnergyCapacityMj?: number;
   virtualEnergyPerLapMj?: number;
 
-  flags?: RaceRoomFlags;
-  drs?: RaceRoomDrs;
-  pushToPass?: RaceRoomPushToPass;
-  pit?: RaceRoomPit;
+  // Flags. Each is a count or a 0/1, as the simulator reports it.
+  flagYellow?: number;
+  flagBlue?: number;
+  flagBlack?: number;
+  flagGreen?: number;
+  flagCheckered?: number;
+  flagWhite?: number;
+  flagBlackAndWhite?: number;
 
-  /**
-   * Per-wheel brake-pad wear.
-   *
-   * **No connector writes this today**, and none declares `SimCapabilities.BrakeWear` either, so the
-   * brake-wear widget that requires it cannot currently appear. Kept because the widget and the
-   * capability flag both exist and are waiting on the connector, not on this type.
-   */
-  brakeWear?: number[];
+  // DRS. `drsActivationsUnlimited` is what tells "endless" apart from "unreported": RaceRoom encodes
+  // endless as int32::max, and the connector turns both into an absent count plus this flag.
+  drsEquipped?: number;
+  drsAvailable?: number;
+  drsEngaged?: number;
+  drsActivationsLeft?: number;
+  drsActivationsUnlimited?: boolean;
+  drsActivationsTotal?: number;
+
+  // Push-to-pass.
+  pushToPassAvailable?: number;
+  pushToPassEngaged?: number;
+  pushToPassAmountLeft?: number;
+  pushToPassEngagedTimeLeftSeconds?: number;
+  pushToPassWaitTimeLeftSeconds?: number;
+
+  // Pit state. The simulator's own integers, distinct from `PitWindowState` on the session message,
+  // which is the hub's translated view.
+  pitWindowStatus?: number;
+  pitWindowStart?: number;
+  pitWindowEnd?: number;
+  pitState?: number;
+  pitAction?: number;
+  pitStopsPerformed?: number;
+  pitTotalDurationSeconds?: number;
+  pitElapsedTimeSeconds?: number;
 }

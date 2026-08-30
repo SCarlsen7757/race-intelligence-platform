@@ -48,25 +48,13 @@ public static class JsonElementConverter
         value => value.GetRawText().GetHashCode(StringComparison.Ordinal),
         value => Snapshot(value));
 
-    /// <summary>Converts a nullable <see cref="JsonElement"/> column (e.g. <c>weather</c>, <c>setup</c>) to/from its jsonb <see cref="string"/> representation.</summary>
-    public static readonly ValueConverter<JsonElement?, string?> NullableConverter = new(
-        value => value.HasValue ? Serialize(value.Value) : null,
-        text => text == null ? null : Deserialize(text));
-
-    /// <summary>Structural comparer for nullable <see cref="JsonElement"/> columns. See remarks on why this is required.</summary>
-    public static readonly ValueComparer<JsonElement?> NullableComparer = new(
-        (left, right) => NullableRawTextEquals(left, right),
-        value => value.HasValue ? value.Value.GetRawText().GetHashCode(StringComparison.Ordinal) : 0,
-        value => value.HasValue ? Snapshot(value.Value) : null);
+    // There is no nullable pair here any more. NullableConverter and NullableComparer existed for
+    // the sessions table's weather and setup columns, and #109 removed both — RaceRoom has no
+    // dynamic weather and no readable setup export, so they were NULL on every row ever written.
+    // A converter with no caller is a converter nothing checks; a future nullable jsonb column can
+    // reintroduce the pair alongside its first real use.
 
     private static bool RawTextEquals(JsonElement left, JsonElement right) => left.GetRawText() == right.GetRawText();
-
-    private static bool NullableRawTextEquals(JsonElement? left, JsonElement? right) => (left.HasValue, right.HasValue) switch
-    {
-        (false, false) => true,
-        (true, true) => RawTextEquals(left.GetValueOrDefault(), right.GetValueOrDefault()),
-        _ => false,
-    };
 
     /// <summary>
     /// Serializes a <see cref="JsonElement"/> to the raw jsonb text Postgres should store. A

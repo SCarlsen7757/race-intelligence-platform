@@ -2,7 +2,8 @@
 using RaceIntelligence.Core.Capabilities;
 using RaceIntelligence.Core.Games;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Persistence.Core.Repositories;
 
 namespace RaceIntelligence.Persistence.RaceRoom.Tests.Support;
@@ -83,8 +84,13 @@ internal static class SampleFactory
     /// <remarks>Element form, for session <c>Extras</c>, which is still a <see cref="JsonElement"/>.</remarks>
     public static JsonElement NonTrivialExtras() => JsonDocument.Parse(NonTrivialExtrasText).RootElement;
 
-    /// <summary>Builds a canonical telemetry sample for <paramref name="sessionId"/> at <paramref name="sequenceNumber"/>.</summary>
-    public static TelemetrySample TelemetrySample(Guid sessionId, long sequenceNumber, DateTimeOffset? timestamp = null, string? extras = null) => new()
+    /// <summary>Builds a telemetry sample for <paramref name="sessionId"/> at <paramref name="sequenceNumber"/>.</summary>
+    /// <remarks>
+    /// Asymmetric across the corners throughout, so a column written at the wrong position — the one
+    /// failure a binary <c>COPY</c> will not report — shows up as a wrong value rather than passing.
+    /// Channels not set here are left null, which is what "the simulator did not report this" means.
+    /// </remarks>
+    public static RaceRoomTelemetrySample TelemetrySample(Guid sessionId, long sequenceNumber, DateTimeOffset? timestamp = null) => new()
     {
         SessionId = sessionId,
         SequenceNumber = sequenceNumber,
@@ -100,18 +106,69 @@ internal static class SampleFactory
         LapNumber = 1,
         Sector = 1,
         Position = 3,
-        WheelSpeed = new WheelData<float>(45.1f, 45.2f, 44.9f, 45.0f),
-        SuspensionTravel = new WheelData<float>(0.05f, 0.05f, 0.06f, 0.06f),
-        TyreTemperature = new WheelData<TyreTemperature>(
-            new TyreTemperature(85, 90, 88, 90, 70, 110),
-            new TyreTemperature(86, 91, 89, 90, 70, 110),
-            new TyreTemperature(84, 89, 87, 90, 70, 110),
-            new TyreTemperature(85, 90, 88, 90, 70, 110)),
-        TyrePressure = new WheelData<float?>(180f, 180f, 175f, 175f),
-        TyreWear = new WheelData<float?>(0.1f, 0.1f, 0.12f, 0.12f),
         TrackPositionFraction = 0.42f,
-        Extras = extras ?? EmptyObjectText,
+        WheelSpeedFl = 45.1f,
+        WheelSpeedFr = 45.2f,
+        WheelSpeedRl = 44.9f,
+        WheelSpeedRr = 45.0f,
+        SuspensionTravelFl = 0.05f,
+        SuspensionTravelFr = 0.051f,
+        SuspensionTravelRl = 0.06f,
+        SuspensionTravelRr = 0.061f,
+        TyrePressureFl = 180f,
+        TyrePressureFr = 181f,
+        TyrePressureRl = 175f,
+        TyrePressureRr = 176f,
+        TyreWearFl = 0.1f,
+        TyreWearFr = 0.11f,
+        TyreWearRl = 0.12f,
+        // Left unreported so an absent corner can be told from a brand-new tyre.
+        TyreWearRr = null,
+        TyreTempFlInner = 85f,
+        TyreTempFlMiddle = 90f,
+        TyreTempFlOuter = 88f,
+        TyreTempFrInner = 86f,
+        TyreTempFrMiddle = 91f,
+        TyreTempFrOuter = 89f,
+        TyreTempRlInner = 84f,
+        TyreTempRlMiddle = 89f,
+        TyreTempRlOuter = 87f,
+        TyreTempRrInner = 85f,
+        TyreTempRrMiddle = 90f,
+        TyreTempRrOuter = 88f,
+        BrakeTempFl = 401f,
+        BrakeTempFr = 402f,
+        BrakeTempRl = 403f,
+        BrakeTempRr = 404f,
+        CamberFl = -0.06f,
+        CamberFr = -0.05f,
+        CamberRl = -0.04f,
+        CamberRr = -0.03f,
+        WorldPositionX = 1234.5,
+        WorldPositionY = 67.25,
+        WorldPositionZ = -890.75,
+        AccelerationLongitudinal = -8.5f,
+        AccelerationLateral = 12.25f,
+        DamageEngine = 0.5f,
+        PushToPassAmountLeft = 4,
+        DrsActivationsLeft = 3,
+        DrsActivationsUnlimited = false,
+        AbsActive = true,
+        TractionControlActive = false,
+        TyreSubtypeFront = 2,
+        TyreSubtypeRear = 4,
+        CutTrackWarnings = 1,
+        FlagYellow = 0,
     };
+
+    /// <summary>One operating window per corner, with distinct bounds so a copied index shows.</summary>
+    public static IReadOnlyList<OperatingWindow> OperatingWindows() =>
+    [
+        new(Corner.FrontLeft, Compound: 2, 90f, 70f, 110f, 410f, 200f, 600f),
+        new(Corner.FrontRight, Compound: 2, 91f, 71f, 111f, 411f, 201f, 601f),
+        new(Corner.RearLeft, Compound: 4, 92f, 72f, 112f, 412f, 202f, 602f),
+        new(Corner.RearRight, Compound: 4, 93f, 73f, null, 413f, 203f, null),
+    ];
 
     /// <summary>
     /// Builds <paramref name="count"/> sequential telemetry samples for <paramref name="sessionId"/>
@@ -121,10 +178,10 @@ internal static class SampleFactory
     /// number also share that sample's primary key — required for the bulk writer's duplicate
     /// detection to be exercised meaningfully across overlapping batches in tests.
     /// </summary>
-    public static IReadOnlyList<TelemetrySample> TelemetryBatch(Guid sessionId, int count, long startSequence = 0, DateTimeOffset? anchor = null)
+    public static IReadOnlyList<RaceRoomTelemetrySample> TelemetryBatch(Guid sessionId, int count, long startSequence = 0, DateTimeOffset? anchor = null)
     {
         var start = anchor ?? DateTimeOffset.UtcNow;
-        var samples = new List<TelemetrySample>(count);
+        var samples = new List<RaceRoomTelemetrySample>(count);
         for (var i = 0; i < count; i++)
         {
             var sequenceNumber = startSequence + i;

@@ -1,5 +1,4 @@
-﻿using RaceIntelligence.Persistence.Core.Mapping;
-using RaceIntelligence.Persistence.RaceRoom.Tests.Support;
+﻿using RaceIntelligence.Persistence.RaceRoom.Tests.Support;
 using Shouldly;
 
 namespace RaceIntelligence.Persistence.RaceRoom.Tests;
@@ -8,7 +7,8 @@ namespace RaceIntelligence.Persistence.RaceRoom.Tests;
 /// Regression coverage for the explicit <c>ValueComparer&lt;JsonElement&gt;</c> documented on
 /// <see cref="RaceIntelligence.Persistence.Core.Converters.JsonElementConverter"/>: without it, every
 /// jsonb-backed property looks permanently modified because each materialization produces a new
-/// <see cref="System.Text.Json.JsonElement"/> instance.
+/// <see cref="System.Text.Json.JsonElement"/> instance — which would mean a spurious UPDATE for every
+/// session ever loaded.
 /// </summary>
 [Collection(PostgresCollection.Name)]
 public sealed class ValueComparerTests(PostgresFixture fixture)
@@ -24,15 +24,9 @@ public sealed class ValueComparerTests(PostgresFixture fixture)
         await using var db = fixture.CreateContext();
         var sessionId = await SampleFactory.CreateSessionAsync(db, SampleFactory.NonTrivialExtras());
 
-        var sample = SampleFactory.TelemetrySample(sessionId, sequenceNumber: 1, extras: SampleFactory.NonTrivialExtrasText);
-        db.TelemetrySamples.Add(TelemetrySampleMapper.ToEntity(sample));
-        await db.SaveChangesAsync();
-        db.ChangeTracker.Clear();
-
-        // Load both a jsonb-bearing Session (weather/setup/extras) and TelemetrySample
-        // (tyre_temperature/extras) without mutating anything.
+        // Only the session carries jsonb now: a telemetry sample's extras and tyre_temperature are
+        // typed columns since #109, so there is nothing on that table for a comparer to get wrong.
         _ = await Ef.SingleAsync(db.Sessions, s => s.Id == sessionId);
-        _ = await Ef.SingleAsync(db.TelemetrySamples, t => t.SessionId == sessionId);
 
         db.ChangeTracker.HasChanges().ShouldBeFalse(
             "loading an entity and touching nothing must not be seen as a change; " +

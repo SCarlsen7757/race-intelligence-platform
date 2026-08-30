@@ -89,13 +89,13 @@ public sealed class LiveViewerRegistry
     }
 
     /// <summary>Offers an extras document to every viewer following that driver in that room.</summary>
-    public void BroadcastExtras(ExtrasFrameMessage frame)
+    public void BroadcastSlowFrame(SlowFrameMessage frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
 
         foreach (var viewer in _viewers.Keys)
         {
-            viewer.OfferExtras(frame);
+            viewer.OfferSlowFrame(frame);
         }
     }
 

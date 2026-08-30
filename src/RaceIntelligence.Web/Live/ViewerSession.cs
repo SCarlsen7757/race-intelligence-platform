@@ -223,9 +223,9 @@ public sealed class ViewerSession(
                 // Answered from what the hub already holds rather than waiting out an extras
                 // interval. At roughly 1 Hz that is a second of an empty damage panel, which a race
                 // engineer reads as "no damage" rather than as "not known yet".
-                if (room.LatestExtrasFor(driverKey) is { } extras)
+                if (room.LatestSlowFrameFor(driverKey) is { } extras)
                 {
-                    viewer.Queue.OfferExtras(extras);
+                    viewer.Queue.OfferSlowFrame(extras);
                 }
 
                 // Same argument, and it bites harder: tyre charts plot a fifteen-minute stint, so a

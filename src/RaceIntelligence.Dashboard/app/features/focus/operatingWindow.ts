@@ -1,7 +1,11 @@
-import { reportedNumber } from '../../shared/live/extras';
 import type { OperatingWindowValues } from './LiveChart';
 
-/** The raw shape a window arrives in, on a tyre's tread or a brake's corner. */
+/**
+ * The shape a window arrives in, on a tyre or a brake.
+ *
+ * Structurally {@link OperatingWindow} from the live contracts, kept local so this helper does not
+ * depend on the wire: it is equally happy with a window a read-path response built.
+ */
 interface RawWindow {
   optimal?: number | null;
   cold?: number | null;
@@ -35,9 +39,12 @@ export function firstReportedWindow(
       continue;
     }
 
-    const cold = reportedNumber(corner.cold);
-    const hot = reportedNumber(corner.hot);
-    const optimal = reportedNumber(corner.optimal);
+    // No sentinel filtering. These arrive already translated — the connector turned RaceRoom's
+    // -1 into a null before the sample left the collector — so a negative here is a real bound, and
+    // a brake window genuinely can sit below zero on a cold morning.
+    const cold = corner.cold ?? null;
+    const hot = corner.hot ?? null;
+    const optimal = corner.optimal ?? null;
 
     // Any one of the three is enough to be worth drawing — `drawBand` renders the bounds and the
     // optimum independently, so a simulator reporting only an optimum still gets its line.

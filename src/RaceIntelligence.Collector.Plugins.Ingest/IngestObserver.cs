@@ -3,9 +3,10 @@ using Microsoft.Extensions.Logging;
 using RaceIntelligence.Collector.Abstractions;
 using RaceIntelligence.Collector.Plugins.Ingest.Mapping;
 using RaceIntelligence.Collector.Plugins.Ingest.Upload;
-using RaceIntelligence.Core.Buffering;
+using RaceIntelligence.Collector.Abstractions.Buffering;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Collector.Plugins.Ingest;
 
@@ -33,8 +34,10 @@ public sealed class IngestObserver(
     ITelemetryBuffer buffer,
     IIngestClient ingestClient,
     OpenBatchTracker openBatch,
+    LatestOperatingWindows operatingWindows,
     TimeProvider timeProvider,
-    ILogger<IngestObserver> logger) : ISessionObserver, ISampleObserver, IHostedService
+    ILogger<IngestObserver> logger)
+    : ISessionObserver, ISampleObserver, ISlowChannelObserver, IHostedService
 {
     /// <summary>How long to wait for the upload pipeline to drain before recording a session's end time regardless.</summary>
     private static readonly TimeSpan FlushTimeout = TimeSpan.FromSeconds(10);
@@ -96,7 +99,7 @@ public sealed class IngestObserver(
     }
 
     /// <inheritdoc />
-    public void OnSample(TelemetrySample sample, CancellationToken cancellationToken)
+    public void OnSample(RaceRoomTelemetrySample sample, CancellationToken cancellationToken)
     {
         // The return value is intentionally ignored: ChannelTelemetryBuffer already logs and counts a
         // drop itself, so logging again here would double the log volume for the same event without
@@ -107,6 +110,18 @@ public sealed class IngestObserver(
 
     /// <inheritdoc />
     public void OnSampleStreamCompleted() => buffer.Complete();
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The archive stores the windows once per session and compound, not once per sample, so this
+    /// only has to keep the latest set where the upload loop can find it. See
+    /// <see cref="LatestOperatingWindows"/> for why every batch then carries them.
+    /// </remarks>
+    public TimeSpan SlowChannelInterval => TimeSpan.FromSeconds(1);
+
+    /// <inheritdoc />
+    public void OnSlowChannels(RaceRoomTelemetrySample sample, IReadOnlyList<OperatingWindow> windows) =>
+        operatingWindows.Set(windows);
 
     private async Task CompleteSessionAsync(
         Task previousCompletion,

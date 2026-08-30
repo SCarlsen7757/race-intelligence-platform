@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\RaceIntelligence.Web\RaceIntelligence.Web.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.Collector.TestSupport\RaceIntelligence.Collector.TestSupport.csproj" />
   </ItemGroup>
 
   <!-- The end-to-end tests start a real Kestrel host, so they need the ASP.NET Core framework.

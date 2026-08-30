@@ -1,3 +1,4 @@
+using RaceIntelligence.Collector.TestSupport;
 using RaceIntelligence.Live.Contracts.View;
 using RaceIntelligence.Web.Live;
 using Shouldly;
@@ -20,8 +21,12 @@ public sealed class ViewerQueueTests
     private static FocusFrameMessage Focus(int lap, string driverKey = "id:1") => new(
         "room", driverKey, DateTimeOffset.UnixEpoch, 0, lap, 1, null, 0, null, null, null, 0, null, 0, 0, []);
 
-    private static ExtrasFrameMessage Extras(string driverKey = "id:1") => new(
-        "room", driverKey, DateTimeOffset.UnixEpoch, """{"damage":{"engine":0.5}}""");
+    private static SlowFrameMessage Slow(string driverKey = "id:1") => new(
+        "room",
+        driverKey,
+        DateTimeOffset.UnixEpoch,
+        TelemetrySampleFactory.Create(Guid.Empty) with { DamageEngine = 0.5f },
+        OperatingWindowFactory.Create());
 
     private static LapHistoryMessage History(string driverKey, int laps) => new(
         "room",
@@ -185,13 +190,13 @@ public sealed class ViewerQueueTests
     {
         var queue = new ViewerQueue();
 
-        queue.OfferExtras(Extras());
+        queue.OfferSlowFrame(Slow());
         queue.OfferFocus(Focus(lap: 1));
         queue.OfferTower(Tower(driverCount: 1));
 
         queue.TryRead().ShouldBeOfType<TowerSnapshotMessage>();
         queue.TryRead().ShouldBeOfType<FocusFrameMessage>();
-        queue.TryRead().ShouldBeOfType<ExtrasFrameMessage>();
+        queue.TryRead().ShouldBeOfType<SlowFrameMessage>();
     }
 
     /// <summary>
@@ -208,7 +213,7 @@ public sealed class ViewerQueueTests
         // The extras slot follows the focus, for the same reason: a damage panel still showing the
         // previous driver's car after a switch is worse than one showing nothing, because it looks
         // current.
-        queue.OfferExtras(Extras());
+        queue.OfferSlowFrame(Slow());
         queue.ClearFocus();
 
         queue.TryRead().ShouldBeNull();
@@ -273,14 +278,14 @@ public sealed class ViewerQueueTests
         var queue = new ViewerQueue();
 
         queue.OfferFocus(Focus(lap: 1, driverKey: "id:1"));
-        queue.OfferExtras(Extras("id:1"));
+        queue.OfferSlowFrame(Slow("id:1"));
         queue.OfferFocus(Focus(lap: 1, driverKey: "id:2"));
-        queue.OfferExtras(Extras("id:2"));
+        queue.OfferSlowFrame(Slow("id:2"));
 
         queue.ClearFocus("id:1");
 
         queue.TryRead().ShouldBeOfType<FocusFrameMessage>().DriverKey.ShouldBe("id:2");
-        queue.TryRead().ShouldBeOfType<ExtrasFrameMessage>().DriverKey.ShouldBe("id:2");
+        queue.TryRead().ShouldBeOfType<SlowFrameMessage>().DriverKey.ShouldBe("id:2");
         queue.TryRead().ShouldBeNull();
     }
 

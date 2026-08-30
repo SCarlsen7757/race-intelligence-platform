@@ -155,7 +155,7 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
             Assert.Skip(fixture.SkipReason ?? "Aspire app unavailable.");
         }
 
-        var update = new SessionUpdateRequest(SchemaVersion.Current, DateTimeOffset.UtcNow, null, null, null);
+        var update = new SessionUpdateRequest(SchemaVersion.Current, DateTimeOffset.UtcNow, null);
 
         using var message = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/sessions/{Guid.CreateVersion7()}")
         {
@@ -539,11 +539,13 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
             ("wear", (short)short.MinValue))).ShouldBe(1);
     }
 
-    [Theory]
-    [InlineData("weather")]
-    [InlineData("setup")]
-    [InlineData("extras")]
-    public async Task Malformed_json_on_patch_is_a_400_not_a_500(string field)
+    /// <summary>
+    /// Extras is the only JSON a patch still carries. Weather and setup used to be here and were
+    /// removed: RaceRoom has no dynamic weather and no readable setup export, so both were NULL on
+    /// every row ever written and always would have been (#109).
+    /// </summary>
+    [Fact]
+    public async Task Malformed_json_on_patch_is_a_400_not_a_500()
     {
         if (!fixture.IsAvailable)
         {
@@ -554,12 +556,7 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
         (await PostAsync("/api/v1/sessions", session)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         const string Malformed = "{\"unterminated\": ";
-        var update = new SessionUpdateRequest(
-            SchemaVersion.Current,
-            null,
-            WeatherJson: field == "weather" ? Malformed : null,
-            SetupJson: field == "setup" ? Malformed : null,
-            ExtrasJson: field == "extras" ? Malformed : null);
+        var update = new SessionUpdateRequest(SchemaVersion.Current, null, ExtrasJson: Malformed);
 
         using var message = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/sessions/{session.SessionId}")
         {
@@ -571,7 +568,7 @@ public sealed class SessionEndpointsTests(AspireAppFixture fixture)
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, "malformed client JSON is a client error, like every other rejection this endpoint makes");
         (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
-            .ShouldContain(field, Case.Insensitive);
+            .ShouldContain("extras", Case.Insensitive);
     }
 
     private async Task<HttpResponseMessage> PostAsync<T>(string path, T body)

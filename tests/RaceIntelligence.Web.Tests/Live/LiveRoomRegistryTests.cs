@@ -217,34 +217,35 @@ public sealed class LiveRoomRegistryTests
         var focused = hub.AddViewer(room.RoomId, focusDriverKey: "id:4242");
         var elsewhere = hub.AddViewer(room.RoomId, focusDriverKey: "id:9999");
 
-        hub.Rooms.ApplyExtras(identity.ClientId, LiveDtoFactory.ExtrasFrame(simDriverId: "4242"));
+        hub.Rooms.ApplySlowChannels(identity.ClientId, LiveDtoFactory.SlowFrame(simDriverId: "4242"));
 
-        var message = focused.Queue.TryRead().ShouldBeOfType<ExtrasFrameMessage>();
+        var message = focused.Queue.TryRead().ShouldBeOfType<SlowFrameMessage>();
         message.DriverKey.ShouldBe("id:4242");
 
-        // Carried through as the string the connector wrote — the hub never parses it, and the -1
-        // sentinel for an unreported channel arrives intact.
-        message.Extras.ShouldContain("\"transmission\":-1.0");
+        // Carried through as the typed sample the connector produced. The hub reads nothing inside
+        // it; what it used to carry was a JSON string whose -1 an unwary panel rendered as zero.
+        message.Sample.DamageEngine.ShouldBe(0.5f);
+        message.OperatingWindows.Count.ShouldBe(4);
 
         elsewhere.Queue.TryRead().ShouldBeNull();
     }
 
     /// <summary>
-    /// Extras arrive about once a second, so a viewer focusing a driver between two of them would
-    /// otherwise sit in front of an empty damage panel — which reads as "no damage" rather than
-    /// "not known yet".
+    /// Slow frames arrive about once a second, so a viewer focusing a driver between two of them
+    /// would otherwise sit in front of an empty damage panel — which reads as "no damage" rather
+    /// than "not known yet".
     /// </summary>
     [Fact]
-    public void The_latest_extras_are_retained_for_a_viewer_that_focuses_later()
+    public void The_latest_slow_frame_is_retained_for_a_viewer_that_focuses_later()
     {
         var hub = new LiveHubFixture();
         var identity = LiveDtoFactory.Identity();
         var room = hub.AnnounceRoom(identity, localSimDriverId: "4242");
 
-        hub.Rooms.ApplyExtras(identity.ClientId, LiveDtoFactory.ExtrasFrame(simDriverId: "4242"));
+        hub.Rooms.ApplySlowChannels(identity.ClientId, LiveDtoFactory.SlowFrame(simDriverId: "4242"));
 
-        room.LatestExtrasFor("id:4242").ShouldNotBeNull().Extras.ShouldContain("engine");
-        room.LatestExtrasFor("id:9999").ShouldBeNull();
+        room.LatestSlowFrameFor("id:4242").ShouldNotBeNull().Sample.DamageEngine.ShouldBe(0.5f);
+        room.LatestSlowFrameFor("id:9999").ShouldBeNull();
     }
 
     /// <summary>
@@ -321,9 +322,9 @@ public sealed class LiveRoomRegistryTests
         var room = hub.AnnounceRoom(identity, localSimDriverId: null, localSlotId: 3);
         var viewer = hub.AddViewer(room.RoomId, focusDriverKey: "slot:3");
 
-        hub.Rooms.ApplyExtras(identity.ClientId, LiveDtoFactory.ExtrasFrame(simDriverId: null));
+        hub.Rooms.ApplySlowChannels(identity.ClientId, LiveDtoFactory.SlowFrame(simDriverId: null));
 
-        viewer.Queue.TryRead().ShouldBeOfType<ExtrasFrameMessage>().DriverKey.ShouldBe("slot:3");
+        viewer.Queue.TryRead().ShouldBeOfType<SlowFrameMessage>().DriverKey.ShouldBe("slot:3");
     }
 
     /// <summary>

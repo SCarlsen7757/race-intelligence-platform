@@ -1,3 +1,4 @@
+using RaceIntelligence.Collector.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -251,20 +252,26 @@ public static class LiveDtoFactory
             new LiveWheelValues(180f, 181f, 175f, 176f),
             new LiveWheelValues(0.1f, 0.11f, 0.09f, 0.12f),
             new LiveTyreTemperatures(
-                new LiveTreadTemperatures(84f, 85f, 86f, 90f, 70f, 110f),
-                new LiveTreadTemperatures(85f, 86f, 87f, 90f, 70f, 110f),
-                new LiveTreadTemperatures(81f, 82f, 83f, 90f, 70f, 110f),
-                new LiveTreadTemperatures(82f, 83f, 84f, 90f, 70f, 110f)));
+                new LiveTreadTemperatures(84f, 85f, 86f),
+                new LiveTreadTemperatures(85f, 86f, 87f),
+                new LiveTreadTemperatures(81f, 82f, 83f),
+                new LiveTreadTemperatures(82f, 83f, 84f)));
 
-    public static LiveExtrasFrame ExtrasFrame(
+    /// <summary>
+    /// A slow-channel frame. <paramref name="damageEngine"/> is what a test identifies it by, and
+    /// leaving it null is the "the simulator did not report this" case that used to be a <c>-1</c>
+    /// inside a JSON string nothing typed.
+    /// </summary>
+    public static LiveSlowFrame SlowFrame(
         Guid? sessionId = null,
         string? simDriverId = null,
-        string extrasJson = """{"damage":{"engine":0.5,"transmission":-1.0}}""") =>
+        float? damageEngine = 0.5f) =>
         new(
             sessionId ?? Guid.NewGuid(),
             simDriverId,
             DateTimeOffset.Parse("2026-08-16T12:00:00Z", null),
-            extrasJson);
+            TelemetrySampleFactory.Create(sessionId ?? Guid.NewGuid()) with { DamageEngine = damageEngine },
+            OperatingWindowFactory.Create());
 
     /// <summary>A canonical standing, for tests of the projection rather than of the wire.</summary>
     public static DriverStanding Standing(

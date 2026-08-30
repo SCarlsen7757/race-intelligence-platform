@@ -96,22 +96,27 @@ while the race happens.
      |  60 Hz local car ---> Buffer ---> Upload --HTTP+key--> Ingest.<Sim> --> PostgreSQL
      |
      |  10 Hz whole field
-     |   1 Hz extras (damage)
+     |   1 Hz slow channels (damage, flags, compounds)
      +--------------------> LiveOutbox --WS+key--> +----------------------+
                             (conflating)           | Web (live hub)       |
                                                    |  room registry       |--WS (open)--> Dashboard
    Second gaming PC ------------WS+key------------>|  tower + focus       |
                                                    |  lap accumulator     |
-                                                   |  latest extras       |
+                                                   |  latest slow frame   |
                                                    +----------------------+
 ```
 
 The collector publishes three rates, each sized for what it carries. The tower runs at a tenth of
-the focus stream's rate because positions and gaps do not change between two 60 Hz frames. Extras —
-the simulator's own JSON document, which is where car damage lives — run slower again, because their
-contents move on the scale of a race and every consumer of them parses JSON. In both the collector's
-outbox and each viewer's queue, extras sit at the *bottom* of the priority ladder: a once-a-second
-document must never interrupt the traces a race engineer is reading.
+the focus stream's rate because positions and gaps do not change between two 60 Hz frames. The slow
+channels — damage, flags, tyre compounds, the pit window, incident points — run slower again, because
+they move on the scale of a race. In both the collector's outbox and each viewer's queue, the slow
+frame sits at the *bottom* of the priority ladder: a once-a-second message must never interrupt the
+traces a race engineer is reading.
+
+That channel used to carry the connector's own JSON document, untyped and re-parsed by every panel
+that read it, with its simulator sentinels untranslated — so a damage panel rendering `-1` said the
+car was fine when the truth was that nobody knew. Since #109 it carries the typed sample, and an
+unreported channel is simply absent.
 
 The two paths share only the connector that feeds them, and neither can stall the other. Three
 properties define the live one, and each is the opposite of what the archive path does:
@@ -133,7 +138,7 @@ Two hosts on the server rather than one: the auth postures are opposites, and bu
 should not share a process with a latency-sensitive fan-out loop.
 
 Opponent data is scoring-granularity only — position, gaps, lap and sector times, pit state. Pedals,
-tyre pressure, tyre wear and the extras document exist solely for the car a machine is driving. That
+tyre pressure, tyre wear and the slow channels exist solely for the car a machine is driving. That
 asymmetry is why several collectors in one session merge into one enriched view rather than
 competing.
 
@@ -504,10 +509,10 @@ correct behaviour:
 One interface spanning both would force one path to adopt the other's failure mode: either the live
 path starts buffering stale frames, or the archive path starts dropping telemetry. Plugins therefore
 share only a lifecycle, and implement whichever of the four observer interfaces they consume —
-sessions, samples, standings, extras — each bringing its own delivery semantics.
+sessions, samples, standings, slow channels — each bringing its own delivery semantics.
 
 The same argument sets the shape of those interfaces. Sessions and laps are rare enough that a plugin
-may do real work inline; samples at 60 Hz, standings at 10 Hz and extras at ~1 Hz run on the collect
+may do real work inline; samples at 60 Hz, standings at 10 Hz and slow channels at ~1 Hz run on the collect
 loop, where time spent is time the simulator is not being read — for every plugin, not just the one
 spending it.
 
@@ -673,8 +678,10 @@ work can start before multi-simulator support is finished, and probably will.
 
 - Collector plugin host: the collect loop dispatches, plugins deliver *(built)*
 - Per-sim storage: the schema no longer scopes anything by game, each ingest API serves exactly one
-  simulator, and RaceRoom's first-class extras channels have typed columns *(built —
-  [0001](decisions/0001-per-sim-storage.md) steps 1–3)*
+  simulator *(built — [0001](decisions/0001-per-sim-storage.md) steps 1–3)*
+- Per-sim **wires**, typed end to end: every RaceRoom channel is a `[Key(n)]` member on the ingest
+  and live wires and a typed column in the database, generated from one manifest. 68% of the
+  telemetry table used to be JSON *(built — [0001 "The wire, reconsidered"](decisions/0001-per-sim-storage.md))*
 - The translator layer that restores cross-sim comparison *(designed —
   [0002](decisions/0002-cross-sim-translator.md); its identity registry is built, the translator
   itself is not)*
@@ -687,14 +694,15 @@ work can start before multi-simulator support is finished, and probably will.
 - Whole-field standings from the connector, and the live wire contracts *(built)*
 - Collector live publishing, independently switchable from archiving *(built)*
 - Server-side lap history, so a race engineer sees a whole stint rather than the last lap *(built)*
-- A low-rate channel for slow-moving sim-specific values such as car damage *(built)*
+- A low-rate channel for slow-moving values such as car damage, typed rather than a JSON document
+  *(built)*
 - Live hub: publisher and viewer sockets, room registry, timing tower *(built)*
 - Dashboard: TanStack Start on its own origin, the room in the URL, timing tower with expandable
   per-lap rows *(built)*
 - The pit wall: one page the engineer arranges, out of a capability-gated widget catalogue, saved
   per simulator and exportable as a file *(built)*
-- Three rate classes on the wire — the focus frame, a typed stint frame, and the connector's own
-  extras — each carrying what changes at its rate *(built)*
+- Three rate classes on the wire — the focus frame, a stint frame, and a slow frame — each typed and
+  carrying what changes at its rate *(built)*
 - Charts whose channels can be toggled per tile, so one widget can be narrowed to a single corner
   *(built)*
 - Merging several collectors in one session into one enriched view
@@ -704,7 +712,7 @@ work can start before multi-simulator support is finished, and probably will.
 - A historical read API, which is what the second half of the telemetry chart backlog waits on —
   every scatter, histogram and cross-session view needs stored telemetry rather than a rolling
   window
-- RaceRoom cut-track warnings and tyre subtype on the raw extras wire, with typed RaceRoom storage
+- RaceRoom cut-track warnings and tyre subtype, typed on the wire and in RaceRoom storage
   columns *(built)*
 - RaceRoom-specific channels not yet on the live wire: pit menu state
 

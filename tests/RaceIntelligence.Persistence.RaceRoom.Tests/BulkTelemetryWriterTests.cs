@@ -1,8 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Persistence.Core.Bulk;
 using RaceIntelligence.Persistence.RaceRoom.Bulk;
-using RaceIntelligence.Persistence.Core.Mapping;
+using RaceIntelligence.Persistence.RaceRoom.Entities;
 using RaceIntelligence.Persistence.RaceRoom.Tests.Support;
 using Shouldly;
 
@@ -90,12 +90,24 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    /// The binary <c>COPY</c> path builds its row without going through
-    /// <see cref="RaceIntelligence.Persistence.Core.Mapping.TelemetrySampleMapper.ToEntity"/>, so nothing
-    /// but a column-by-column comparison against the EF path proves the two still agree.
+    /// Compares every column written by the binary <c>COPY</c> path against the same sample written
+    /// through EF Core.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the test the whole design exists for.</b> A binary <c>COPY</c> takes a column list
+    /// and a stream of positional values and checks neither against the other: if the two disagree,
+    /// Postgres writes camber into ride height and reports success. Both are generated from one loop
+    /// over one manifest, so the mismatch is no longer expressible — and this compares all hundred
+    /// and seventy-five columns against an independent writer to prove it.
+    /// </para>
+    /// <para>
+    /// Reflective on purpose. A hand-written assertion per column would be the thing it is checking:
+    /// a second list, kept by hand, that can silently disagree with the first.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task Copy_path_writes_the_same_column_values_as_the_ef_path()
+    public async Task Copy_path_writes_every_column_where_the_ef_path_writes_it()
     {
         if (!fixture.IsAvailable)
         {
@@ -107,133 +119,90 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
         var efSessionId = await SampleFactory.CreateSessionAsync(db);
 
         var timestamp = DateTimeOffset.UtcNow;
-        var sample = SampleFactory.TelemetrySample(
-            copySessionId,
-            sequenceNumber: 7,
-            timestamp: timestamp,
-            extras: """{"tags":["yellow-flag","traffic"],"correctionFactor":1.0625,"note":null}""")
-            with
-            {
-                // One wheel unreported on each nullable array, and an all-null array, so the
-                // "null column vs. array of nulls" distinction is compared too.
-                TyrePressure = new WheelData<float?>(180f, null, 175f, 175f),
-                TyreWear = new WheelData<float?>(null, null, null, null),
-                TyreTemperature = new WheelData<TyreTemperature>(
-                    new TyreTemperature(null, 90, 88, 90, 70, 110),
-                    new TyreTemperature(86, 91, 89, 90, 70, 110),
-                    new TyreTemperature(84, 89, 87, 90, 70, 110),
-                    new TyreTemperature(85, 90, 88, 90, null, 110)),
-                Position = null,
-                Throttle = null,
-                TrackPositionFraction = null,
-                Gear = null,
-            };
+        var sample = SampleFactory.TelemetrySample(copySessionId, sequenceNumber: 7, timestamp: timestamp) with
+        {
+            // A scatter of unreported channels, so "null column" is compared as carefully as a value
+            // is. These are the ones a wrong-position write would most plausibly fill.
+            Position = null,
+            Throttle = null,
+            TrackPositionFraction = null,
+            Gear = null,
+            TyrePressureFr = null,
+            TyreTempFlInner = null,
+            CamberRr = null,
+            DownforceNewtons = null,
+        };
 
         await new NpgsqlTelemetryWriter(fixture.DataSource).WriteAsync(copySessionId, [sample]);
 
-        db.TelemetrySamples.Add(TelemetrySampleMapper.ToEntity(sample with { SessionId = efSessionId }));
+        db.TelemetrySamples.Add(TelemetrySample.FromDto(sample with { SessionId = efSessionId }));
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
 
         var viaCopy = await Ef.SingleAsync(db.TelemetrySamples, t => t.SessionId == copySessionId);
         var viaEf = await Ef.SingleAsync(db.TelemetrySamples, t => t.SessionId == efSessionId);
 
-        viaCopy.Timestamp.ShouldBe(viaEf.Timestamp);
-        viaCopy.SequenceNumber.ShouldBe(viaEf.SequenceNumber);
-        viaCopy.SimulationTime.ShouldBe(viaEf.SimulationTime);
-        viaCopy.LapNumber.ShouldBe(viaEf.LapNumber);
-        viaCopy.Sector.ShouldBe(viaEf.Sector);
-        viaCopy.Speed.ShouldBe(viaEf.Speed);
-        viaCopy.Throttle.ShouldBe(viaEf.Throttle);
-        viaCopy.Brake.ShouldBe(viaEf.Brake);
-        viaCopy.Steering.ShouldBe(viaEf.Steering);
-        viaCopy.Gear.ShouldBe(viaEf.Gear);
+        // SessionId is the one column that legitimately differs: it is what tells the two rows apart.
+        var channels = typeof(TelemetrySample)
+            .GetProperties()
+            .Where(property => property.Name != nameof(TelemetrySample.SessionId))
+            .ToList();
+
+        channels.Count.ShouldBeGreaterThan(150, "the manifest should have generated a property per channel");
+
+        foreach (var channel in channels)
+        {
+            channel.GetValue(viaCopy).ShouldBe(
+                channel.GetValue(viaEf),
+                $"{channel.Name} differs between the COPY path and the EF path");
+        }
+
         viaCopy.Gear.ShouldBeNull("an unreported gear is a null column, never the -2 sentinel or 0");
-        viaCopy.EngineRpm.ShouldBe(viaEf.EngineRpm);
-        viaCopy.FuelLeft.ShouldBe(viaEf.FuelLeft);
-        viaCopy.Position.ShouldBe(viaEf.Position);
-        viaCopy.TrackPositionFraction.ShouldBe(viaEf.TrackPositionFraction);
-        viaCopy.WheelSpeed.ShouldBe(viaEf.WheelSpeed);
-        viaCopy.SuspensionTravel.ShouldBe(viaEf.SuspensionTravel);
-        viaCopy.TyrePressure.ShouldBe(viaEf.TyrePressure);
-        viaCopy.TyreWear.ShouldBe(viaEf.TyreWear);
-        viaCopy.TyreWear.ShouldBeNull("an all-unreported wheel array is a null column, not an array of nulls");
-        viaCopy.TyreTemperature.GetRawText().ShouldBe(viaEf.TyreTemperature.GetRawText());
-        viaCopy.Extras.ShouldBe(viaEf.Extras);
+        viaCopy.TyreWearRr.ShouldBeNull("an unreported corner is a null column, not a brand-new tyre");
     }
 
+    /// <summary>
+    /// The column list the writer names and the order the table actually has, compared against each
+    /// other in the database.
+    /// </summary>
+    /// <remarks>
+    /// The <c>COPY</c> names its columns explicitly, so a table whose ordinals differ is not by
+    /// itself a bug — but the temp table is created <c>LIKE telemetry_samples</c> and the fold-in is
+    /// <c>INSERT ... SELECT {list}</c>, so the two staying in step is what keeps that pair readable.
+    /// It also catches a manifest column the migration never grew.
+    /// </remarks>
     [Fact]
-    public async Task Copy_path_projects_all_raceroom_columns_and_keeps_only_unpromoted_extras()
+    public async Task The_generated_column_list_matches_the_table()
     {
         if (!fixture.IsAvailable)
         {
             Assert.Skip(fixture.SkipReason ?? "Postgres container unavailable.");
         }
 
-        await using var db = fixture.CreateContext();
-        var sessionId = await SampleFactory.CreateSessionAsync(db);
-        const string extras =
-            """
-            {
-              "pushToPass": {
-                "available": 1, "engaged": 0, "amountLeft": -1,
-                "engagedTimeLeftSeconds": 2.5, "waitTimeLeftSeconds": -1.0,
-                "boostMode": "attack"
-              },
-              "tireSubtypeFront": 3, "tireSubtypeRear": -1,
-              "cutTrackWarnings": 0,
-              "damage": {
-                "engine": 0.0, "transmission": 0.25, "aerodynamics": -1.0,
-                "suspension": 1.0, "chassis": 0.75
-              },
-              "unknown": [1, 2, 3]
-            }
-            """;
-
-        var sample = SampleFactory.TelemetrySample(sessionId, 901, extras: extras);
-        await new NpgsqlTelemetryWriter(fixture.DataSource).WriteAsync(sessionId, [sample]);
-
         await using var connection = await fixture.DataSource.OpenConnectionAsync();
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT push_to_pass_available, push_to_pass_engaged, push_to_pass_amount_left,
-                   push_to_pass_engaged_time_left_seconds, push_to_pass_wait_time_left_seconds,
-                   tyre_subtype_front, tyre_subtype_rear, cut_track_warnings,
-                   damage_engine, damage_transmission, damage_aerodynamics, damage_suspension,
-                   extras::text
-            FROM telemetry_samples
-            WHERE session_id = @session_id AND sequence_number = 901
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'telemetry_samples'
+            ORDER BY ordinal_position
             """;
-        command.Parameters.AddWithValue("session_id", sessionId);
 
+        var columns = new List<string>();
         await using var reader = await command.ExecuteReaderAsync();
-        (await reader.ReadAsync()).ShouldBeTrue();
-        reader.GetInt32(0).ShouldBe(1);
-        reader.GetInt32(1).ShouldBe(0, "a real zero must survive sentinel conversion");
-        (await reader.IsDBNullAsync(2)).ShouldBeTrue();
-        reader.GetFloat(3).ShouldBe(2.5f);
-        (await reader.IsDBNullAsync(4)).ShouldBeTrue();
-        reader.GetInt32(5).ShouldBe(3);
-        (await reader.IsDBNullAsync(6)).ShouldBeTrue();
-        reader.GetInt32(7).ShouldBe(0, "zero cut-track warnings is a reported value");
-        reader.GetFloat(8).ShouldBe(0f);
-        reader.GetFloat(9).ShouldBe(0.25f);
-        (await reader.IsDBNullAsync(10)).ShouldBeTrue();
-        reader.GetFloat(11).ShouldBe(1f);
+        while (await reader.ReadAsync())
+        {
+            columns.Add(reader.GetString(0));
+        }
 
-        using var storedExtras = System.Text.Json.JsonDocument.Parse(reader.GetString(12));
-        var root = storedExtras.RootElement;
-        root.GetProperty("unknown").GetArrayLength().ShouldBe(3);
-        root.GetProperty("pushToPass").GetProperty("boostMode").GetString().ShouldBe("attack");
-        root.GetProperty("damage").GetProperty("chassis").GetSingle().ShouldBe(0.75f);
-        root.TryGetProperty("tireSubtypeFront", out _).ShouldBeFalse();
-        root.TryGetProperty("cutTrackWarnings", out _).ShouldBeFalse();
+        columns.ShouldBe(TelemetrySample.Columns);
     }
 
     /// <summary>
-    /// The per-wheel scratch arrays are reused across rows in one batch, so a bug there would show
-    /// up as every row carrying the last row's values.
+    /// One row must not carry another's values. The per-wheel scratch arrays this used to guard are
+    /// gone — every corner is its own column now — but a batch is still one <c>COPY</c> stream, and a
+    /// row boundary written in the wrong place would shift every value after it.
     /// </summary>
     [Fact]
     public async Task Rows_in_one_batch_keep_their_own_per_wheel_values()
@@ -250,10 +219,14 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
         var samples = Enumerable.Range(0, 5)
             .Select(i => SampleFactory.TelemetrySample(sessionId, i, anchor.AddMilliseconds(i * 20)) with
             {
-                WheelSpeed = new WheelData<float>(i, i + 0.1f, i + 0.2f, i + 0.3f),
-                TyrePressure = i % 2 == 0
-                    ? new WheelData<float?>(i, null, i + 2, i + 3)
-                    : new WheelData<float?>(null, null, null, null),
+                WheelSpeedFl = i,
+                WheelSpeedFr = i + 0.1f,
+                WheelSpeedRl = i + 0.2f,
+                WheelSpeedRr = i + 0.3f,
+                TyrePressureFl = i % 2 == 0 ? i : null,
+                TyrePressureFr = null,
+                TyrePressureRl = i % 2 == 0 ? i + 2 : null,
+                TyrePressureRr = i % 2 == 0 ? i + 3 : null,
             })
             .ToList();
 
@@ -267,15 +240,21 @@ public sealed class BulkTelemetryWriterTests(PostgresFixture fixture)
         stored.Count.ShouldBe(5);
         for (var i = 0; i < 5; i++)
         {
-            stored[i].WheelSpeed.ShouldBe([i, i + 0.1f, i + 0.2f, i + 0.3f]);
+            new float?[] { stored[i].WheelSpeedFl, stored[i].WheelSpeedFr, stored[i].WheelSpeedRl, stored[i].WheelSpeedRr }
+                .ShouldBe([i, i + 0.1f, i + 0.2f, i + 0.3f]);
+
             if (i % 2 == 0)
             {
-                stored[i].TyrePressure.ShouldBe([i, null, i + 2, i + 3]);
+                stored[i].TyrePressureFl.ShouldBe(i);
+                stored[i].TyrePressureRl.ShouldBe(i + 2);
             }
             else
             {
-                stored[i].TyrePressure.ShouldBeNull();
+                stored[i].TyrePressureFl.ShouldBeNull();
+                stored[i].TyrePressureRl.ShouldBeNull();
             }
+
+            stored[i].TyrePressureFr.ShouldBeNull();
         }
     }
 

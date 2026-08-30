@@ -48,7 +48,7 @@ public sealed record RaceRoomConnectorOptions
 
     /// <summary>
     /// How often to re-read the whole field's scoring data — the source of
-    /// <see cref="RaceIntelligence.Core.Telemetry.StandingsUpdated"/>. Default: 10 Hz.
+    /// <see cref="RaceIntelligence.Collector.Abstractions.Telemetry.StandingsUpdated"/>. Default: 10 Hz.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -67,7 +67,7 @@ public sealed record RaceRoomConnectorOptions
 
     /// <summary>
     /// How often to re-publish the local car's simulator-specific channels — the source of
-    /// <see cref="RaceIntelligence.Core.Telemetry.ExtrasUpdated"/>. Default: 1 Hz.
+    /// <see cref="RaceIntelligence.Collector.Abstractions.Telemetry.SlowChannelsUpdated"/>. Default: 1 Hz.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -82,5 +82,5 @@ public sealed record RaceRoomConnectorOptions
     /// <see cref="Timeout.InfiniteTimeSpan"/> to disable extras entirely.
     /// </para>
     /// </remarks>
-    public TimeSpan ExtrasInterval { get; init; } = TimeSpan.FromSeconds(1);
+    public TimeSpan SlowChannelInterval { get; init; } = TimeSpan.FromSeconds(1);
 }

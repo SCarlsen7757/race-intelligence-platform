@@ -5,7 +5,8 @@ using RaceIntelligence.Connectors.RaceRoom.Interop;
 using RaceIntelligence.Core.Games;
 using RaceIntelligence.Core.Capabilities;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Connectors.RaceRoom;
 
@@ -93,7 +94,330 @@ internal static class R3ETelemetryMapper
     }
 
 
-    /// <summary>Maps one tyre's tread and window temperatures, resolving which edge is inboard.</summary>
+    /// <summary>
+    /// Converts RaceRoom's wheel speed to the platform's sign convention: positive is forward.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>tire_speed</c> arrives negative for a car driving forwards. Measured, not guessed: across
+    /// one recorded session 120,918 samples were negative and none positive, with the magnitude
+    /// tracking road speed (−57.0 m/s against a reported 56.1). The official layout documents
+    /// <c>TireRps</c> as radians per second and says nothing at all about sign, so the measurement
+    /// is the authority here.
+    /// </para>
+    /// <para>
+    /// This matters because wheel slip is the difference between wheel speed and road speed. On the
+    /// raw sign a locked-and-sliding front reads as −113 m/s of slip rather than +0.9, which is not
+    /// a smaller error than it looks: it makes the channel unusable rather than merely wrong.
+    /// </para>
+    /// <para>
+    /// No sentinel test. <c>-1</c> is a legitimate wheel speed — a car rolling backwards out of a
+    /// gravel trap — and there is no documented N/A encoding to distinguish it from.
+    /// </para>
+    /// </remarks>
+    private static float NormaliseWheelSpeed(float raw) => -raw;
+
+    /// <summary>Narrows a raw <see cref="int"/> channel to the <c>smallint</c> its column is, sentinel first.</summary>
+    private static short? NullIfNegativeSmall(int value) => value < 0 ? null : (short)value;
+
+    /// <summary>Narrows a <see cref="double"/> from <c>r3e_playerdata</c> to the <c>real</c> its column is.</summary>
+    /// <remarks>
+    /// These are physics values in metres, radians and m/s — a single's seven significant digits are
+    /// far more than the simulator's own fidelity, and halving the width of forty-odd columns on
+    /// every one of a session's hundred thousand rows is worth more than precision nobody can use.
+    /// The world position channels are the exception and stay <c>double precision</c>: they are
+    /// absolute coordinates on a track kilometres across, where the low digits are the only thing
+    /// that distinguishes one point on the racing line from the next.
+    /// </remarks>
+    private static float ToReal(double value) => (float)value;
+
+    /// <summary>Builds a RaceRoom telemetry sample from one raw shared-memory snapshot.</summary>
+    /// <remarks>
+    /// Every sentinel dies here. This is the only place in the platform that knows what RaceRoom
+    /// means by a negative number, which is why ADR 0002 section 3 puts the conversion in the
+    /// connector rather than at the storage boundary — by the time a sample leaves this method,
+    /// "not reported" is <see langword="null"/> and nothing downstream has to know the encoding.
+    /// </remarks>
+    public static RaceRoomTelemetrySample ToSample(in R3ESharedRaw raw, Guid sessionId, long sequenceNumber, DateTimeOffset timestamp)
+    {
+        ref readonly var player = ref raw.Player;
+
+        return new RaceRoomTelemetrySample
+        {
+            SessionId = sessionId,
+            Timestamp = timestamp,
+            SequenceNumber = sequenceNumber,
+            SimulationTime = player.GameSimulationTime,
+
+            // completed_laps is 0-indexed ("6 means the car is on its 7th lap"); the stored lap
+            // number is the 1-indexed lap currently being driven. completed_laps == -1 (N/A, e.g.
+            // before a session is meaningfully underway) maps defensively to lap 1.
+            LapNumber = raw.CompletedLaps < 0 ? 1 : raw.CompletedLaps + 1,
+            Sector = raw.TrackSector,
+            Speed = raw.CarSpeed,
+            Throttle = NullIfNegative(raw.Throttle),
+            Brake = NullIfNegative(raw.Brake),
+            // Same -1.0 = N/A sentinel as throttle and brake, and it is reported far more often
+            // here: RaceRoom leaves clutch at -1 for a car with an automatic clutch, so a car that
+            // simply has nothing to say must arrive as null rather than as "clutch fully up".
+            Clutch = NullIfNegative(raw.Clutch),
+            Steering = raw.SteerInputRaw, // -1..1 is a legitimate range, not an N/A sentinel.
+            // Not NullIfNegative: -1 is reverse, a real gear. Only -2 means "not available".
+            Gear = raw.Gear == GearNotAvailable ? null : (short)raw.Gear,
+            EngineRpm = RadiansPerSecondToRpm(raw.EngineRps),
+            FuelLeft = raw.FuelLeft,
+            Position = NullIfNegativeSmall(raw.Position),
+            TrackPositionFraction = NullIfNegative(raw.LapDistanceFraction),
+
+            // Tyres. FL, FR, RL, RR everywhere, so the left-hand tyres are 0 and 2.
+            TyreGripFl = NullIfNegative(raw.TireGrip[0]),
+            TyreGripFr = NullIfNegative(raw.TireGrip[1]),
+            TyreGripRl = NullIfNegative(raw.TireGrip[2]),
+            TyreGripRr = NullIfNegative(raw.TireGrip[3]),
+            TyreLoadNewtonsFl = NullIfNegative(raw.TireLoad[0]),
+            TyreLoadNewtonsFr = NullIfNegative(raw.TireLoad[1]),
+            TyreLoadNewtonsRl = NullIfNegative(raw.TireLoad[2]),
+            TyreLoadNewtonsRr = NullIfNegative(raw.TireLoad[3]),
+            TyreDirtFl = NullIfNegative(raw.TireDirt[0]),
+            TyreDirtFr = NullIfNegative(raw.TireDirt[1]),
+            TyreDirtRl = NullIfNegative(raw.TireDirt[2]),
+            TyreDirtRr = NullIfNegative(raw.TireDirt[3]),
+            // TireFlatspot is documented Int32 with -1 = N/A, 0 = false, 1 = true. A tri-state, not
+            // a float: storing it as one invited a "how flat-spotted is it" reading the simulator
+            // never offered.
+            TyreFlatspotFl = NullIfNegativeSmall(raw.TireFlatspot[0]),
+            TyreFlatspotFr = NullIfNegativeSmall(raw.TireFlatspot[1]),
+            TyreFlatspotRl = NullIfNegativeSmall(raw.TireFlatspot[2]),
+            TyreFlatspotRr = NullIfNegativeSmall(raw.TireFlatspot[3]),
+            TyreSurfaceMaterialFl = NullIfNegativeSmall(raw.TireOnMtrl[0]),
+            TyreSurfaceMaterialFr = NullIfNegativeSmall(raw.TireOnMtrl[1]),
+            TyreSurfaceMaterialRl = NullIfNegativeSmall(raw.TireOnMtrl[2]),
+            TyreSurfaceMaterialRr = NullIfNegativeSmall(raw.TireOnMtrl[3]),
+            // Rotation in rad/s beside the linear wheel speed: the pair is what makes slip ratio
+            // recoverable, which neither value gives on its own.
+            TyreRotationRadiansPerSecondFl = raw.TireRps[0],
+            TyreRotationRadiansPerSecondFr = raw.TireRps[1],
+            TyreRotationRadiansPerSecondRl = raw.TireRps[2],
+            TyreRotationRadiansPerSecondRr = raw.TireRps[3],
+            WheelSpeedFl = NormaliseWheelSpeed(raw.TireSpeed[0]),
+            WheelSpeedFr = NormaliseWheelSpeed(raw.TireSpeed[1]),
+            WheelSpeedRl = NormaliseWheelSpeed(raw.TireSpeed[2]),
+            WheelSpeedRr = NormaliseWheelSpeed(raw.TireSpeed[3]),
+            TyrePressureFl = NullIfNegative(raw.TirePressure[0]),
+            TyrePressureFr = NullIfNegative(raw.TirePressure[1]),
+            TyrePressureRl = NullIfNegative(raw.TirePressure[2]),
+            TyrePressureRr = NullIfNegative(raw.TirePressure[3]),
+            TyreWearFl = TreadRemainingToWear(raw.TireWear[0]),
+            TyreWearFr = TreadRemainingToWear(raw.TireWear[1]),
+            TyreWearRl = TreadRemainingToWear(raw.TireWear[2]),
+            TyreWearRr = TreadRemainingToWear(raw.TireWear[3]),
+
+            // Tread temperatures, inboard edge resolved by which side of the car the tyre is on.
+            TyreTempFlInner = TreadTemp(raw.TireTemp[0], Edge.Inner, isLeftSide: true),
+            TyreTempFlMiddle = TreadTemp(raw.TireTemp[0], Edge.Middle, isLeftSide: true),
+            TyreTempFlOuter = TreadTemp(raw.TireTemp[0], Edge.Outer, isLeftSide: true),
+            TyreTempFrInner = TreadTemp(raw.TireTemp[1], Edge.Inner, isLeftSide: false),
+            TyreTempFrMiddle = TreadTemp(raw.TireTemp[1], Edge.Middle, isLeftSide: false),
+            TyreTempFrOuter = TreadTemp(raw.TireTemp[1], Edge.Outer, isLeftSide: false),
+            TyreTempRlInner = TreadTemp(raw.TireTemp[2], Edge.Inner, isLeftSide: true),
+            TyreTempRlMiddle = TreadTemp(raw.TireTemp[2], Edge.Middle, isLeftSide: true),
+            TyreTempRlOuter = TreadTemp(raw.TireTemp[2], Edge.Outer, isLeftSide: true),
+            TyreTempRrInner = TreadTemp(raw.TireTemp[3], Edge.Inner, isLeftSide: false),
+            TyreTempRrMiddle = TreadTemp(raw.TireTemp[3], Edge.Middle, isLeftSide: false),
+            TyreTempRrOuter = TreadTemp(raw.TireTemp[3], Edge.Outer, isLeftSide: false),
+
+            TyreTypeFront = NullIfNegative(raw.TireTypeFront),
+            TyreTypeRear = NullIfNegative(raw.TireTypeRear),
+            TyreSubtypeFront = NullIfNegative(raw.TireSubtypeFront),
+            TyreSubtypeRear = NullIfNegative(raw.TireSubtypeRear),
+
+            // Brakes. Only CurrentTemp is per-sample; the operating window beside it is constant
+            // for a compound and lives in operating_windows rather than on every row.
+            BrakeTempFl = NullIfNegative(raw.BrakeTemp[0].CurrentTemp),
+            BrakeTempFr = NullIfNegative(raw.BrakeTemp[1].CurrentTemp),
+            BrakeTempRl = NullIfNegative(raw.BrakeTemp[2].CurrentTemp),
+            BrakeTempRr = NullIfNegative(raw.BrakeTemp[3].CurrentTemp),
+            BrakePressureFl = NullIfNegative(raw.BrakePressure[0]),
+            BrakePressureFr = NullIfNegative(raw.BrakePressure[1]),
+            BrakePressureRl = NullIfNegative(raw.BrakePressure[2]),
+            BrakePressureRr = NullIfNegative(raw.BrakePressure[3]),
+            BrakeBias = NullIfNegative(raw.BrakeBias),
+
+            // Suspension. "Travel" is suspension_deflection, the member of r3e_playerdata measured
+            // in metres; the block's comment gives its units collectively as "radians, meters,
+            // meters per second" without labelling each field.
+            SuspensionTravelFl = ToReal(player.SuspensionDeflection[0]),
+            SuspensionTravelFr = ToReal(player.SuspensionDeflection[1]),
+            SuspensionTravelRl = ToReal(player.SuspensionDeflection[2]),
+            SuspensionTravelRr = ToReal(player.SuspensionDeflection[3]),
+            SuspensionVelocityFl = ToReal(player.SuspensionVelocity[0]),
+            SuspensionVelocityFr = ToReal(player.SuspensionVelocity[1]),
+            SuspensionVelocityRl = ToReal(player.SuspensionVelocity[2]),
+            SuspensionVelocityRr = ToReal(player.SuspensionVelocity[3]),
+            RideHeightFl = ToReal(player.RideHeight[0]),
+            RideHeightFr = ToReal(player.RideHeight[1]),
+            RideHeightRl = ToReal(player.RideHeight[2]),
+            RideHeightRr = ToReal(player.RideHeight[3]),
+            // Radians. Negative camber is the normal setup, so these must not be sentinel-filtered:
+            // NullIfNegative here would blank the entire channel on every car ever set up properly.
+            CamberFl = ToReal(player.Camber[0]),
+            CamberFr = ToReal(player.Camber[1]),
+            CamberRl = ToReal(player.Camber[2]),
+            CamberRr = ToReal(player.Camber[3]),
+            ThirdSpringTravelFront = ToReal(player.ThirdSpringSuspensionDeflectionFront),
+            ThirdSpringTravelRear = ToReal(player.ThirdSpringSuspensionDeflectionRear),
+            ThirdSpringVelocityFront = ToReal(player.ThirdSpringSuspensionVelocityFront),
+            ThirdSpringVelocityRear = ToReal(player.ThirdSpringSuspensionVelocityRear),
+            FrontRollAngle = ToReal(player.FrontRollAngle),
+            RearRollAngle = ToReal(player.RearRollAngle),
+            FrontWingHeight = ToReal(player.FrontWingHeight),
+
+            // Vehicle dynamics. The struct has been declared in this project since the connector was
+            // written and nothing read it until now (#104).
+            WorldPositionX = player.Position.X,
+            WorldPositionY = player.Position.Y,
+            WorldPositionZ = player.Position.Z,
+            LocalVelocityLongitudinal = ToReal(-player.LocalVelocity.Z),
+            LocalVelocityLateral = ToReal(-player.LocalVelocity.X),
+            LocalVelocityVertical = ToReal(player.LocalVelocity.Y),
+            // **The axes are not the conventional ones.** The official layout gives local
+            // acceleration as m/s^2 "from car center, +X=left, +Y=up, +Z=back", so longitudinal is
+            // -Z and lateral is -X. A traction circle drawn on the raw axes is wrong in both, and
+            // wrong in a way that looks plausible — which is why the correction happens here, once,
+            // rather than being left for each consumer to remember.
+            AccelerationLongitudinal = ToReal(-player.LocalAcceleration.Z),
+            AccelerationLateral = ToReal(-player.LocalAcceleration.X),
+            AccelerationVertical = ToReal(player.LocalAcceleration.Y),
+            GforceLongitudinal = ToReal(-player.LocalGforce.Z),
+            GforceLateral = ToReal(-player.LocalGforce.X),
+            GforceVertical = ToReal(player.LocalGforce.Y),
+            // Euler angles, per the layout, which does not say in which order. Stored as the struct
+            // orders them so nothing is invented; a consumer wanting attitude should check against a
+            // recorded lap before trusting the labels.
+            OrientationPitch = ToReal(player.Orientation.X),
+            OrientationYaw = ToReal(player.Orientation.Y),
+            OrientationRoll = ToReal(player.Orientation.Z),
+            AngularAccelerationPitch = ToReal(player.AngularAcceleration.X),
+            AngularAccelerationYaw = ToReal(player.AngularAcceleration.Y),
+            AngularAccelerationRoll = ToReal(player.AngularAcceleration.Z),
+            PitchRate = ToReal(player.LocalAngularVelocity.X),
+            YawRate = ToReal(player.LocalAngularVelocity.Y),
+            RollRate = ToReal(player.LocalAngularVelocity.Z),
+            // Newtons, and -1 means the car does not report it. Zero would say the wing fell off.
+            DownforceNewtons = NullIfNegative(ToReal(player.CurrentDownforce)),
+            EngineTorqueNewtonMetres = ToReal(player.EngineTorque),
+            SteeringForce = ToReal(player.SteeringForce),
+            SteeringForcePercent = ToReal(player.SteeringForcePercentage),
+
+            EngineTempCelsius = NullIfNegative(raw.EngineTemp),
+            EngineOilTempCelsius = NullIfNegative(raw.EngineOilTemp),
+            EngineOilPressureKpa = NullIfNegative(raw.EngineOilPressure),
+            FuelPressureKpa = NullIfNegative(raw.FuelPressure),
+            TurboPressureBar = NullIfNegative(raw.TurboPressure),
+            EngineMapSetting = NullIfNegative(raw.EngineMapSetting),
+            EngineBrakeSetting = NullIfNegative(raw.EngineBrakeSetting),
+            BatteryStateOfChargePercent = NullIfNegative(raw.BatterySoC),
+            VirtualEnergyLeftMj = NullIfNegative(raw.VirtualEnergyLeft),
+            VirtualEnergyCapacityMj = NullIfNegative(raw.VirtualEnergyCapacity),
+            VirtualEnergyPerLapMj = NullIfNegative(raw.VirtualEnergyPerLap),
+
+            AbsSetting = NullIfNegative(raw.AbsSetting),
+            // aid_settings uses 5 to mean "the aid just intervened", which is a different question
+            // from what the aid is set to — hence both channels.
+            AbsActive = raw.AidSettings.Abs < 0 ? null : raw.AidSettings.Abs == 5,
+            TractionControlSetting = NullIfNegative(raw.TractionControlSetting),
+            TractionControlActive = raw.AidSettings.Tc < 0 ? null : raw.AidSettings.Tc == 5,
+            TractionControlPercent = NullIfNegative(raw.TractionControlPercent),
+            ControlType = NullIfNegativeSmall(raw.ControlType),
+
+            PushToPassAvailable = NullIfNegative(raw.PushToPass.Available),
+            PushToPassEngaged = NullIfNegative(raw.PushToPass.Engaged),
+            PushToPassAmountLeft = NullIfNegative(raw.PushToPass.AmountLeft),
+            PushToPassEngagedTimeLeftSeconds = NullIfNegative(raw.PushToPass.EngagedTimeLeft),
+            PushToPassWaitTimeLeftSeconds = NullIfNegative(raw.PushToPass.WaitTimeLeft),
+
+            DrsEquipped = NullIfNegativeSmall(raw.Drs.Equipped),
+            DrsAvailable = NullIfNegativeSmall(raw.Drs.Available),
+            DrsEngaged = NullIfNegativeSmall(raw.Drs.Engaged),
+            DrsActivationsLeft = DrsActivationsRemaining(raw.Drs.NumActivationsLeft),
+            DrsActivationsUnlimited = DrsActivationsAreEndless(raw.Drs.NumActivationsLeft),
+            DrsActivationsTotal = NullIfNegative(raw.DrsNumActivationsTotal),
+
+            PitWindowStatus = NullIfNegativeSmall(raw.PitWindowStatus),
+            PitWindowStart = NullIfNegative(raw.PitWindowStart),
+            PitWindowEnd = NullIfNegative(raw.PitWindowEnd),
+            PitState = NullIfNegativeSmall(raw.PitState),
+            PitAction = NullIfNegative(raw.PitAction),
+            PitStopsPerformed = NullIfNegative(raw.NumPitstopsPerformed),
+            PitTotalDurationSeconds = NullIfNegative(raw.PitTotalDuration),
+            PitElapsedTimeSeconds = NullIfNegative(raw.PitElapsedTime),
+
+            FlagYellow = NullIfNegativeSmall(raw.Flags.Yellow),
+            FlagBlue = NullIfNegativeSmall(raw.Flags.Blue),
+            FlagBlack = NullIfNegativeSmall(raw.Flags.Black),
+            FlagGreen = NullIfNegativeSmall(raw.Flags.Green),
+            FlagCheckered = NullIfNegativeSmall(raw.Flags.Checkered),
+            FlagWhite = NullIfNegativeSmall(raw.Flags.White),
+            FlagBlackAndWhite = NullIfNegativeSmall(raw.Flags.BlackAndWhite),
+
+            DamageEngine = NullIfNegative(raw.CarDamage.Engine),
+            DamageTransmission = NullIfNegative(raw.CarDamage.Transmission),
+            DamageAerodynamics = NullIfNegative(raw.CarDamage.Aerodynamics),
+            DamageSuspension = NullIfNegative(raw.CarDamage.Suspension),
+
+            IncidentPoints = NullIfNegative(raw.IncidentPoints),
+            MaxIncidentPoints = NullIfNegative(raw.MaxIncidentPoints),
+            CutTrackWarnings = NullIfNegative(raw.CutTrackWarnings),
+        };
+    }
+
+    /// <summary>Reads the tyre and brake temperature bands in force, one row per corner.</summary>
+    /// <remarks>
+    /// <para>
+    /// These are constant for a compound, which is why they are a separate table rather than
+    /// twenty-four more columns on a row that arrives at 58 Hz — see <see cref="OperatingWindow"/>.
+    /// The compound comes from the axle's <c>tire_subtype</c>, so a mid-session change of tyre
+    /// produces a new key rather than overwriting the band the earlier stint actually ran in.
+    /// </para>
+    /// <para>
+    /// Read every time the slow channel fires rather than on a change check. Four small records a
+    /// second is nothing, and the server keeps the first row per <c>(session, corner, compound)</c>
+    /// and ignores the rest — so "has it changed" is a question storage already answers correctly
+    /// and the connector does not have to track.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<OperatingWindow> ToOperatingWindows(in R3ESharedRaw raw)
+    {
+        var windows = new OperatingWindow[4];
+        for (int i = 0; i < 4; i++)
+        {
+            var tyre = raw.TireTemp[i];
+            var brake = raw.BrakeTemp[i];
+
+            windows[i] = new OperatingWindow(
+                (Corner)i,
+                // Front subtype for the front axle, rear for the rear: corners 0 and 1 are the front.
+                NullIfNegative(i < 2 ? raw.TireSubtypeFront : raw.TireSubtypeRear),
+                NullIfNegative(tyre.OptimalTemp),
+                NullIfNegative(tyre.ColdTemp),
+                NullIfNegative(tyre.HotTemp),
+                NullIfNegative(brake.OptimalTemp),
+                NullIfNegative(brake.ColdTemp),
+                NullIfNegative(brake.HotTemp));
+        }
+
+        return windows;
+    }
+
+    /// <summary>Which reading across the tread, in the platform's inboard-first terms.</summary>
+    private enum Edge
+    {
+        Inner,
+        Middle,
+        Outer,
+    }
+
+    /// <summary>Reads one tread temperature, resolving which edge of the tyre is inboard.</summary>
     /// <remarks>
     /// <para>
     /// <b><paramref name="isLeftSide"/> is what makes this correct, and leaving it out is a silent
@@ -109,105 +433,45 @@ internal static class R3ETelemetryMapper
     /// on its outer is a camber and pressure story, and told backwards it argues for taking off the
     /// camber that should be going on. Averaged over a lap the stored data showed both right tyres
     /// inner-hot and both left tyres outer-hot — a clean split by side, which is a labelling
-    /// inversion rather than anything the car did.
-    /// </para>
-    /// <para>
-    /// Tread and window temperatures use the same <c>-1.0 = N/A</c> convention as the rest of the
-    /// shared memory block, so they get the same sentinel treatment. Passing -1 through would look
-    /// like a plausible sub-zero tread reading and quietly corrupt tyre degradation analysis.
+    /// inversion rather than anything the car did (#107).
     /// </para>
     /// </remarks>
-    /// <param name="t">The raw per-tyre temperatures, indexed left, centre, right across the tread.</param>
-    /// <param name="isLeftSide">Whether this tyre is on the left of the car, which is what decides which edge is inboard.</param>
-    private static TyreTemperature MapTyreTemperature(R3ETireTemp t, bool isLeftSide) =>
-        new(Inner: NullIfNegative(t.CurrentTemp[isLeftSide ? 2 : 0]),
-            Middle: NullIfNegative(t.CurrentTemp[1]),
-            Outer: NullIfNegative(t.CurrentTemp[isLeftSide ? 0 : 2]),
-            Optimal: NullIfNegative(t.OptimalTemp),
-            Cold: NullIfNegative(t.ColdTemp),
-            Hot: NullIfNegative(t.HotTemp));
-
-    /// <summary>Builds a canonical telemetry sample from one raw shared-memory snapshot.</summary>
-    public static TelemetrySample ToSample(in R3ESharedRaw raw, Guid sessionId, long sequenceNumber, DateTimeOffset timestamp)
+    private static float? TreadTemp(R3ETireTemp t, Edge edge, bool isLeftSide)
     {
-        var wheelSpeed = new WheelData<float>(raw.TireSpeed[0], raw.TireSpeed[1], raw.TireSpeed[2], raw.TireSpeed[3]);
-
-        // "Suspension travel" is best represented by suspension_deflection (r3e_playerdata); the
-        // header documents the unit for that whole block collectively as "radians, meters, meters
-        // per second" without labelling each field individually — deflection is the one measured
-        // in meters, matching Core's WheelData<float> "meters" documentation.
-        var suspensionTravel = new WheelData<float>(
-            (float)raw.Player.SuspensionDeflection[0],
-            (float)raw.Player.SuspensionDeflection[1],
-            (float)raw.Player.SuspensionDeflection[2],
-            (float)raw.Player.SuspensionDeflection[3]);
-
-        // FL, FR, RL, RR — the platform's order everywhere, so the left-hand tyres are 0 and 2.
-        var tyreTemperature = new WheelData<TyreTemperature>(
-            MapTyreTemperature(raw.TireTemp[0], isLeftSide: true),
-            MapTyreTemperature(raw.TireTemp[1], isLeftSide: false),
-            MapTyreTemperature(raw.TireTemp[2], isLeftSide: true),
-            MapTyreTemperature(raw.TireTemp[3], isLeftSide: false));
-
-        var tyrePressure = new WheelData<float?>(
-            NullIfNegative(raw.TirePressure[0]),
-            NullIfNegative(raw.TirePressure[1]),
-            NullIfNegative(raw.TirePressure[2]),
-            NullIfNegative(raw.TirePressure[3]));
-
-        var tyreWear = new WheelData<float?>(
-            TreadRemainingToWear(raw.TireWear[0]),
-            TreadRemainingToWear(raw.TireWear[1]),
-            TreadRemainingToWear(raw.TireWear[2]),
-            TreadRemainingToWear(raw.TireWear[3]));
-
-        // Promoted out of the extras document, where it was written raw and read once a second. It
-        // is a canonical channel now, so the -1 sentinel is translated here like every other one.
-        var brakePressure = new WheelData<float?>(
-            NullIfNegative(raw.BrakePressure[0]),
-            NullIfNegative(raw.BrakePressure[1]),
-            NullIfNegative(raw.BrakePressure[2]),
-            NullIfNegative(raw.BrakePressure[3]));
-
-        return new TelemetrySample
+        int index = edge switch
         {
-            SessionId = sessionId,
-            SequenceNumber = sequenceNumber,
-            Timestamp = timestamp,
-            SimulationTime = raw.Player.GameSimulationTime,
-            Speed = raw.CarSpeed,
-            Throttle = NullIfNegative(raw.Throttle),
-            Brake = NullIfNegative(raw.Brake),
-            AbsSetting = raw.AbsSetting < 0 ? null : raw.AbsSetting,
-            AbsActive = raw.AidSettings.Abs < 0 ? null : raw.AidSettings.Abs == 5,
-            TractionControlSetting = raw.TractionControlSetting < 0 ? null : raw.TractionControlSetting,
-            TractionControlActive = raw.AidSettings.Tc < 0 ? null : raw.AidSettings.Tc == 5,
-            BrakeBias = NullIfNegative(raw.BrakeBias),
-            // Same -1.0 = N/A sentinel as throttle and brake, and it is reported far more often
-            // here: RaceRoom leaves clutch at -1 for a car with an automatic clutch, so a car that
-            // simply has nothing to say must arrive as null rather than as "clutch fully up".
-            Clutch = NullIfNegative(raw.Clutch),
-            Steering = raw.SteerInputRaw, // -1..1 is a legitimate range, not an N/A sentinel.
-            // Not NullIfNegative: -1 is reverse, a real gear. Only -2 means "not available".
-            Gear = raw.Gear == GearNotAvailable ? null : raw.Gear,
-            EngineRpm = RadiansPerSecondToRpm(raw.EngineRps),
-            FuelLeft = raw.FuelLeft,
-            // completed_laps is 0-indexed ("6 means the car is on its 7th lap"); the canonical
-            // model wants the 1-indexed lap currently being driven. completed_laps == -1 (N/A,
-            // e.g. before a session is meaningfully underway) maps defensively to lap 1.
-            LapNumber = raw.CompletedLaps < 0 ? 1 : raw.CompletedLaps + 1,
-            Sector = raw.TrackSector,
-            Position = raw.Position,
-            WheelSpeed = wheelSpeed,
-            SuspensionTravel = suspensionTravel,
-            TyreTemperature = tyreTemperature,
-            TyrePressure = tyrePressure,
-            TyreWear = tyreWear,
-            BrakePressure = brakePressure,
-            TrackPositionFraction = NullIfNegative(raw.LapDistanceFraction),
-            Extras = BuildSampleExtras(in raw),
+            Edge.Inner => isLeftSide ? 2 : 0,
+            Edge.Middle => 1,
+            _ => isLeftSide ? 0 : 2,
         };
+
+        return NullIfNegative(t.CurrentTemp[index]);
     }
+
+    /// <summary>
+    /// RaceRoom's "endless DRS activations" encoding: <see cref="int.MaxValue"/>, per the official
+    /// layout's note on <c>numActivationsLeft</c>.
+    /// </summary>
+    private const int EndlessDrsActivations = int.MaxValue;
+
+    /// <summary>
+    /// How many DRS activations remain, or <see langword="null"/> when the car does not report it
+    /// <i>or</i> when they are endless.
+    /// </summary>
+    /// <remarks>
+    /// <b>This channel breaks the sentinel rule twice over, and has to.</b> <c>-1</c> is the usual
+    /// "not available". <see cref="int.MaxValue"/> is not a sentinel at all — the official layout
+    /// documents it as <i>unlimited</i> activations, so putting it through the <c>-1</c> rule would
+    /// leave it as a confident 2,147,483,647, and a strategy screen counting down from two billion
+    /// is worse than one that says nothing. Both become <see langword="null"/> here, and
+    /// <see cref="RaceRoomTelemetrySample.DrsActivationsUnlimited"/> is what tells them apart.
+    /// </remarks>
+    private static int? DrsActivationsRemaining(int value) =>
+        value < 0 || value == EndlessDrsActivations ? null : value;
+
+    /// <summary>Whether DRS activations are endless, or <see langword="null"/> if unreported.</summary>
+    private static bool? DrsActivationsAreEndless(int value) =>
+        value < 0 ? null : value == EndlessDrsActivations;
 
     /// <summary>Builds the canonical session record for a session that just started.</summary>
     public static SessionInfo ToSessionInfo(in R3ESharedRaw raw, Guid sessionId, GameVersionIdentity gameVersion, SimCapabilities capabilities, DateTimeOffset startedAtUtc)
@@ -590,187 +854,9 @@ internal static class R3ETelemetryMapper
     }
 
     /// <summary>
-    /// Hand-written, curated subset of the raw fields that have no canonical equivalent. This is
-    /// intentionally not a reflective dump of the whole struct: that would be far too slow at a
-    /// 60 Hz poll rate and would leak reserved/padding fields that carry no meaning.
-    /// </summary>
-    private static string BuildSampleExtras(in R3ESharedRaw raw)
-    {
-        var (buffer, writer) = RentExtrasWriter();
-        WriteSampleExtras(writer, in raw);
-        return MaterializeText(buffer, writer);
-    }
-
-    private static void WriteSampleExtras(Utf8JsonWriter writer, in R3ESharedRaw raw)
-    {
-        writer.WriteStartObject();
-
-        writer.WriteStartObject("pushToPass");
-        writer.WriteNumber("available", raw.PushToPass.Available);
-        writer.WriteNumber("engaged", raw.PushToPass.Engaged);
-        writer.WriteNumber("amountLeft", raw.PushToPass.AmountLeft);
-        writer.WriteNumber("engagedTimeLeftSeconds", raw.PushToPass.EngagedTimeLeft);
-        writer.WriteNumber("waitTimeLeftSeconds", raw.PushToPass.WaitTimeLeft);
-        writer.WriteEndObject();
-
-        writer.WriteStartObject("drs");
-        writer.WriteNumber("equipped", raw.Drs.Equipped);
-        writer.WriteNumber("available", raw.Drs.Available);
-        writer.WriteNumber("numActivationsLeft", raw.Drs.NumActivationsLeft);
-        writer.WriteNumber("engaged", raw.Drs.Engaged);
-        writer.WriteNumber("numActivationsTotal", raw.DrsNumActivationsTotal);
-        writer.WriteEndObject();
-
-        writer.WriteStartObject("damage");
-        writer.WriteNumber("engine", raw.CarDamage.Engine);
-        writer.WriteNumber("transmission", raw.CarDamage.Transmission);
-        writer.WriteNumber("aerodynamics", raw.CarDamage.Aerodynamics);
-        writer.WriteNumber("suspension", raw.CarDamage.Suspension);
-        writer.WriteEndObject();
-
-        // An object per corner rather than a bare number, because `r3e_brake_temp` carries the
-        // operating window beside the reading and writing only the reading threw four fifths of it
-        // away. A brake at 380 °C is cold on one car and cooking on another, and the simulator is
-        // willing to say which — leaving an engineer to know it from memory was never the intent,
-        // it was just what fell out of writing the first member and moving on.
-        //
-        // `optimal`, `cold` and `hot` deliberately match the names a tyre temperature carries on
-        // the typed wire. An operating window is one idea and should read the same wherever it
-        // turns up. Sentinels are untranslated here as everywhere in this document: -1 is "not
-        // available" and a consumer must run these through its own sentinel rule.
-        writer.WriteStartArray("brakeTemperatureCelsius");
-        for (int i = 0; i < 4; i++)
-        {
-            writer.WriteStartObject();
-            writer.WriteNumber("current", raw.BrakeTemp[i].CurrentTemp);
-            writer.WriteNumber("optimal", raw.BrakeTemp[i].OptimalTemp);
-            writer.WriteNumber("cold", raw.BrakeTemp[i].ColdTemp);
-            writer.WriteNumber("hot", raw.BrakeTemp[i].HotTemp);
-            writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
-
-        // Brake pressure used to be written here. It moved to the canonical sample, and so to the
-        // full-rate wire, because it changes as fast as the pedal does — a braking event lasts about
-        // a second, and this document is written once a second.
-
-        // Per-tyre channels with no canonical equivalent yet. tyreGrip is the reason this block
-        // exists: it is grip loss measured directly, rather than inferred from lap time the way a
-        // lap-time trend has to, and a degradation model built without it can only see the symptom.
-        //
-        // Written raw, sentinels included (-1 = N/A), like every other value in this object. These
-        // are candidates for promotion to canonical fields, and that is where the -1 -> null
-        // translation belongs, alongside the one TyreWear already gets.
-        writer.WriteStartArray("tyreGrip");
-        for (int i = 0; i < 4; i++)
-        {
-            writer.WriteNumberValue(raw.TireGrip[i]);
-        }
-        writer.WriteEndArray();
-
-        writer.WriteStartArray("tyreLoadNewtons");
-        for (int i = 0; i < 4; i++)
-        {
-            writer.WriteNumberValue(raw.TireLoad[i]);
-        }
-        writer.WriteEndArray();
-
-        writer.WriteStartArray("tyreDirt");
-        for (int i = 0; i < 4; i++)
-        {
-            writer.WriteNumberValue(raw.TireDirt[i]);
-        }
-        writer.WriteEndArray();
-
-        writer.WriteStartArray("tyreFlatspot");
-        for (int i = 0; i < 4; i++)
-        {
-            writer.WriteNumberValue(raw.TireFlatspot[i]);
-        }
-        writer.WriteEndArray();
-
-        // Rotation speed in rad/s alongside the canonical linear WheelSpeed: the pair is what makes
-        // slip ratio recoverable later, which neither value gives on its own.
-        writer.WriteStartArray("tyreRotationRadiansPerSecond");
-        for (int i = 0; i < 4; i++)
-        {
-            writer.WriteNumberValue(raw.TireRps[i]);
-        }
-        writer.WriteEndArray();
-
-        // Surface material under each tyre (r3e_mtrl_type) — the cheapest evidence that a lap left
-        // the track, which is what lap quality scoring needs to discount it.
-        writer.WriteStartArray("tyreSurfaceMaterial");
-        for (int i = 0; i < 4; i++)
-        {
-            writer.WriteNumberValue(raw.TireOnMtrl[i]);
-        }
-        writer.WriteEndArray();
-
-        writer.WriteNumber("batteryStateOfChargePercent", raw.BatterySoC);
-        writer.WriteNumber("virtualEnergyLeftMj", raw.VirtualEnergyLeft);
-        writer.WriteNumber("virtualEnergyCapacityMj", raw.VirtualEnergyCapacity);
-        writer.WriteNumber("virtualEnergyPerLapMj", raw.VirtualEnergyPerLap);
-
-        writer.WriteNumber("engineTempCelsius", raw.EngineTemp);
-        writer.WriteNumber("engineOilTempCelsius", raw.EngineOilTemp);
-        writer.WriteNumber("fuelPressureKpa", raw.FuelPressure);
-        writer.WriteNumber("engineOilPressureKpa", raw.EngineOilPressure);
-        writer.WriteNumber("turboPressureBar", raw.TurboPressure);
-
-        writer.WriteNumber("tractionControlSetting", raw.TractionControlSetting);
-        writer.WriteNumber("tractionControlPercent", raw.TractionControlPercent);
-        writer.WriteNumber("engineMapSetting", raw.EngineMapSetting);
-        writer.WriteNumber("engineBrakeSetting", raw.EngineBrakeSetting);
-        writer.WriteNumber("absSetting", raw.AbsSetting);
-
-        writer.WriteNumber("tireTypeFront", raw.TireTypeFront);
-        writer.WriteNumber("tireTypeRear", raw.TireTypeRear);
-        writer.WriteNumber("tireSubtypeFront", raw.TireSubtypeFront);
-        writer.WriteNumber("tireSubtypeRear", raw.TireSubtypeRear);
-
-        writer.WriteNumber("controlType", raw.ControlType);
-
-        // Incident points, cut-track warnings and the server's incident limit are root-level in the
-        // shared block and therefore describe the local car only — there is no per-driver
-        // equivalent to project onto the timing tower. Written here rather than only into session
-        // extras because session extras never reach a viewer: sample extras are what the browser
-        // receives, as `extrasFrame`.
-        //
-        // Raw, sentinels included: -1 is "not available" (offline, or a server that sets no
-        // incident limit), and translating it here would lose the distinction between "no limit"
-        // and a limit of zero. The consumer is where -1 becomes "not reported".
-        writer.WriteNumber("incidentPoints", raw.IncidentPoints);
-        writer.WriteNumber("maxIncidentPoints", raw.MaxIncidentPoints);
-        writer.WriteNumber("cutTrackWarnings", raw.CutTrackWarnings);
-
-        writer.WriteStartObject("flags");
-        writer.WriteNumber("yellow", raw.Flags.Yellow);
-        writer.WriteNumber("blue", raw.Flags.Blue);
-        writer.WriteNumber("black", raw.Flags.Black);
-        writer.WriteNumber("green", raw.Flags.Green);
-        writer.WriteNumber("checkered", raw.Flags.Checkered);
-        writer.WriteNumber("white", raw.Flags.White);
-        writer.WriteNumber("blackAndWhite", raw.Flags.BlackAndWhite);
-        writer.WriteEndObject();
-
-        writer.WriteStartObject("pit");
-        writer.WriteNumber("windowStatus", raw.PitWindowStatus);
-        writer.WriteNumber("windowStart", raw.PitWindowStart);
-        writer.WriteNumber("windowEnd", raw.PitWindowEnd);
-        writer.WriteNumber("state", raw.PitState);
-        writer.WriteNumber("action", raw.PitAction);
-        writer.WriteNumber("numPitstopsPerformed", raw.NumPitstopsPerformed);
-        writer.WriteNumber("totalDurationSeconds", raw.PitTotalDuration);
-        writer.WriteNumber("elapsedTimeSeconds", raw.PitElapsedTime);
-        writer.WriteEndObject();
-
-        writer.WriteEndObject();
-    }
-
-    /// <summary>
     /// Hand-written, curated subset of session-level raw fields that have no canonical
-    /// equivalent (mirrors <see cref="BuildSampleExtras"/> but only runs once per session).
+    /// equivalent. Session-level, so it runs once per session rather than once per sample —
+    /// which is why it is still a JSON document where the sample's channels are now columns.
     /// </summary>
     private static JsonElement BuildSessionExtras(in R3ESharedRaw raw)
     {
@@ -839,17 +925,6 @@ internal static class R3ETelemetryMapper
         }
 
         return (buffer, writer);
-    }
-
-    /// <summary>Turns what was just written into detached JSON text.</summary>
-    /// <remarks>
-    /// One UTF-8 decode and nothing else. The sample path runs at the poll rate, and its result is
-    /// carried as text the whole way to the <c>jsonb</c> column, so there is nothing to parse here.
-    /// </remarks>
-    private static string MaterializeText(ArrayBufferWriter<byte> buffer, Utf8JsonWriter writer)
-    {
-        writer.Flush();
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     /// <summary>Turns what was just written into a detached <see cref="JsonElement"/>.</summary>

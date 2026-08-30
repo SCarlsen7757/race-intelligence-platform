@@ -31,6 +31,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Persistence.Core\RaceIntelligence.Persistence.Core.csproj" />
+    <!-- Since #109 the telemetry endpoints are RaceRoom's: the sample is a hundred and seventy-five
+         RaceRoom columns and the repositories that read it live in that store's project. Sessions
+         and laps are still asked of the shared entities; a second simulator's read host would
+         reference its own store here. -->
+    <ProjectReference Include="..\RaceIntelligence.Persistence.RaceRoom\RaceIntelligence.Persistence.RaceRoom.csproj" />
   </ItemGroup>
 
 </Project>

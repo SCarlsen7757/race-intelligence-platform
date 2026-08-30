@@ -1,6 +1,6 @@
 using RaceIntelligence.Connectors.RaceRoom.Interop;
 using RaceIntelligence.Connectors.RaceRoom.Tests.Support;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using Shouldly;
 
 namespace RaceIntelligence.Connectors.RaceRoom.Tests;
@@ -12,9 +12,9 @@ namespace RaceIntelligence.Connectors.RaceRoom.Tests;
 /// <para>
 /// Tread and operating-window temperatures use the same <c>-1.0 = N/A</c> convention as the rest
 /// of the shared memory block. Before this was fixed, the mapper passed them straight into a
-/// non-nullable <see cref="TyreTemperature"/>, so an unavailable reading surfaced as a literal
-/// -1 °C — indistinguishable from a real, very cold tyre, and permanently recorded that way
-/// because raw telemetry is never rewritten.
+/// non-nullable reading, so an unavailable value surfaced as a literal -1 °C — indistinguishable
+/// from a real, very cold tyre, and permanently recorded that way because raw telemetry is never
+/// rewritten.
 /// </para>
 /// <para>
 /// <b>The raw slots are left, centre and right across the tyre — not inner, middle and outer.</b>
@@ -22,15 +22,31 @@ namespace RaceIntelligence.Connectors.RaceRoom.Tests;
 /// below is named for the raw array deliberately: naming it <c>inner/outer</c> is what let the
 /// original inversion be written down as an assertion and look correct.
 /// </para>
+/// <para>
+/// The window bounds are asserted against <see cref="R3ETelemetryMapper.ToOperatingWindows"/> rather
+/// than against the sample: they are constant for a compound, so they live in their own table and
+/// travel on their own channel (#109).
+/// </para>
 /// </remarks>
 public class R3ETelemetryMapperTyreTemperatureTests
 {
-    private static TelemetrySample MapSample(Action<R3ESharedRawBuilder> configure)
+    private static R3ESharedRaw Raw(Action<R3ESharedRawBuilder> configure)
     {
         var builder = new R3ESharedRawBuilder().InRaceSession("Tyre Temp Track", "Tyre Temp Layout");
         configure(builder);
-        var raw = builder.Build();
+        return builder.Build();
+    }
+
+    private static RaceRoomTelemetrySample MapSample(Action<R3ESharedRawBuilder> configure)
+    {
+        var raw = Raw(configure);
         return R3ETelemetryMapper.ToSample(in raw, Guid.NewGuid(), sequenceNumber: 0, DateTimeOffset.UtcNow);
+    }
+
+    private static IReadOnlyList<OperatingWindow> MapWindows(Action<R3ESharedRawBuilder> configure)
+    {
+        var raw = Raw(configure);
+        return R3ETelemetryMapper.ToOperatingWindows(in raw);
     }
 
     /// <param name="left">The tyre's left edge — RaceRoom's <c>CurrentTemp[0]</c>. Inboard only on the right of the car.</param>
@@ -54,19 +70,37 @@ public class R3ETelemetryMapperTyreTemperatureTests
         raw.TireTemp[wheel].HotTemp = hot;
     }
 
+    /// <summary>Every tread reading, in the manifest's corner-then-edge order.</summary>
+    private static (float? Inner, float? Middle, float? Outer) Tread(RaceRoomTelemetrySample s, int wheel) => wheel switch
+    {
+        0 => (s.TyreTempFlInner, s.TyreTempFlMiddle, s.TyreTempFlOuter),
+        1 => (s.TyreTempFrInner, s.TyreTempFrMiddle, s.TyreTempFrOuter),
+        2 => (s.TyreTempRlInner, s.TyreTempRlMiddle, s.TyreTempRlOuter),
+        _ => (s.TyreTempRrInner, s.TyreTempRrMiddle, s.TyreTempRrOuter),
+    };
+
     [Fact]
     public void TreadTemperatures_NegativeSentinel_MapToNull()
     {
         var sample = MapSample(b => b.Configure((ref R3ESharedRaw raw) =>
             SetTyreTemp(ref raw, 0, -1f, -1f, -1f, -1f, -1f, -1f)));
 
-        var frontLeft = sample.TyreTemperature.FrontLeft;
-        frontLeft.Inner.ShouldBeNull();
-        frontLeft.Middle.ShouldBeNull();
-        frontLeft.Outer.ShouldBeNull();
-        frontLeft.Optimal.ShouldBeNull();
-        frontLeft.Cold.ShouldBeNull();
-        frontLeft.Hot.ShouldBeNull();
+        var (inner, middle, outer) = Tread(sample, 0);
+        inner.ShouldBeNull();
+        middle.ShouldBeNull();
+        outer.ShouldBeNull();
+    }
+
+    [Fact]
+    public void WindowBounds_NegativeSentinel_MapToNull()
+    {
+        var windows = MapWindows(b => b.Configure((ref R3ESharedRaw raw) =>
+            SetTyreTemp(ref raw, 0, -1f, -1f, -1f, -1f, -1f, -1f)));
+
+        var frontLeft = windows[(int)Corner.FrontLeft];
+        frontLeft.TyreOptimalCelsius.ShouldBeNull();
+        frontLeft.TyreColdCelsius.ShouldBeNull();
+        frontLeft.TyreHotCelsius.ShouldBeNull();
     }
 
     [Fact]
@@ -77,13 +111,22 @@ public class R3ETelemetryMapperTyreTemperatureTests
 
         // Front-left is on the left of the car, so the tyre's left edge (82.5) is its OUTER
         // shoulder and its right edge (91) is the inboard one.
-        var frontLeft = sample.TyreTemperature.FrontLeft;
-        frontLeft.Outer.ShouldBe(82.5f);
-        frontLeft.Middle.ShouldBe(88.25f);
-        frontLeft.Inner.ShouldBe(91f);
-        frontLeft.Optimal.ShouldBe(90f);
-        frontLeft.Cold.ShouldBe(70f);
-        frontLeft.Hot.ShouldBe(110f);
+        var (inner, middle, outer) = Tread(sample, 0);
+        outer.ShouldBe(82.5f);
+        middle.ShouldBe(88.25f);
+        inner.ShouldBe(91f);
+    }
+
+    [Fact]
+    public void WindowBounds_RealReadings_PassThroughUnchanged()
+    {
+        var windows = MapWindows(b => b.Configure((ref R3ESharedRaw raw) =>
+            SetTyreTemp(ref raw, 0, 82.5f, 88.25f, 91f, 90f, 70f, 110f)));
+
+        var frontLeft = windows[(int)Corner.FrontLeft];
+        frontLeft.TyreOptimalCelsius.ShouldBe(90f);
+        frontLeft.TyreColdCelsius.ShouldBe(70f);
+        frontLeft.TyreHotCelsius.ShouldBe(110f);
     }
 
     [Fact]
@@ -93,10 +136,10 @@ public class R3ETelemetryMapperTyreTemperatureTests
         var sample = MapSample(b => b.Configure((ref R3ESharedRaw raw) =>
             SetTyreTemp(ref raw, 0, 0f, 0f, 0f, 90f, 70f, 110f)));
 
-        var frontLeft = sample.TyreTemperature.FrontLeft;
-        frontLeft.Inner.ShouldBe(0f);
-        frontLeft.Middle.ShouldBe(0f);
-        frontLeft.Outer.ShouldBe(0f);
+        var (inner, middle, outer) = Tread(sample, 0);
+        inner.ShouldBe(0f);
+        middle.ShouldBe(0f);
+        outer.ShouldBe(0f);
     }
 
     [Fact]
@@ -104,16 +147,18 @@ public class R3ETelemetryMapperTyreTemperatureTests
     {
         // The window may be reported while live tread temps are not, or vice versa — each field
         // is independent, so a single unavailable value must not discard the others.
-        var sample = MapSample(b => b.Configure((ref R3ESharedRaw raw) =>
-            SetTyreTemp(ref raw, 0, 85f, -1f, 87f, -1f, 70f, 110f)));
+        Action<R3ESharedRawBuilder> configure = b => b.Configure((ref R3ESharedRaw raw) =>
+            SetTyreTemp(ref raw, 0, 85f, -1f, 87f, -1f, 70f, 110f));
 
-        var frontLeft = sample.TyreTemperature.FrontLeft;
-        frontLeft.Outer.ShouldBe(85f);
-        frontLeft.Middle.ShouldBeNull();
-        frontLeft.Inner.ShouldBe(87f);
-        frontLeft.Optimal.ShouldBeNull();
-        frontLeft.Cold.ShouldBe(70f);
-        frontLeft.Hot.ShouldBe(110f);
+        var (inner, middle, outer) = Tread(MapSample(configure), 0);
+        outer.ShouldBe(85f);
+        middle.ShouldBeNull();
+        inner.ShouldBe(87f);
+
+        var frontLeft = MapWindows(configure)[(int)Corner.FrontLeft];
+        frontLeft.TyreOptimalCelsius.ShouldBeNull();
+        frontLeft.TyreColdCelsius.ShouldBe(70f);
+        frontLeft.TyreHotCelsius.ShouldBe(110f);
     }
 
     [Fact]
@@ -132,16 +177,16 @@ public class R3ETelemetryMapperTyreTemperatureTests
         }));
 
         // Right-hand tyres: the tyre's left edge faces the middle of the car.
-        sample.TyreTemperature.FrontRight.Inner.ShouldBe(70f);
-        sample.TyreTemperature.FrontRight.Outer.ShouldBe(90f);
-        sample.TyreTemperature.RearRight.Inner.ShouldBe(70f);
-        sample.TyreTemperature.RearRight.Outer.ShouldBe(90f);
+        sample.TyreTempFrInner.ShouldBe(70f);
+        sample.TyreTempFrOuter.ShouldBe(90f);
+        sample.TyreTempRrInner.ShouldBe(70f);
+        sample.TyreTempRrOuter.ShouldBe(90f);
 
         // Left-hand tyres: the tyre's right edge does.
-        sample.TyreTemperature.FrontLeft.Inner.ShouldBe(90f);
-        sample.TyreTemperature.FrontLeft.Outer.ShouldBe(70f);
-        sample.TyreTemperature.RearLeft.Inner.ShouldBe(90f);
-        sample.TyreTemperature.RearLeft.Outer.ShouldBe(70f);
+        sample.TyreTempFlInner.ShouldBe(90f);
+        sample.TyreTempFlOuter.ShouldBe(70f);
+        sample.TyreTempRlInner.ShouldBe(90f);
+        sample.TyreTempRlOuter.ShouldBe(70f);
     }
 
     [Fact]
@@ -162,14 +207,14 @@ public class R3ETelemetryMapperTyreTemperatureTests
             SetTyreTemp(ref raw, 3, left: 74.9f, centre: 73.6f, right: 72.6f, optimal: 90f, cold: 70f, hot: 110f);
         }));
 
-        foreach (var position in Enum.GetValues<WheelPosition>())
+        foreach (var corner in Enum.GetValues<Corner>())
         {
-            var tyre = sample.TyreTemperature[position];
-            tyre.Inner.ShouldNotBeNull();
-            tyre.Outer.ShouldNotBeNull();
-            tyre.Inner.Value.ShouldBeGreaterThan(
-                tyre.Outer.Value,
-                $"{position} should read hotter on its inboard shoulder under negative camber.");
+            var (inner, _, outer) = Tread(sample, (int)corner);
+            inner.ShouldNotBeNull();
+            outer.ShouldNotBeNull();
+            inner.Value.ShouldBeGreaterThan(
+                outer.Value,
+                $"{corner} should read hotter on its inboard shoulder under negative camber.");
         }
     }
 
@@ -191,9 +236,9 @@ public class R3ETelemetryMapperTyreTemperatureTests
 
         // FL and RL are on the left, so their edges arrive swapped relative to the raw array.
         var isLeftSide = wheel is 0 or 2;
-        var actual = sample.TyreTemperature[(WheelPosition)wheel];
-        actual.Inner.ShouldBe(isLeftSide ? 30f + wheel : 10f + wheel);
-        actual.Middle.ShouldBe(20f + wheel);
-        actual.Outer.ShouldBe(isLeftSide ? 10f + wheel : 30f + wheel);
+        var (inner, middle, outer) = Tread(sample, wheel);
+        inner.ShouldBe(isLeftSide ? 30f + wheel : 10f + wheel);
+        middle.ShouldBe(20f + wheel);
+        outer.ShouldBe(isLeftSide ? 10f + wheel : 30f + wheel);
     }
 }

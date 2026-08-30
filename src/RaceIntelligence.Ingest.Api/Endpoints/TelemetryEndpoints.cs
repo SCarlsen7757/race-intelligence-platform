@@ -1,6 +1,3 @@
-using System.Buffers;
-using System.Text;
-using System.Text.Json;
 using MessagePack;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +7,6 @@ using RaceIntelligence.Ingest.Contracts.Mapping;
 using RaceIntelligence.Ingest.Contracts.Telemetry;
 using RaceIntelligence.Persistence.Core;
 using RaceIntelligence.Persistence.Core.Bulk;
-using CoreTelemetry = RaceIntelligence.Core.Telemetry;
 
 namespace RaceIntelligence.Ingest.Api.Endpoints;
 
@@ -101,38 +97,28 @@ public static class TelemetryEndpoints
             return ProblemResults.SessionNotFound(id);
         }
 
-        // C#'s `required` and non-nullable annotations on TelemetrySampleDto are compile-time only:
-        // MessagePack happily decodes a `nil` into any of them, so a hand-written payload omitting
-        // Samples, Extras or a tyre-temperature member reaches this line as a null and used to
-        // surface as a NullReferenceException and a 500.
+        // C#'s non-nullable annotations are compile-time only: MessagePack happily decodes a `nil`
+        // into any of them, so a hand-written payload omitting Samples reaches this line as a null
+        // and used to surface as a NullReferenceException and a 500.
+        //
+        // Only the two lists need this now. Every channel on a sample is a value type or a nullable
+        // one, so a `nil` in the payload lands as the null that already means "not reported" — there
+        // is no required reference member left to omit, and no JSON string to validate, because the
+        // sample carries no JSON at all.
         if (batch.Samples is null)
         {
             return MissingMember("Samples", sampleIndex: null);
         }
 
-        var samples = new List<CoreTelemetry.TelemetrySample>(batch.Samples.Count);
         for (var i = 0; i < batch.Samples.Count; i++)
         {
-            var dto = batch.Samples[i];
-            if (FindMissingMember(dto) is { } missing)
+            if (batch.Samples[i] is null)
             {
-                return MissingMember(missing, i);
+                return MissingMember("the sample itself", i);
             }
-
-            // Extras is client-supplied text that now travels all the way to the jsonb column
-            // without being parsed on the way. Nothing downstream would reject it before Postgres
-            // did, and a bad value there fails the whole COPY batch with a database error rather
-            // than naming the sample at fault — so it is checked here, where the index is known.
-            if (!IsWellFormedJson(dto.Extras))
-            {
-                return Results.Problem(
-                    statusCode: StatusCodes.Status400BadRequest,
-                    title: "Malformed JSON",
-                    detail: $"Sample at index {i} has an '{nameof(TelemetrySampleDto.Extras)}' value that is not valid JSON.");
-            }
-
-            samples.Add(TelemetrySampleContractMapper.ToCore(dto));
         }
+
+        var samples = batch.Samples;
 
         TelemetryWriteResult result;
         try
@@ -148,62 +134,6 @@ public static class TelemetryEndpoints
 
         return Results.Ok(new TelemetryBatchResponse(result.Inserted, result.Duplicates, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
     }
-
-    /// <summary>Reports whether <paramref name="text"/> is a single well-formed JSON value.</summary>
-    /// <remarks>
-    /// Reads the text through without building a <see cref="JsonDocument"/>: this runs once per
-    /// sample, and the only question is whether Postgres will accept the value, not what is in it.
-    /// </remarks>
-    private static bool IsWellFormedJson(string text)
-    {
-        int maxBytes = Encoding.UTF8.GetMaxByteCount(text.Length);
-        byte[]? rented = null;
-        scoped Span<byte> buffer;
-        if (maxBytes <= 512)
-        {
-            buffer = stackalloc byte[512];
-        }
-        else
-        {
-            rented = ArrayPool<byte>.Shared.Rent(maxBytes);
-            buffer = rented;
-        }
-
-        try
-        {
-            int written = Encoding.UTF8.GetBytes(text, buffer);
-            var reader = new Utf8JsonReader(buffer[..written]);
-            while (reader.Read())
-            {
-                // Reading to the end is the validation; Read throws on anything malformed.
-            }
-
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-        finally
-        {
-            if (rented is not null)
-            {
-                ArrayPool<byte>.Shared.Return(rented);
-            }
-        }
-    }
-
-    /// <summary>Names the first member of <paramref name="dto"/> that arrived as <c>nil</c>, or <see langword="null"/> if the sample is complete.</summary>
-    private static string? FindMissingMember(TelemetrySampleDto? dto) => dto switch
-    {
-        null => "the sample itself",
-        { Extras: null } => nameof(TelemetrySampleDto.Extras),
-        { TyreTemperatureFrontLeft: null } => nameof(TelemetrySampleDto.TyreTemperatureFrontLeft),
-        { TyreTemperatureFrontRight: null } => nameof(TelemetrySampleDto.TyreTemperatureFrontRight),
-        { TyreTemperatureRearLeft: null } => nameof(TelemetrySampleDto.TyreTemperatureRearLeft),
-        { TyreTemperatureRearRight: null } => nameof(TelemetrySampleDto.TyreTemperatureRearRight),
-        _ => null,
-    };
 
     private static IResult MissingMember(string member, int? sampleIndex) => Results.Problem(
         statusCode: StatusCodes.Status400BadRequest,

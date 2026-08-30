@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RaceIntelligence.Core\RaceIntelligence.Core.csproj" />
+    <ProjectReference Include="..\RaceIntelligence.RaceRoom.Telemetry\RaceIntelligence.RaceRoom.Telemetry.csproj" />
   </ItemGroup>
 
   <ItemGroup>

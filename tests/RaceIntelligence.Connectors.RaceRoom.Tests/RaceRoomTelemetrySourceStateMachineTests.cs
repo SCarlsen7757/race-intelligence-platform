@@ -1,6 +1,7 @@
 using RaceIntelligence.Connectors.RaceRoom.Interop;
 using RaceIntelligence.Connectors.RaceRoom.Tests.Support;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using Shouldly;
 
 namespace RaceIntelligence.Connectors.RaceRoom.Tests;
@@ -35,7 +36,7 @@ public class RaceRoomTelemetrySourceStateMachineTests
         // session lifecycle they describe. Weakening the assertions to tolerate a third event type
         // would cost the divergence detection that makes this suite worth having; the extras
         // channel has its own suite in RaceRoomTelemetrySourceExtrasTests.
-        ExtrasInterval = Timeout.InfiniteTimeSpan,
+        SlowChannelInterval = Timeout.InfiniteTimeSpan,
     };
 
     /// <summary>Advances the enumerator once and asserts the event produced is of the expected type.</summary>

@@ -46,13 +46,13 @@ interface WheelTraceProps {
    */
   range?: readonly [number, number];
   /**
-   * Reads the simulator's operating window off a frame, for the channels that have one.
+   * Reads the simulator's operating window from the store, for the channels that have one.
    *
    * Only temperature does. Pressure and wear are deliberately left without a band: RaceRoom reports
    * a window for tread temperature and nothing equivalent for the others, and a band drawn from a
    * nominal pressure would be this dashboard's opinion wearing the simulator's clothes.
    */
-  window?: (frame: StintFrameMessage) => OperatingWindowValues | null;
+  window?: (store: LiveStore, driverKey: string) => OperatingWindowValues | null;
 }
 
 /**
@@ -105,10 +105,7 @@ export function WheelTrace({
             // Read from the store on every draw rather than from a captured frame. The chart is
             // built before the first frame arrives, and a window captured then would be null for
             // the life of the panel.
-            read: () => {
-              const frame = store.stintFor(driverKey);
-              return frame === null ? null : readWindow(frame);
-            },
+            read: () => readWindow(store, driverKey),
           },
         }),
   };

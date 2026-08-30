@@ -26,8 +26,11 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
         with:
-          # Reads the SDK version out of global.json (10.0.302, rollForward latestFeature) so CI
-          # and developer machines can never drift onto different SDKs.
+          # Reads the SDK version out of global.json (10.0.400, rollForward latestFeature) so CI
+          # and developer machines can never drift onto different SDKs. That floor is load-bearing
+          # rather than housekeeping: the channel source generator is compiled against Roslyn 5.9.0,
+          # and an SDK below 10.0.400 ships an older Roslyn that would skip the analyzer (CS9057)
+          # and fail the build with a hundred and seventy-five missing members.
           global-json-file: global.json
 
       - name: Restore
@@ -98,6 +101,7 @@ jobs:
             tests/RaceIntelligence.Ingest.Api.Tests/RaceIntelligence.Ingest.Api.Tests.csproj
             tests/RaceIntelligence.Live.Contracts.Tests/RaceIntelligence.Live.Contracts.Tests.csproj
             tests/RaceIntelligence.Persistence.RaceRoom.Tests/RaceIntelligence.Persistence.RaceRoom.Tests.csproj
+            tests/RaceIntelligence.RaceRoom.Channels.Tests/RaceIntelligence.RaceRoom.Channels.Tests.csproj
             tests/RaceIntelligence.Read.Api.Tests/RaceIntelligence.Read.Api.Tests.csproj
             tests/RaceIntelligence.Web.Tests/RaceIntelligence.Web.Tests.csproj
           )

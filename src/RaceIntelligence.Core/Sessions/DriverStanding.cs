@@ -87,7 +87,7 @@ public enum DriverFinishStatus
 /// the session, including cars nobody is collecting from. It is scoring-granularity by nature —
 /// position, lap and sector times, gaps, pit state — and carries no pedal inputs, tyre pressures,
 /// tyre wear, fuel or damage. Those exist only for the car the simulator is running locally, and
-/// travel in <see cref="RaceIntelligence.Core.Telemetry.TelemetrySample"/> instead.
+/// travel in <see cref="RaceIntelligence.Collector.Abstractions.Telemetry.TelemetrySample"/> instead.
 /// </para>
 /// <para>
 /// That asymmetry is intentional and load-bearing: when several people in the same online session

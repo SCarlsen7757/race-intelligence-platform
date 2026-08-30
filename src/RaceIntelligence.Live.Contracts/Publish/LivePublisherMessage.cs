@@ -1,4 +1,5 @@
 using MessagePack;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Live.Contracts.Publish;
 
@@ -28,7 +29,7 @@ namespace RaceIntelligence.Live.Contracts.Publish;
 [Union(2, typeof(LiveStandingsFrame))]
 [Union(3, typeof(LiveSelfFrame))]
 [Union(4, typeof(LiveGoodbye))]
-[Union(5, typeof(LiveExtrasFrame))]
+[Union(5, typeof(LiveSlowFrame))]
 [Union(6, typeof(LiveStintFrame))]
 public abstract record LivePublisherMessage;
 
@@ -276,7 +277,7 @@ public sealed record LiveSelfFrame(
 /// fifty-nine of every sixty samples were serialised, sent, decoded and dropped.
 /// </para>
 /// <para>
-/// <b>Not folded into <see cref="LiveExtrasFrame"/>, despite sharing its cadence.</b> That message
+/// <b>Not folded into <see cref="LiveSlowFrame"/>, despite sharing its cadence.</b> That message
 /// is the connector's own document: untyped, simulator-specific, and explicitly carrying sentinels
 /// untranslated. These are canonical channels with translated nulls, and putting them there would
 /// make a tyre pressure RaceRoom-only and hand every consumer a raw <c>-1</c> to rediscover.
@@ -318,40 +319,32 @@ public sealed record LiveWheelValues(
     [property: Key(2)] float? RearLeft,
     [property: Key(3)] float? RearRight);
 
-/// <summary>
-/// One tyre's tread temperatures and the operating window the simulator says they belong in.
-/// </summary>
+/// <summary>One tyre's three tread readings, inboard first.</summary>
 /// <remarks>
 /// <para>
 /// A whole record per tyre rather than a <see cref="LiveWheelValues"/> of one reading, because the
-/// two questions a tyre temperature answers are both about differences and neither survives being
-/// reduced to a single number. <b>Inner against outer is the camber and pressure story</b> — a front
-/// left twenty degrees hotter on its inner shoulder is a setup that is wrong in a nameable way,
-/// where the middle reading alone says only "warm". And a reading without its window is a number an
-/// engineer has to already know the answer for: 84 °C is cold for one compound and overheating for
-/// another, and the simulator is willing to say which.
+/// question a tyre temperature answers is about a difference and does not survive being reduced to
+/// a single number. <b>Inner against outer is the camber and pressure story</b> — a front left
+/// twenty degrees hotter on its inner shoulder is a setup that is wrong in a nameable way, where the
+/// middle reading alone says only "warm".
 /// </para>
 /// <para>
-/// The window travels on every frame rather than once per session because it is a property of the
-/// compound currently fitted, and a pit stop can change it mid-race. It costs five floats on a
-/// message that already carries fifteen.
+/// <b>The operating window used to be here and is not any more.</b> It was five more floats on a
+/// message sent per tyre per frame, describing a band that never moved: measured over one session,
+/// the bounds had exactly one distinct value each against 119,146 for the reading. They travel on
+/// <see cref="LiveSlowFrame"/> now, keyed by compound, so a pit stop onto a different tyre still
+/// changes them — which was the reason given for putting them here in the first place.
 /// </para>
 /// <para>
-/// Every member is nullable for the reason
-/// <see cref="Core.Telemetry.TyreTemperature"/> gives: a simulator may not report a reading, and its
-/// "not available" sentinel must have been translated to <see langword="null"/> by the connector
-/// before it reaches here. A window of nulls means the simulator declined to name a band, and a
-/// consumer must draw no band rather than one built from a nominal value.
+/// Every member is nullable because a simulator may not report a reading. Its "not available"
+/// sentinel has already been translated to <see langword="null"/> by the connector.
 /// </para>
 /// </remarks>
 [MessagePackObject]
 public sealed record LiveTreadTemperatures(
     [property: Key(0)] float? Inner,
     [property: Key(1)] float? Middle,
-    [property: Key(2)] float? Outer,
-    [property: Key(3)] float? Optimal,
-    [property: Key(4)] float? Cold,
-    [property: Key(5)] float? Hot);
+    [property: Key(2)] float? Outer);
 
 /// <summary>Per-tyre tread temperatures in the platform's FL, FR, RL, RR order.</summary>
 /// <remarks>
@@ -367,21 +360,23 @@ public sealed record LiveTyreTemperatures(
     [property: Key(3)] LiveTreadTemperatures RearRight);
 
 /// <summary>
-/// The local car's simulator-specific channels, at their own slow rate.
+/// The local car's slow-moving channels, at their own slow rate.
 /// </summary>
 /// <remarks>
 /// <para>
-/// A channel of its own rather than a member of <see cref="LiveSelfFrame"/>. The payload is a JSON
-/// document, and the values in it — car damage, push-to-pass state, tyre subtypes — move on the
-/// scale of a race rather than of a frame. Riding it on the 60 Hz stream would mean parsing a
-/// document sixty times a second to watch a number that changes after contact, spending the
-/// high-rate channel's budget on the low-rate one's data.
+/// A channel of its own rather than a member of <see cref="LiveSelfFrame"/>. Damage, push-to-pass
+/// state, flags, the pit window and tyre compounds move on the scale of a race rather than of a
+/// frame; riding them on the 60 Hz stream would spend the high-rate channel's budget on the
+/// low-rate one's data.
 /// </para>
 /// <para>
-/// <b>Sentinels are not translated.</b> The connector writes this raw, so a simulator's "not
-/// available" encoding arrives intact — RaceRoom uses <c>-1</c>, which is emphatically not zero. A
-/// dashboard that renders <c>damage.engine == -1</c> as an undamaged engine reports the opposite of
-/// the truth, and this is the contract that says so.
+/// <b>It carries the whole sample, and that is deliberate.</b> This used to be a raw JSON document
+/// the connector wrote and every consumer re-parsed, with a warning attached that its <c>-1</c>
+/// sentinels were untranslated and a dashboard rendering <c>damage.engine == -1</c> as an undamaged
+/// engine would report the opposite of the truth. Both problems are gone: the channels are typed and
+/// the connector has already turned every sentinel into <see langword="null"/>. At about 1 Hz, with
+/// nulls omitted, sending the sample whole costs a few hundred bytes and removes the judgement about
+/// which channels are "slow enough" from a place where getting it wrong is silent.
 /// </para>
 /// </remarks>
 /// <param name="SessionId">The publishing client's session id.</param>
@@ -391,13 +386,18 @@ public sealed record LiveTyreTemperatures(
 /// back to the session announcement the same way it does for a self frame.
 /// </param>
 /// <param name="CapturedAtUtc">Wall-clock capture time on the publishing machine.</param>
-/// <param name="ExtrasJson">The connector's raw JSON document. Never null; may be empty.</param>
+/// <param name="Sample">The sample the slow channels were read from.</param>
+/// <param name="OperatingWindows">
+/// The tyre and brake temperature bands in force, one per corner. Constant for a compound, so they
+/// belong on this channel rather than on the sample — see <see cref="OperatingWindow"/>.
+/// </param>
 [MessagePackObject]
-public sealed record LiveExtrasFrame(
+public sealed record LiveSlowFrame(
     [property: Key(0)] Guid SessionId,
     [property: Key(1)] string? SimDriverId,
     [property: Key(2)] DateTimeOffset CapturedAtUtc,
-    [property: Key(3)] string ExtrasJson) : LivePublisherMessage;
+    [property: Key(3)] RaceRoomTelemetrySample Sample,
+    [property: Key(4)] IReadOnlyList<OperatingWindow> OperatingWindows) : LivePublisherMessage;
 
 /// <summary>Sent when a client stops publishing a session cleanly, so the hub need not wait for a timeout.</summary>
 /// <param name="SessionId">The session being closed.</param>

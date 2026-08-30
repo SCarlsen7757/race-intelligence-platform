@@ -1,7 +1,8 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using RaceIntelligence.Core.Sessions;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Live.Contracts;
 using RaceIntelligence.Live.Contracts.Mapping;
 using RaceIntelligence.Live.Contracts.Publish;
@@ -69,7 +70,7 @@ public sealed class LiveOutbox : ILiveOutbox
 
     private LiveStandingsFrame? _latestStandings;
     private LiveSelfFrame? _latestSelf;
-    private LiveExtrasFrame? _latestExtras;
+    private LiveSlowFrame? _latestSlowFrame;
     private LiveStintFrame? _latestStint;
     private LiveSessionFrame? _currentSession;
 
@@ -174,7 +175,7 @@ public sealed class LiveOutbox : ILiveOutbox
     }
 
     /// <inheritdoc />
-    public void PublishSelf(TelemetrySample sample, string? simDriverId)
+    public void PublishSelf(RaceRoomTelemetrySample sample, string? simDriverId)
     {
         ArgumentNullException.ThrowIfNull(sample);
 
@@ -189,10 +190,10 @@ public sealed class LiveOutbox : ILiveOutbox
 
     /// <inheritdoc />
     /// <remarks>
-    /// No drop counter, for the reason <see cref="PublishExtras"/> gives: this arrives at about the
+    /// No drop counter, for the reason <see cref="PublishSlowChannels"/> gives: this arrives at about the
     /// same rate, and a superseded stint frame says nothing the self frame's counter has not.
     /// </remarks>
-    public void PublishStint(TelemetrySample sample, string? simDriverId)
+    public void PublishStint(RaceRoomTelemetrySample sample, string? simDriverId)
     {
         ArgumentNullException.ThrowIfNull(sample);
 
@@ -209,13 +210,18 @@ public sealed class LiveOutbox : ILiveOutbox
     /// are behind on; extras arrive about once a second, so a superseded one says nothing a
     /// backed-up socket has not already said through the other two.
     /// </remarks>
-    public void PublishExtras(Guid sessionId, string extrasJson, DateTimeOffset capturedAtUtc, string? simDriverId)
+    public void PublishSlowChannels(
+        RaceRoomTelemetrySample sample,
+        IReadOnlyList<OperatingWindow> operatingWindows,
+        DateTimeOffset capturedAtUtc,
+        string? simDriverId)
     {
-        ArgumentNullException.ThrowIfNull(extrasJson);
+        ArgumentNullException.ThrowIfNull(sample);
+        ArgumentNullException.ThrowIfNull(operatingWindows);
 
         Interlocked.Exchange(
-            ref _latestExtras,
-            new LiveExtrasFrame(sessionId, simDriverId, capturedAtUtc, extrasJson));
+            ref _latestSlowFrame,
+            new LiveSlowFrame(sample.SessionId, simDriverId, capturedAtUtc, sample, operatingWindows));
 
         Wake();
     }
@@ -229,7 +235,7 @@ public sealed class LiveOutbox : ILiveOutbox
         Interlocked.Exchange(ref _latestStandings, null);
         Interlocked.Exchange(ref _latestSelf, null);
         Interlocked.Exchange(ref _latestStint, null);
-        Interlocked.Exchange(ref _latestExtras, null);
+        Interlocked.Exchange(ref _latestSlowFrame, null);
 
         // Stop re-announcing it on reconnect — but only if it is still the session being published.
         // The next session can start before the previous one's end is processed, and clearing that
@@ -308,7 +314,7 @@ public sealed class LiveOutbox : ILiveOutbox
             return stint;
         }
 
-        return Interlocked.Exchange(ref _latestExtras, null);
+        return Interlocked.Exchange(ref _latestSlowFrame, null);
     }
 
     private void PublishControl(LivePublisherMessage message)

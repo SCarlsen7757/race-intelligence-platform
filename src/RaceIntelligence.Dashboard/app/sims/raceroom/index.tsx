@@ -12,8 +12,10 @@ import { SystemsTrend, SYSTEM_WIDGET_CHANNELS } from '../../features/focus/Syste
 import { RaceTimeline } from '../../features/wall/RaceTimeline';
 import { LapTrend } from '../../features/laps/LapTrend';
 import { WHEEL_CHANNELS, WheelTrace } from '../../features/focus/WheelTrace';
-import { ExtrasWheelTrace, type ExtrasWheelChannel } from '../../features/focus/ExtrasWheelTrace';
+import { SlowWheelTrace, type SlowWheelChannel } from '../../features/focus/SlowWheelTrace';
 import { firstReportedWindow } from '../../features/focus/operatingWindow';
+import { tyreWindow } from '../../shared/live/slowChannels';
+import type { LiveStore } from '../../shared/live/store';
 import { TyreHeatmap } from '../../features/focus/TyreHeatmap';
 import {
   registerDefaultWall,
@@ -39,22 +41,30 @@ const pressureChannel = (tyres: TyreTraces) => tyres.pressureKpa;
 const wearChannel = (tyres: TyreTraces) => tyres.wear;
 const temperatureChannel = (tyres: TyreTraces) => tyres.temperatureCelsius;
 
-const gripChannel: ExtrasWheelChannel = {
-  ring: (extras) => extras.tyreGrip,
-  read: (document, wheel) => document?.tyreGrip?.[wheel],
+const TYRE_GRIPS = ['tyreGripFl', 'tyreGripFr', 'tyreGripRl', 'tyreGripRr'] as const;
+
+const gripChannel: SlowWheelChannel = {
+  ring: (slow) => slow.tyreGrip,
+  read: (sample, wheel) => sample?.[TYRE_GRIPS[wheel]!],
 };
 
 const readPressure = (frame: StintFrameMessage, wheel: number) => frame.tyrePressureKpa[wheel];
 const readWear = (frame: StintFrameMessage, wheel: number) => frame.tyreWear[wheel];
 
 /**
- * The tread window, taken off the frame for the temperature chart's band.
+ * The tread window for the temperature chart's band.
  *
- * Every corner reports the same three numbers because they are the compound's, not the corner's —
- * see `firstReportedWindow` for why only the first reported one is drawn.
+ * Read from the store's slow frame rather than from the stint frame it used to ride on: a window is
+ * the compound's property, constant for a stint, and sending it beside every tread reading was five
+ * unchanging numbers on a message that already carries twelve moving ones. Every corner still
+ * reports the same three numbers — see `firstReportedWindow` for why only the first is drawn.
  */
-const readTyreWindow = (frame: StintFrameMessage) =>
-  firstReportedWindow(frame.tyreTemperatureCelsius);
+const readTyreWindow = (store: LiveStore, driverKey: string) =>
+  firstReportedWindow(
+    [0, 1, 2, 3].map((corner) =>
+      tyreWindow(store.getSlowFrames()[driverKey]?.message.operatingWindows, corner),
+    ),
+  );
 // The middle of the tread, matching the line this chart draws. The shoulders and the simulator's
 // window arrive on the same frame and are what the tread heatmap and the window band will read;
 // this readout stays the one number that belongs beside a single line.
@@ -163,7 +173,7 @@ function TyreTemperaturePanel({
  */
 function TyreGripPanel(props: ChannelPanelProps) {
   return (
-    <ExtrasWheelTrace
+    <SlowWheelTrace
       {...props}
       channel={gripChannel}
       unit="grip"
@@ -370,12 +380,9 @@ registerSimPanels('raceroom', [
     defaultSize: WIDGET_UNIT,
   },
   {
-    // Brake *wear* is deliberately not registered beside this. `SimCapabilities.BrakeWear` exists
-    // and nothing sets it, because RaceRoom's shared memory has no pad-wear member to set it from —
-    // so the widget could be picked off the catalogue and would then do nothing but explain that no
-    // collector reports it. The flag, the `brakeWear` field and `BrakeWearPanel` all stay: they are
-    // waiting on a connector that reports the channel, and re-registering is one entry. Advertising
-    // it before then is the part that was wrong.
+    // Brake *wear* has no entry beside this and no longer has a panel either. RaceRoom's shared
+    // memory has no pad-wear member, so nothing ever set `SimCapabilities.BrakeWear` and nothing
+    // could ever have filled the field — see the note in BrakePanel.tsx.
     id: 'brake-temperature',
     title: 'Brake temperature',
     scope: 'driver',

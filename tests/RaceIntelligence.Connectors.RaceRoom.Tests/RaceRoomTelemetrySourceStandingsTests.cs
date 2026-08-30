@@ -1,6 +1,7 @@
 using RaceIntelligence.Connectors.RaceRoom.Interop;
 using RaceIntelligence.Connectors.RaceRoom.Tests.Support;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 using Shouldly;
 
 namespace RaceIntelligence.Connectors.RaceRoom.Tests;
@@ -28,7 +29,7 @@ public class RaceRoomTelemetrySourceStandingsTests
 
         // Off: this suite is about when standings are and are not emitted, and its walk over the
         // stream tolerates only samples in between. Extras have their own suite.
-        ExtrasInterval = Timeout.InfiniteTimeSpan,
+        SlowChannelInterval = Timeout.InfiniteTimeSpan,
     };
 
     private static R3EDriverData[] Field() =>

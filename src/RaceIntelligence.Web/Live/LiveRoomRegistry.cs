@@ -156,7 +156,7 @@ public sealed class LiveRoomRegistry(
     }
 
     /// <summary>Applies a publisher's extras document and fans it out to viewers focused on that driver.</summary>
-    public void ApplyExtras(Guid clientId, LiveExtrasFrame frame)
+    public void ApplySlowChannels(Guid clientId, LiveSlowFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
 
@@ -165,9 +165,9 @@ public sealed class LiveRoomRegistry(
             return;
         }
 
-        if (room.ApplyExtras(clientId, frame, timeProvider.GetUtcNow()) is { } extras)
+        if (room.ApplySlowChannels(clientId, frame, timeProvider.GetUtcNow()) is { } extras)
         {
-            viewers.BroadcastExtras(extras);
+            viewers.BroadcastSlowFrame(extras);
         }
     }
 

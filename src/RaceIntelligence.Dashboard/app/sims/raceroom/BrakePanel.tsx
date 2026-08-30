@@ -5,21 +5,20 @@ import { ChannelLegend, type LegendChannel } from '../../features/focus/ChannelL
 import { LiveChart, type LiveChartSpec } from '../../features/focus/LiveChart';
 import { WHEEL_CHANNELS } from '../../features/focus/WheelTrace';
 import { TRACE_COLOURS } from '../../features/focus/traceColours';
-import { ExtrasWheelTrace, type ExtrasWheelChannel } from '../../features/focus/ExtrasWheelTrace';
+import { SlowWheelTrace, type SlowWheelChannel } from '../../features/focus/SlowWheelTrace';
 import { firstReportedWindow } from '../../features/focus/operatingWindow';
+import { brakeWindow } from '../../shared/live/slowChannels';
 import type { ChannelPanelProps } from '../registry';
 
-const TEMPERATURE: ExtrasWheelChannel = {
-  ring: (extras) => extras.brakeTemperatureCelsius,
-  // The reading, not the window. `optimal`, `cold` and `hot` ride alongside it on the same object
-  // and are what the band reads; the line and its readout stay the temperature.
-  read: (document, wheel) => document?.brakeTemperatureCelsius?.[wheel]?.current,
-  window: (document) => firstReportedWindow(document?.brakeTemperatureCelsius),
-};
+const BRAKE_TEMPERATURES = ['brakeTempFl', 'brakeTempFr', 'brakeTempRl', 'brakeTempRr'] as const;
 
-const WEAR: ExtrasWheelChannel = {
-  ring: (extras) => extras.brakeWear,
-  read: (document, wheel) => document?.brakeWear?.[wheel],
+const TEMPERATURE: SlowWheelChannel = {
+  ring: (slow) => slow.brakeTemperatureCelsius,
+  // The reading, not the window. The band comes from the operating windows on the same frame — it is
+  // a property of the pad rather than of this second, and it never moves while the reading does.
+  read: (sample, wheel) => sample?.[BRAKE_TEMPERATURES[wheel]!],
+  window: (windows) =>
+    firstReportedWindow([0, 1, 2, 3].map((corner) => brakeWindow(windows, corner))),
 };
 
 /**
@@ -38,7 +37,6 @@ const PRESSURE_CHANNELS: readonly LegendChannel[] = [...WHEEL_CHANNELS, PEDAL_CH
 
 const formatTemperature = (value: number | null | undefined) => formatNumber(value, 0);
 const formatPressure = (value: number | null | undefined) => formatNumber(value, 1);
-const WEAR_RANGE = [0, 1] as const;
 
 /**
  * Brake temperature per corner, against the window the simulator says the pads want.
@@ -49,7 +47,7 @@ const WEAR_RANGE = [0, 1] as const;
  * legible to anybody.
  */
 export function BrakeTemperaturePanel(props: ChannelPanelProps) {
-  return <ExtrasWheelTrace {...props} channel={TEMPERATURE} unit="°C" format={formatTemperature} />;
+  return <SlowWheelTrace {...props} channel={TEMPERATURE} unit="°C" format={formatTemperature} />;
 }
 
 /**
@@ -135,22 +133,8 @@ export function BrakePressurePanel({
   );
 }
 
-/**
- * Brake pad wear per corner.
- *
- * **Not registered in the catalogue**, and deliberately so: `SimCapabilities.BrakeWear` is set by
- * nothing because RaceRoom's shared memory has no pad-wear member to set it from. The component
- * stays because the flag and the `brakeWear` field stay — they are waiting on a connector that
- * reports the channel, and re-registering is one entry. See the remark in `sims/raceroom/index.tsx`.
- */
-export function BrakeWearPanel(props: ChannelPanelProps) {
-  return (
-    <ExtrasWheelTrace
-      {...props}
-      channel={WEAR}
-      unit="worn"
-      format={formatPercent}
-      range={WEAR_RANGE}
-    />
-  );
-}
+// Brake pad wear used to have a panel here. It was never registered in the catalogue and no
+// connector ever produced it: RaceRoom's shared memory has no pad-wear member, so the field it drew
+// from was a promise the UI could not keep. The channel manifest is now the single declaration of
+// what a sample carries, and there is no brake-wear channel in it — so the panel went with the
+// field rather than waiting on a connector that cannot be written (#109).

@@ -1,7 +1,8 @@
 using System.Runtime.CompilerServices;
 using RaceIntelligence.Core.Capabilities;
 using RaceIntelligence.Core.Games;
-using RaceIntelligence.Core.Telemetry;
+using RaceIntelligence.Collector.Abstractions.Telemetry;
+using RaceIntelligence.RaceRoom.Telemetry;
 
 namespace RaceIntelligence.Collector.Tests.Support;
 
