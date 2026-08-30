@@ -22,6 +22,11 @@ WORKDIR /src
 # PackageReference is missing a version. Copying these before the sources keeps the restore layer
 # cached across ordinary code edits.
 COPY global.json Directory.Build.props Directory.Packages.props ./
+# channels/ is source, not data: the RaceRoom channel manifest is an AdditionalFiles item that
+# a Roslyn generator reads at compile time, so a build without it fails with CS2001 rather than
+# producing a smaller image. It lives outside src/ because it describes a simulator rather than
+# a project — see CLAUDE.md.
+COPY channels/ ./channels/
 COPY src/ ./src/
 
 RUN dotnet restore src/RaceIntelligence.Ingest.RaceRoom/RaceIntelligence.Ingest.RaceRoom.csproj

@@ -209,3 +209,54 @@ jobs:
         # so a separate build step would duplicate that work for no extra signal. The Linux job is
         # the one that enforces a zero-warning full-solution compile.
         run: dotnet test tests/RaceIntelligence.Connectors.RaceRoom.Tests/RaceIntelligence.Connectors.RaceRoom.Tests.csproj --configuration Release
+
+  # The container images, built exactly as a deploy builds them.
+  #
+  # This job exists because a deploy found a bug the rest of CI could not: the channel manifest lives
+  # in channels/ at the repository root, outside src/, and the backend Dockerfiles copied only
+  # global.json, the two props files and src/. `dotnet build` on the solution was perfectly happy —
+  # the file was there on disk — while `docker build` failed with CS2001 on a file the Roslyn
+  # generator needs at compile time. Nothing between a green PR and a broken deploy noticed.
+  #
+  # Build only, no push: the point is that the Dockerfiles still describe a working build, and a
+  # registry is not needed to answer that. The dashboard image is included because its build runs
+  # `tsc` and `vite build` inside the image, against a context the .dockerignore has filtered — a
+  # different question from the dashboard job above, which runs them against the working tree.
+  images:
+    name: Build container images
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: web
+            dockerfile: src/RaceIntelligence.Web/Dockerfile
+          - service: ingest-api
+            dockerfile: src/RaceIntelligence.Ingest.RaceRoom/Dockerfile
+          - service: read-api
+            dockerfile: src/RaceIntelligence.Read.RaceRoom/Dockerfile
+          - service: dashboard
+            dockerfile: src/RaceIntelligence.Dashboard/Dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          # The dashboard bakes its two origins in at build time; any value compiles, and this job
+          # is asking whether the image builds rather than whether it points anywhere real.
+          build-args: |
+            HUB_URL=https://race-api.example.com
+            READ_URL=https://race-read.example.com
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
