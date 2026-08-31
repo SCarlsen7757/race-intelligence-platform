@@ -30,6 +30,17 @@ namespace RaceIntelligence.Ingest.Api.Auth;
 /// otherwise let a caller rotate fabricated keys for a fresh bucket each time.
 /// </para>
 /// <para>
+/// <b>Behind the tunnel that address is the tunnel's</b>, not the collector's, because nothing in
+/// this deployment applies forwarded headers. So the per-address bucket degrades from a per-client
+/// limit to one aggregate cap shared by every remote collector. Accepted deliberately: the two
+/// limiters above it still partition per collector, and two collectors at roughly one request
+/// every two seconds sit far under the aggregate. What is lost is attribution — a flood of
+/// fabricated keys from the internet shares a bucket with real collectors rather than being
+/// isolated from them. Trusting <c>X-Forwarded-For</c> to recover it would need
+/// <c>KnownProxies</c>/<c>KnownNetworks</c> pinned to an address Docker assigns dynamically, and a
+/// forgeable partition key is worse than an aggregate one. See ADR 0003.
+/// </para>
+/// <para>
 /// A chained limiter rather than a named policy, because chaining is expressible only on the
 /// global limiter. The partitioners therefore exempt every path outside <c>/api/v1</c> themselves:
 /// <c>/health</c> and <c>/alive</c> must never be throttled, or a limited probe reports the service

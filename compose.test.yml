@@ -73,10 +73,10 @@ services:
       # refuses to start without this and refuses any session claiming a different one.
       Ingest__GameKey: raceroom
     ports:
-      # Not currently published through the tunnel. The key check itself is no longer the blocker
-      # — it is per-collector, constant-time and rate-limited — but exposing this service is a
-      # separate decision (TLS termination, the 8 MB batch body as a DoS surface) that ADR 0003
-      # has not been amended to make. It stays absent from the cloudflared ingress until it is.
+      # Published to the LAN as well as through the tunnel. The collector in this house uploads
+      # straight to this port rather than out through the tunnel and back — lower latency and one
+      # less dependency mid-race — while a collector on another network reaches the same service at
+      # race-ingest.<domain>.
       #
       # 5443 matches the port docs/development.md already uses in its collector examples.
       - '5443:8080'
@@ -87,9 +87,10 @@ services:
   # The read API: RaceRoom's stored sessions, read-only.
   #
   # A separate service from ingest-api rather than more endpoints on it, because the two have
-  # opposite exposure. That one holds collector keys and is not published; this one holds no key at all and
-  # is reachable through the tunnel, which is what lets a browser read history. Merging them would
-  # mean choosing one posture for both.
+  # opposite auth posture. That one holds collector keys and accepts writes; this one holds no key
+  # at all, writes nothing, and serves only GETs behind an origin allowlist, which is what lets a
+  # browser read history. Both are published now, but that never was the distinction — merging them
+  # would still mean choosing one posture for both.
   #
   # It writes nothing and applies no migrations — the ingest side owns the schema (ADR 0001) — but
   # it still waits on the migration step, because starting against an unprepared database would
@@ -155,15 +156,19 @@ services:
       - web
       - read-api
 
-  # Publishes the dashboard, the hub and the read API. Three hostnames now: the browser loads the
-  # page from one, opens its WebSocket at the second, and fetches history from the third.
+  # Publishes the dashboard, the hub, the read API and the ingest API. Four hostnames: the browser
+  # loads the page from one, opens its WebSocket at the second, and fetches history from the third;
+  # the fourth is not a browser address at all, it is how a collector on someone else's network
+  # uploads.
   #
-  # The read API joins the tunnel and the ingest API still does not, which is the whole reason they
-  # are separate services — see read-api above.
+  # The ingest API joined the tunnel once its key check became one constant-time-compared key per
+  # collector behind a rate limiter (ADR 0003, amended). It is still the only published service with
+  # no origin allowlist — correctly, since its client is a console app that sends no Origin header,
+  # but that means the key and the limiter are its whole guard.
   #
-  # Configure the token and the ingress rules in the Cloudflare dashboard; the three hostnames must
-  # map to dashboard:3000, web:8080 and read-api:8080 respectively. Comment this service out to run
-  # without a tunnel and reach them over the LAN.
+  # Configure the token and the ingress rules in the Cloudflare dashboard; the four hostnames must
+  # map to dashboard:3000, web:8080, read-api:8080 and ingest-api:8080 respectively. Comment this
+  # service out to run without a tunnel and reach them over the LAN.
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
@@ -174,6 +179,7 @@ services:
       - dashboard
       - web
       - read-api
+      - ingest-api
 
 volumes:
   postgres-data:
