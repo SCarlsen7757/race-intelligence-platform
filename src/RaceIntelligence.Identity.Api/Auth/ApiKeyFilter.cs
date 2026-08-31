@@ -1,15 +1,17 @@
 namespace RaceIntelligence.Identity.Api.Auth;
 
 /// <summary>
-/// Checks a single static shared secret (<c>Identity:ApiKey</c>) against the <c>X-Api-Key</c>
+/// Checks a single static administrative key (<c>Identity:ApiKey</c>) against the <c>X-Api-Key</c>
 /// request header. Applied only to the <c>/api/v1</c> endpoint group, so <c>/health</c> and
 /// <c>/alive</c> are never gated by it.
 /// </summary>
 /// <remarks>
-/// <b>The same deliberate compromise the ingest API makes, and it deserves restating here rather
-/// than referred to:</b> one shared key, no per-client identity, no rotation, no rate limiting, and
-/// a plain non-constant-time comparison. It exists to stop a stray device on the home LAN writing to
-/// this service, not to authenticate anybody.
+/// <para>
+/// <b>One key here is deliberate, not a leftover.</b> The ingest API holds one key per collector
+/// because it has several clients that must be revocable independently; this service has exactly
+/// one kind of caller — a human curating the registry — so a second key would name nothing. The
+/// comparison is constant-time all the same: see <see cref="IdentityApiKeyGate"/>.
+/// </para>
 /// <para>
 /// Its own key rather than the ingest one, for the reason the ingest and live keys are already
 /// separate: these guard different services with different exposure, and one key for both means a
@@ -17,15 +19,14 @@ namespace RaceIntelligence.Identity.Api.Auth;
 /// the platform, which argues for keeping it apart rather than for sharing it.
 /// </para>
 /// </remarks>
-public sealed class ApiKeyFilter(IConfiguration configuration) : IEndpointFilter
+public sealed class ApiKeyFilter(IdentityApiKeyGate gate) : IEndpointFilter
 {
     /// <inheritdoc />
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
-        var expected = configuration["Identity:ApiKey"];
-        var provided = context.HttpContext.Request.Headers["X-Api-Key"].ToString();
+        var provided = context.HttpContext.Request.Headers[IdentityApiKeyGate.HeaderName].ToString();
 
-        if (string.IsNullOrEmpty(expected) || !string.Equals(expected, provided, StringComparison.Ordinal))
+        if (!gate.IsValid(provided))
         {
             return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Missing or invalid API key.");
         }

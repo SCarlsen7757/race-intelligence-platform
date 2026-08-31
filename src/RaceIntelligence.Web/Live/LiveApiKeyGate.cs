@@ -15,10 +15,9 @@ namespace RaceIntelligence.Web.Live;
 /// longer turn it into a 401.
 /// </para>
 /// <para>
-/// <b>The comparison is constant-time</b>, which the ingest API's is not, and the difference is
-/// deliberate rather than an inconsistency. That key guards a service documented as LAN-only; this
-/// one guards an endpoint whose entire purpose is to be reachable from the internet through a
-/// tunnel, where an attacker can time responses. A length-independent digest comparison costs
+/// <b>The comparison is constant-time.</b> So is the ingest API's, which it once was not — both
+/// digest each side before comparing, so neither leaks the key's length or, in the ingest API's
+/// case, which of several configured keys matched. A length-independent digest comparison costs
 /// nothing and removes the question.
 /// </para>
 /// </remarks>

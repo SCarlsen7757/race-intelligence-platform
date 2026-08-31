@@ -79,7 +79,7 @@ Point it at the server by overriding two settings — environment variables are 
 
 ```powershell
 $env:Collector__Ingest__BaseUrl = "https://home-server:5443/"
-$env:Collector__Ingest__ApiKey  = "<the server's Ingest__ApiKey value>"
+$env:Collector__Ingest__ApiKey  = "<this collector's key from the server's Ingest__ApiKeys__* set>"
 dotnet run --project src/RaceIntelligence.Collector
 ```
 
@@ -118,8 +118,8 @@ dotnet run --project src/RaceIntelligence.Ingest.RaceRoom --launch-profile https
 Any other PostgreSQL works too — adjust host, port and password to match it.
 
 Then run the collector as in Option B. The API key lines up on its own — the API's
-`appsettings.Development.json` sets `Ingest:ApiKey` to `dev-local-only-key` and the collector's sets
-the same key — but the base URL does not. Under Aspire the collector resolves the API through
+`appsettings.Development.json` sets `Ingest:ApiKeys:dev-collector` to `dev-local-only-key` and the
+collector's sets the same key — but the base URL does not. Under Aspire the collector resolves the API through
 service discovery (`https+http://ingest-api/`, injected by AppHost), so no port is baked into
 `appsettings.Development.json`. Running without Aspire there is nothing to resolve, so point the
 collector at the API's `https` launch profile URL yourself — see
@@ -248,7 +248,7 @@ current. One interface spanning both would force one path into the other's failu
 | `PollInterval` | `00:00:00.0166667` | 60 Hz. Feeds both jobs |
 | `Ingest:Enabled` | `true` | Archive to the ingest API |
 | `Ingest:BaseUrl` | `https://localhost:5443/` | Trailing slash required |
-| `Ingest:ApiKey` | *(empty)* | Required when enabled. Sent as `X-Api-Key` |
+| `Ingest:ApiKey` | *(empty)* | Required when enabled. Sent as `X-Api-Key`. Must be one of the ingest API's configured `Ingest:ApiKeys` values |
 | `Ingest:BufferCapacity` | `20000` | Samples held before `BufferFullMode` applies |
 | `Ingest:BufferFullMode` | `Wait` | `Wait` or `DropWrite` |
 | `Ingest:MaxBatchSize` | `500` | Flush trigger by size |
@@ -266,6 +266,27 @@ current. One interface spanning both would force one path into the other's failu
 Override any of them with `Collector__<Block>__<Name>` as an environment variable (e.g.
 `Collector__Live__ApiKey`), or via user secrets on the gaming PC. **Don't put a real API key in
 `appsettings.json`.**
+
+### Adding a second collector
+
+The ingest API holds a set of collector keys, not one shared secret: `Ingest:ApiKeys` maps a label
+to a key. Give a new driver their own entry rather than a copy of yours —
+
+```yaml
+Ingest__ApiKeys__local-collector: <your key>
+Ingest__ApiKeys__friend-gaming-pc: <their key>
+```
+
+— and set that key as their collector's `Collector:Ingest:ApiKey`. The label is what shows up in
+the ingest API's logs, so name it after the machine or the person.
+
+Revoking one collector is deleting its line and restarting the ingest API; the other keys keep
+working. Rotation works the same way, and both take a restart on each side: the server digests its
+keys once at startup, and the collector bakes its key into the outgoing request headers once at
+registration.
+
+At least one key is required. An ingest API with none configured refuses to start, rather than
+rejecting every upload with a 401 that looks like a collector bug.
 
 Either job can also be switched from the command line, which is the quickest way to change your
 mind for one run:

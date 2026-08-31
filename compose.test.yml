@@ -65,14 +65,18 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__raceintel: Host=postgres;Port=5432;Database=raceintel;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}
-      Ingest__ApiKey: ${INGEST_API_KEY:?set INGEST_API_KEY in .env}
+      # One key per collector, keyed by a label. Add a second line with a different label to let
+      # another driver's collector upload; deleting one revokes that collector and leaves the
+      # others working. At least one is required or the API refuses to start.
+      Ingest__ApiKeys__local-collector: ${INGEST_API_KEY:?set INGEST_API_KEY in .env}
       # Which simulator this database holds. One database per simulator (ADR 0001), so the API
       # refuses to start without this and refuses any session claiming a different one.
       Ingest__GameKey: raceroom
     ports:
-      # LAN ONLY, and it must stay that way. Ingest.Api/Auth/ApiKeyFilter.cs documents its own key
-      # check as a Phase-1 compromise with a non-constant-time comparison, explicitly not meant to
-      # be reachable beyond the LAN. It is absent from the cloudflared ingress for that reason.
+      # Not currently published through the tunnel. The key check itself is no longer the blocker
+      # — it is per-collector, constant-time and rate-limited — but exposing this service is a
+      # separate decision (TLS termination, the 8 MB batch body as a DoS surface) that ADR 0003
+      # has not been amended to make. It stays absent from the cloudflared ingress until it is.
       #
       # 5443 matches the port docs/development.md already uses in its collector examples.
       - '5443:8080'
@@ -83,7 +87,7 @@ services:
   # The read API: RaceRoom's stored sessions, read-only.
   #
   # A separate service from ingest-api rather than more endpoints on it, because the two have
-  # opposite exposure. That one holds a key and stays on the LAN; this one holds no key at all and
+  # opposite exposure. That one holds collector keys and is not published; this one holds no key at all and
   # is reachable through the tunnel, which is what lets a browser read history. Merging them would
   # mean choosing one posture for both.
   #

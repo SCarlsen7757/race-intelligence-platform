@@ -207,14 +207,16 @@ telemetry is one question in every simulator, because it is asked of the canonic
 `Persistence.Core`; only the `DbContext` registration names a schema.
 
 **It is a separate service from the ingest host, and that is forced rather than tidy.** The two have
-opposite exposure. [0003](0003-deployment-topology.md) keeps the ingest API off the tunnel because
-`Ingest.Api/Auth/ApiKeyFilter.cs` documents its own key check as a non-constant-time Phase-1
-compromise; a dashboard on its own origin has to reach *something*, and it cannot be that. The other
+opposite exposure. [0003](0003-deployment-topology.md) keeps the ingest API off the tunnel; a dashboard on its own
+origin has to reach *something*, and it cannot be that. (The original reason — a non-constant-time
+Phase-1 key check — no longer holds: the check is now per-collector, constant-time and rate-limited.
+Publishing the ingest API remains a decision 0003 has not been amended to make, and it would not
+serve a browser in any case.) The other
 candidate was the live hub, which is already exposed — but the hub holds no database credentials by
 design, that being the property `AppHost.cs` and `Ingest.RaceRoom/Program.cs` both state explicitly,
 and it is shared across simulators where this decision says storage is not.
 
-So: the ingest host keeps a key and stays on the LAN; the read host holds no key, serves only GETs,
+So: the ingest host keeps keys and is not published; the read host holds no key, serves only GETs,
 writes nothing, applies no migrations, and is published. Its guard is an origin allowlist that must
 be non-empty for it to start. An API key was considered and rejected: to be useful it would have to
 ship inside the browser bundle, where it is not a secret and only reads as one — the same argument

@@ -22,7 +22,9 @@ namespace RaceIntelligence.Ingest.Api.Tests.Support;
 public sealed class AspireAppFixture : IAsyncLifetime
 {
     /// <summary>
-    /// The API key configured for the <c>ingest-api-key</c> AppHost parameter in this test run.
+    /// The collector key configured for the <c>ingest-api-key</c> AppHost parameter in this test
+    /// run. The AppHost binds it under a label, as <c>Ingest:ApiKeys["local-collector"]</c>, so the
+    /// ingest API sees a one-entry key set rather than a single shared secret.
     /// AppHost parameters resolve from the <c>Parameters:&lt;name&gt;</c> configuration section, so
     /// setting it before <c>BuildAsync</c> avoids the interactive "provide a value" prompt the real
     /// (secret, un-defaulted) parameter would otherwise trigger outside a normal run.
