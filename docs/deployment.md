@@ -17,9 +17,12 @@ The topology and the reasoning behind it are recorded in
 Gaming PC (Windows)                Home server VM (Linux, Docker)         Anywhere
 -------------------                ------------------------------         --------
 RaceRoom                           postgres                               a browser
-   | $R3E shared memory            ingest-api   :5443  (not published)        |
+   | $R3E shared memory            ingest-api   :5443  --- cloudflared ---> race-ingest.<domain>
 collector  ------- LAN ---------->  live hub    :5044  --- cloudflared ---> race-api.<domain>
+   (this house)                     read-api    :5049  --- cloudflared ---> race-read.<domain>
                                    dashboard    :3000  --- cloudflared ---> race-web.<domain>
+
+a collector on someone else's network takes the tunnel instead of the LAN arrow.
 ```
 
 Three things about this are deliberate and worth reading before changing anything.
@@ -27,20 +30,28 @@ Three things about this are deliberate and worth reading before changing anythin
 **The collector is not containerised and never will be.** It reads a Windows named shared-memory
 block that exists only while RaceRoom is running. It belongs on the gaming PC.
 
-**The ingest API is not on the tunnel.** Its key check is no longer the reason — that is now one
-key per collector, compared in constant time, behind a rate limiter — but publishing it is a
-separate decision about TLS termination and the 8 MB batch body as a DoS surface, and ADR 0003 has
-not been amended to make it. The live hub is the service built for exposure — constant-time key comparison, an
-origin allowlist, and a WebSocket keep-alive that exists to survive proxy idle timeouts. The read
-API is published too, for the opposite reason: it holds no key at all, writes nothing, applies no
-migrations, and serves only GETs behind its own origin allowlist. The collector reaches the ingest
-API and the hub over the LAN: there is no reason to send live frames out through the tunnel and back.
+**The ingest API is on the tunnel, and it took two things to get there.** Its key check is one key
+per collector now, compared in constant time, behind a rate limiter. The two blockers that remained
+after that are both already answered in the code: TLS is terminated by the tunnel, and the batch
+body is capped at 8 MB by `TelemetryEndpoints.cs`, enforced on `Content-Length` and again by
+lowering the request-body limit for a chunked body, so an oversized POST is refused with a 413
+before anything is buffered or decoded. What it still does not have is an origin allowlist — its
+client is a console collector that sends no `Origin` header, so there is nothing to check, which
+means the key and the limiter are its whole guard. The live hub was always the service built for
+exposure — constant-time key comparison, an origin allowlist, and a WebSocket keep-alive that
+survives proxy idle timeouts — and the read API is published for the opposite reason: it holds no
+key at all, writes nothing, applies no migrations, and serves only GETs behind its own allowlist.
 
-**The dashboard, the hub and the read API are three origins, hence three hostnames.** The browser
-loads the page from the dashboard, opens its WebSocket straight at the hub, and fetches stored
-sessions from the read API. Routing the sockets through Node would force its event loop to re-emit
-every focus frame sixty times a second; keeping history off the hub is what lets the hub go on
-holding no database credentials.
+**A collector in this house still uses the LAN.** Lower latency and one less thing to depend on
+mid-race. That is an optimisation available to one install, not a property of the topology — a
+collector anywhere else reaches the same two services through the tunnel.
+
+**Four hostnames, and only three of them are origins a browser uses.** The browser loads the page
+from the dashboard, opens its WebSocket straight at the hub, and fetches stored sessions from the
+read API. Routing the sockets through Node would force its event loop to re-emit every focus frame
+sixty times a second; keeping history off the hub is what lets the hub go on holding no database
+credentials. The fourth, `race-ingest.*`, is never opened by a browser at all — a collector is
+configured with it directly.
 
 ---
 
@@ -83,7 +94,7 @@ allowing every origin.
 
 ### Cloudflare tunnel
 
-Create the tunnel in the Zero Trust dashboard, put its token in `.env`, and give it three public
+Create the tunnel in the Zero Trust dashboard, put its token in `.env`, and give it four public
 hostnames:
 
 | Hostname | Service |
@@ -91,8 +102,15 @@ hostnames:
 | `race-web.<domain>` | `http://dashboard:3000` |
 | `race-api.<domain>` | `http://web:8080` |
 | `race-read.<domain>` | `http://read-api:8080` |
+| `race-ingest.<domain>` | `http://ingest-api:8080` |
 
-Do not add a rule for the ingest API.
+The service address is the compose service name and its container port, not the LAN-published one —
+cloudflared resolves it on the compose network. So `ingest-api:8080`, not `<server-ip>:5443`.
+
+There is deliberately no Access policy in front of `race-ingest.<domain>`. A collector is a console
+application with no browser to complete an Access login, and the collector key is the guard. Putting
+one there is an optional hardening step a deployment may choose; nothing in the application knows or
+cares which tunnel provider is in front of it.
 
 WebSockets need no special configuration. The dashboard uses the raw browser `WebSocket` API rather
 than SignalR, which cloudflared proxies natively, and the hub's 15-second keep-alive already exists
@@ -128,6 +146,8 @@ Then run it with the server's addresses. Use the **published exe**, not `dotnet 
 `Properties/launchSettings.json` forces `DOTNET_ENVIRONMENT=Development`, which would load the
 committed `dev-local-only-key` values instead of the server's real ones.
 
+On the same LAN as the server:
+
 ```powershell
 $env:Collector__Ingest__BaseUrl = "http://<server-lan-ip>:5443/"
 $env:Collector__Ingest__ApiKey  = "<INGEST_API_KEY from the server .env>"
@@ -136,6 +156,32 @@ $env:Collector__Live__ApiKey    = "<LIVE_API_KEY from the server .env>"
 
 C:\race-collector\RaceIntelligence.Collector.exe --live
 ```
+
+### A collector on another network
+
+Same executable, public addresses instead of LAN ones:
+
+```powershell
+$env:Collector__Ingest__BaseUrl = "https://race-ingest.<domain>/"
+$env:Collector__Ingest__ApiKey  = "<this driver's own key>"
+$env:Collector__Live__BaseUrl   = "https://race-api.<domain>/"
+$env:Collector__Live__ApiKey    = "<LIVE_API_KEY from the server .env>"
+
+C:\race-collector\RaceIntelligence.Collector.exe --live
+```
+
+Three things differ, and each has bitten somebody:
+
+- **Each driver gets their own ingest key.** Add it on the server as another
+  `Ingest__ApiKeys__<label>` line beside the existing one and restart `ingest-api`. Deleting that
+  line later revokes that driver and leaves everyone else uploading. The hub key is still shared —
+  it is one key on one publishing socket, not a per-driver credential.
+- **`Collector__Live__BaseUrl` must be a real, reachable address.** The socket scheme is derived
+  from it, so `https://` gives `wss://` and `http://` silently gives `ws://`. Unlike the ingest URL
+  it cannot be a service-discovery name: the collector dials the hub with a `ClientWebSocket`,
+  which never passes through the `HttpClient` that resolves those names.
+- **`https://`, not `http://`.** The ingest key is sent on every request, so its confidentiality is
+  the transport's. Over plaintext across the internet it is worth nothing.
 
 Both base URLs **must end in a trailing slash**. They are `[ServiceUrl]`-validated and the collector
 refuses to start without it, because the relative request paths would otherwise replace the last

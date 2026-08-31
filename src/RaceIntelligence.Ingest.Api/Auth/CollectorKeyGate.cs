@@ -93,6 +93,14 @@ public sealed class CollectorKeyGate
     /// The limiter is middleware and runs before endpoint filters, so it cannot use the label this
     /// gate resolves. The digest is the next best partition: stable, one-to-one with the key, and
     /// safe to hold in a limiter's keyed state in a way the key itself is not.
+    /// <para>
+    /// A request presenting no key at all partitions on the empty string, so all keyless traffic
+    /// shares one bucket. That is deliberate, and it matters more now the endpoint is on the
+    /// internet: keyless requests are refused by <see cref="ApiKeyFilter"/> anyway, one shared
+    /// bucket contains a scanner without letting it evade anything by varying a value, and giving
+    /// each keyless request its own partition would be an unbounded-state denial of service in
+    /// itself. Legitimate collectors are unaffected — they sit in their own key-digest partitions.
+    /// </para>
     /// </remarks>
     public static string PartitionKey(string? providedKey) =>
         string.IsNullOrEmpty(providedKey) ? string.Empty : Convert.ToHexString(Digest(providedKey));
