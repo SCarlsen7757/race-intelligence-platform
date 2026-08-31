@@ -79,8 +79,19 @@ export interface StoredSample {
 }
 
 /** The samples recorded for one lap, in capture order. */
-export interface StoredLapTelemetry {
-  readonly sessionId: string;
+export interface StoredLapSamples {
   readonly lapNumber: number;
   readonly samples: readonly StoredSample[];
+}
+
+/**
+ * The samples recorded for the laps a request named.
+ *
+ * Keyed by lap even when one lap was asked for: an overlay of two to four laps is the normal way
+ * stored telemetry is read, so a caller charting a single lap indexes into a list of one rather
+ * than meeting a second response shape.
+ */
+export interface StoredTelemetry {
+  readonly sessionId: string;
+  readonly laps: readonly StoredLapSamples[];
 }

@@ -38,16 +38,35 @@ describe('the read API client', () => {
     ]);
   });
 
-  it('asks for one lap at a time', async () => {
+  it('asks for the laps it was given, keyed back by lap', async () => {
     stub = stubFetch({
       '/api/v1/sessions/abc/telemetry?lap=3': {
-        body: { sessionId: 'abc', lapNumber: 3, samples: [] },
+        body: { sessionId: 'abc', laps: [{ lapNumber: 3, samples: [] }] },
       },
     });
 
-    const lap = await fetchLapTelemetry('abc', 3);
+    const telemetry = await fetchLapTelemetry('abc', [3]);
 
-    expect(lap.lapNumber).toBe(3);
+    expect(telemetry.laps.map((lap) => lap.lapNumber)).toEqual([3]);
+  });
+
+  it('spells several laps as one comma-separated request', async () => {
+    stub = stubFetch({
+      '/api/v1/sessions/abc/telemetry?lap=3,5': {
+        body: {
+          sessionId: 'abc',
+          laps: [
+            { lapNumber: 3, samples: [] },
+            { lapNumber: 5, samples: [] },
+          ],
+        },
+      },
+    });
+
+    // One round trip, so an overlay cannot have its laps arrive out of step.
+    const telemetry = await fetchLapTelemetry('abc', [3, 5]);
+
+    expect(telemetry.laps.map((lap) => lap.lapNumber)).toEqual([3, 5]);
   });
 
   it('surfaces the problem detail rather than a generic failure', async () => {
@@ -55,14 +74,14 @@ describe('the read API client', () => {
       '/api/v1/sessions/abc/telemetry?lap=3': {
         status: 400,
         body: {
-          detail: 'That lap holds 41000 samples; this endpoint serves at most 36000 at a time.',
+          detail: 'Lap 3 holds 41000 samples; this endpoint serves at most 36000 for one lap.',
         },
       },
     });
 
     // The server writes these to be shown. Replacing them with "request failed" throws away the
     // only sentence that explains what to do next.
-    await expect(fetchLapTelemetry('abc', 3)).rejects.toThrow(/41000 samples/);
+    await expect(fetchLapTelemetry('abc', [3])).rejects.toThrow(/41000 samples/);
   });
 
   it('marks a 404 so a caller can tell "no such session" from "service down"', async () => {

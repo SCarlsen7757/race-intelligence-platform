@@ -86,9 +86,12 @@ public sealed class ReadContractShapeTests
             ["lapNumber", "lapTimeMs", "fuelUsed", "avgSpeed", "maxSpeed", "isValid"],
             ignoreOrder: true);
 
-        PropertyNames(Serialize(new LapTelemetryResponse(Guid.Empty, 3, [Sample()]))).ShouldBe(
-            ["sessionId", "lapNumber", "samples"],
+        PropertyNames(Serialize(new LapSamplesResponse(3, [Sample()]))).ShouldBe(
+            ["lapNumber", "samples"],
             ignoreOrder: true);
+
+        PropertyNames(Serialize(new TelemetryResponse(Guid.Empty, [new LapSamplesResponse(3, [Sample()])])))
+            .ShouldBe(["sessionId", "laps"], ignoreOrder: true);
     }
 
     /// <summary>

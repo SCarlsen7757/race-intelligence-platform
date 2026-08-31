@@ -3,15 +3,29 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Read.Api.Contracts;
+using RaceIntelligence.Read.Api.Endpoints;
 using RaceIntelligence.Read.Api.Tests.Support;
 using Shouldly;
 
 namespace RaceIntelligence.Read.Api.Tests.Integration;
 
-/// <summary>End-to-end tests for reading a stored lap's telemetry back out of a real database.</summary>
+/// <summary>End-to-end tests for reading stored telemetry back out of a real database.</summary>
 [Collection(ReadAppCollection.Name)]
 public sealed class TelemetryReadEndpointsTests(ReadAppFixture fixture)
 {
+    /// <summary>Reads the given query and returns the one lap it is expected to hold.</summary>
+    /// <remarks>
+    /// The response is keyed by lap even for a single lap — see <see cref="TelemetryResponse"/> —
+    /// so most tests here want the one entry rather than the envelope.
+    /// </remarks>
+    private async Task<LapSamplesResponse> OneLapAsync(string query)
+    {
+        var response = await fixture.ReadClient.GetFromJsonAsync<TelemetryResponse>(query);
+
+        response.ShouldNotBeNull();
+        return response.Laps.ShouldHaveSingleItem();
+    }
+
     [Fact]
     public async Task a_lap_comes_back_with_every_sample_in_sequence_order()
     {
@@ -21,11 +35,13 @@ public sealed class TelemetryReadEndpointsTests(ReadAppFixture fixture)
         var id = await seed.SessionAsync();
         await seed.TelemetryAsync(id, lapNumber: 2, count: 25);
 
-        var lap = await fixture.ReadClient.GetFromJsonAsync<LapTelemetryResponse>(
+        var response = await fixture.ReadClient.GetFromJsonAsync<TelemetryResponse>(
             $"/api/v1/sessions/{id}/telemetry?lap=2");
 
-        lap.ShouldNotBeNull();
-        lap.SessionId.ShouldBe(id);
+        response.ShouldNotBeNull();
+        response.SessionId.ShouldBe(id);
+
+        var lap = response.Laps.ShouldHaveSingleItem();
         lap.LapNumber.ShouldBe(2);
         lap.Samples.Count.ShouldBe(25);
         lap.Samples.Select(s => s.SequenceNumber).ShouldBeInOrder();
@@ -40,10 +56,7 @@ public sealed class TelemetryReadEndpointsTests(ReadAppFixture fixture)
         var id = await seed.SessionAsync();
         await seed.TelemetryAsync(id, lapNumber: 1, count: 10);
 
-        var lap = await fixture.ReadClient.GetFromJsonAsync<LapTelemetryResponse>(
-            $"/api/v1/sessions/{id}/telemetry?lap=1");
-
-        lap.ShouldNotBeNull();
+        var lap = await OneLapAsync($"/api/v1/sessions/{id}/telemetry?lap=1");
 
         // The whole point of the round trip: MessagePack in through the collector's contract, a
         // binary COPY into Postgres, JSON out through this one, and the numbers survive.
@@ -73,10 +86,7 @@ public sealed class TelemetryReadEndpointsTests(ReadAppFixture fixture)
         var id = await seed.SessionAsync();
         await seed.TelemetryAsync(id, lapNumber: 1, count: 3);
 
-        var lap = await fixture.ReadClient.GetFromJsonAsync<LapTelemetryResponse>(
-            $"/api/v1/sessions/{id}/telemetry?lap=1");
-
-        lap.ShouldNotBeNull();
+        var lap = await OneLapAsync($"/api/v1/sessions/{id}/telemetry?lap=1");
         lap.Samples.ShouldAllBe(sample => sample.Channels == null);
     }
 
@@ -89,10 +99,7 @@ public sealed class TelemetryReadEndpointsTests(ReadAppFixture fixture)
         var id = await seed.SessionAsync();
         await seed.TelemetryAsync(id, lapNumber: 1, count: 3);
 
-        var lap = await fixture.ReadClient.GetFromJsonAsync<LapTelemetryResponse>(
-            $"/api/v1/sessions/{id}/telemetry?lap=1&channels=tyreGripFl,camberFl");
-
-        lap.ShouldNotBeNull();
+        var lap = await OneLapAsync($"/api/v1/sessions/{id}/telemetry?lap=1&channels=tyreGripFl,camberFl");
 
         var channels = lap.Samples[0].Channels.ShouldNotBeNull();
         channels.Keys.ShouldBe(["tyreGripFl", "camberFl"], ignoreOrder: true);
@@ -124,10 +131,7 @@ public sealed class TelemetryReadEndpointsTests(ReadAppFixture fixture)
         var id = await seed.SessionAsync();
         await seed.TelemetryAsync(id, lapNumber: 1, count: 2);
 
-        var lap = await fixture.ReadClient.GetFromJsonAsync<LapTelemetryResponse>(
-            $"/api/v1/sessions/{id}/telemetry?lap=1&channels=suspension");
-
-        lap.ShouldNotBeNull();
+        var lap = await OneLapAsync($"/api/v1/sessions/{id}/telemetry?lap=1&channels=suspension");
 
         var channels = lap.Samples[0].Channels.ShouldNotBeNull();
 
@@ -165,10 +169,8 @@ public sealed class TelemetryReadEndpointsTests(ReadAppFixture fixture)
         await seed.TelemetryAsync(id, lapNumber: 1, count: 5, startSequence: 0);
         await seed.TelemetryAsync(id, lapNumber: 2, count: 7, startSequence: 100);
 
-        var lap = await fixture.ReadClient.GetFromJsonAsync<LapTelemetryResponse>(
-            $"/api/v1/sessions/{id}/telemetry?lap=2");
+        var lap = await OneLapAsync($"/api/v1/sessions/{id}/telemetry?lap=2");
 
-        lap.ShouldNotBeNull();
         lap.Samples.Count.ShouldBe(7);
         lap.Samples.ShouldAllBe(s => s.LapNumber == 2);
     }
@@ -209,6 +211,137 @@ public sealed class TelemetryReadEndpointsTests(ReadAppFixture fixture)
             $"/api/v1/sessions/{Guid.CreateVersion7()}/telemetry?lap=1");
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>
+    /// The overlay this endpoint exists for: several laps, one round trip, each kept separate.
+    /// </summary>
+    [Fact]
+    public async Task several_laps_come_back_keyed_and_in_ascending_order()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var seed = new Seed(fixture);
+        var id = await seed.SessionAsync();
+        await seed.TelemetryAsync(id, lapNumber: 1, count: 5, startSequence: 0);
+        await seed.TelemetryAsync(id, lapNumber: 2, count: 7, startSequence: 100);
+        await seed.TelemetryAsync(id, lapNumber: 3, count: 4, startSequence: 200);
+
+        var response = await fixture.ReadClient.GetFromJsonAsync<TelemetryResponse>(
+            $"/api/v1/sessions/{id}/telemetry?lap=3&lap=1");
+
+        response.ShouldNotBeNull();
+        response.Laps.Select(l => l.LapNumber).ShouldBe([1, 3]);
+        response.Laps[0].Samples.Count.ShouldBe(5);
+        response.Laps[1].Samples.Count.ShouldBe(4);
+        response.Laps.ShouldAllBe(l => l.Samples.All(s => s.LapNumber == l.LapNumber));
+    }
+
+    /// <summary>
+    /// A hand-written URL spells the list with commas; one assembled in code repeats the parameter.
+    /// Both mean the same thing, and duplicates collapse.
+    /// </summary>
+    [Fact]
+    public async Task laps_can_be_comma_separated_and_repeats_collapse()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var seed = new Seed(fixture);
+        var id = await seed.SessionAsync();
+        await seed.TelemetryAsync(id, lapNumber: 1, count: 3, startSequence: 0);
+        await seed.TelemetryAsync(id, lapNumber: 2, count: 3, startSequence: 100);
+
+        var response = await fixture.ReadClient.GetFromJsonAsync<TelemetryResponse>(
+            $"/api/v1/sessions/{id}/telemetry?lap=2,1&lap=2");
+
+        response.ShouldNotBeNull();
+        response.Laps.Select(l => l.LapNumber).ShouldBe([1, 2]);
+    }
+
+    /// <summary>
+    /// The channels stay attached to the right samples across a lap boundary — the one thing
+    /// positional alignment between the two queries could get wrong, and the reason both order by
+    /// <c>(lap_number, sequence_number)</c>.
+    /// </summary>
+    [Fact]
+    public async Task channels_stay_aligned_with_their_samples_across_laps()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var seed = new Seed(fixture);
+        var id = await seed.SessionAsync();
+        await seed.TelemetryAsync(id, lapNumber: 1, count: 4, startSequence: 0);
+        await seed.TelemetryAsync(id, lapNumber: 2, count: 4, startSequence: 100);
+
+        var response = await fixture.ReadClient.GetFromJsonAsync<TelemetryResponse>(
+            $"/api/v1/sessions/{id}/telemetry?lap=1,2&channels=camberFl");
+
+        response.ShouldNotBeNull();
+
+        foreach (var lap in response.Laps)
+        {
+            foreach (var sample in lap.Samples)
+            {
+                var channels = sample.Channels.ShouldNotBeNull();
+                ((JsonElement)channels["camberFl"]!).GetSingle().ShouldBe(-0.06f, tolerance: 0.001f);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Every missing lap is named at once. Fixing an overlay one round trip at a time is the
+    /// experience this avoids.
+    /// </summary>
+    [Fact]
+    public async Task a_404_names_every_lap_that_has_no_samples()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var seed = new Seed(fixture);
+        var id = await seed.SessionAsync();
+        await seed.TelemetryAsync(id, lapNumber: 1, count: 3);
+
+        using var response = await fixture.ReadClient.GetAsync(
+            $"/api/v1/sessions/{id}/telemetry?lap=1,98,99");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+
+        var body = await response.Content.ReadAsStringAsync();
+        body.ShouldContain("98");
+        body.ShouldContain("99");
+    }
+
+    /// <summary>
+    /// "Read the session by naming every lap" is the request this endpoint's whole design refuses,
+    /// arriving by a different door.
+    /// </summary>
+    [Fact]
+    public async Task naming_more_laps_than_the_ceiling_is_refused()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var id = await new Seed(fixture).SessionAsync();
+
+        var laps = string.Join(",", Enumerable.Range(1, TelemetryReadEndpoints.MaxLapsPerRequest + 1));
+
+        using var response = await fixture.ReadClient.GetAsync(
+            $"/api/v1/sessions/{id}/telemetry?lap={laps}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task a_lap_that_is_not_a_number_is_refused_by_name()
+    {
+        Assert.SkipUnless(fixture.IsAvailable, fixture.SkipReason ?? "Aspire app unavailable");
+
+        var id = await new Seed(fixture).SessionAsync();
+
+        using var response = await fixture.ReadClient.GetAsync(
+            $"/api/v1/sessions/{id}/telemetry?lap=1,two");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("two");
     }
 
     [Fact]

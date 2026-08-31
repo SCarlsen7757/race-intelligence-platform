@@ -75,8 +75,12 @@ export function StoredSessionView({ session, laps, sampledLapNumbers }: StoredSe
     // later one's and chart the wrong lap.
     const controller = new AbortController();
 
-    fetchLapTelemetry(session.sessionId, selected, controller.signal)
-      .then((lap) => setLoaded({ lapNumber: selected, samples: lap.samples }))
+    // One lap, asked for through the list-shaped call. This view charts a single lap; the overlay
+    // that motivated the list belongs to the analysis view.
+    fetchLapTelemetry(session.sessionId, [selected], controller.signal)
+      .then((telemetry) =>
+        setLoaded({ lapNumber: selected, samples: telemetry.laps[0]?.samples ?? [] }),
+      )
       .catch((cause: unknown) => {
         if (controller.signal.aborted) {
           return;

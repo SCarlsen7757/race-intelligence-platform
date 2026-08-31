@@ -11,11 +11,16 @@ namespace RaceIntelligence.Persistence.RaceRoom.Repositories;
 /// Reads stored telemetry samples.
 /// </summary>
 /// <remarks>
-/// <b>Always scoped to one lap.</b> <c>telemetry_samples</c> is one row per sample with no blob and
-/// no compression, so a session at 60 Hz is hundreds of thousands of rows and "give me the session"
-/// is a request that succeeds slowly and then exhausts something. A lap is the unit every chart in
-/// the handover backlog actually plots, and it is the unit the schema is already indexed for:
-/// <c>ix_telemetry_session_lap</c> on <c>(session_id, lap_number)</c>.
+/// <b>Always scoped to named laps.</b> <c>telemetry_samples</c> is one row per sample with no blob
+/// and no compression, so a session at 60 Hz is hundreds of thousands of rows and "give me the
+/// session" is a request that succeeds slowly and then exhausts something. A lap is the unit every
+/// chart in the handover backlog actually plots, and it is the unit the schema is already indexed
+/// for: <c>ix_telemetry_session_lap</c> on <c>(session_id, lap_number)</c>.
+/// <para>
+/// Several laps at once because an overlay — your best lap against your current one — is the normal
+/// way stored telemetry is read, and four round trips to draw one picture is four chances for the
+/// laps to arrive out of step. The index serves a handful of laps as readily as one.
+/// </para>
 /// <para>
 /// The write path is <c>Bulk/ITelemetryWriter</c> and a binary <c>COPY</c>; this is the read path,
 /// and the two never share a connection. Nothing here writes — the table is insert-only, and this
@@ -25,41 +30,79 @@ namespace RaceIntelligence.Persistence.RaceRoom.Repositories;
 /// <param name="db">The simulator's telemetry store, in its schema-free shape.</param>
 public sealed class TelemetryReadRepository(RaceRoomDbContext db)
 {
-    /// <summary>How many samples one lap recorded.</summary>
+    /// <summary>How many samples each of the named laps recorded, keyed by lap number.</summary>
     /// <remarks>
-    /// Asked before the samples themselves so an oversized lap can be refused with a count in the
+    /// Asked before the samples themselves so an oversized read can be refused with a count in the
     /// message rather than by streaming it and failing partway. A count over the same index the
     /// read uses is cheap.
+    /// <para>
+    /// A lap with no samples is <b>absent from the result</b> rather than present with a zero. That
+    /// is what lets a caller name every lap it asked for and did not get, instead of reporting the
+    /// first missing one and stopping.
+    /// </para>
     /// </remarks>
-    public async Task<int> CountForLapAsync(Guid sessionId, int lapNumber, CancellationToken ct = default) =>
-        await db.TelemetrySamples
+    public async Task<IReadOnlyDictionary<int, int>> CountForLapsAsync(
+        Guid sessionId,
+        IReadOnlyList<int> lapNumbers,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(lapNumbers);
+
+        if (lapNumbers.Count == 0)
+        {
+            return new Dictionary<int, int>();
+        }
+
+        var laps = lapNumbers.ToArray();
+
+        return await db.TelemetrySamples
             .AsNoTracking()
-            .CountAsync(t => t.SessionId == sessionId && t.LapNumber == lapNumber, ct)
+            .Where(t => t.SessionId == sessionId && laps.Contains(t.LapNumber))
+            .GroupBy(t => t.LapNumber)
+            .Select(g => new { LapNumber = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(row => row.LapNumber, row => row.Count, ct)
             .ConfigureAwait(false);
+    }
 
     /// <summary>
-    /// Every sample of one lap, in capture order.
+    /// Every sample of the named laps, by lap and then in capture order.
     /// </summary>
     /// <remarks>
-    /// Ordered by <c>sequence_number</c> rather than <c>timestamp</c>. The sequence is
-    /// collector-assigned and monotonic within a session, which is exactly the guarantee a chart's
-    /// x-axis needs; a wall clock can repeat or step backwards, and the primary key orders on it
-    /// only because TimescaleDB will one day want it to.
+    /// Ordered by <c>lap_number</c> and then <c>sequence_number</c> rather than <c>timestamp</c>.
+    /// The sequence is collector-assigned and monotonic within a session, which is exactly the
+    /// guarantee a chart's x-axis needs; a wall clock can repeat or step backwards, and the primary
+    /// key orders on it only because TimescaleDB will one day want it to.
     /// <para>
     /// Projected into <see cref="LapSample"/> in the database rather than materialising
     /// <see cref="TelemetrySample"/>, so the per-wheel <c>real[]</c> columns and the two
     /// <c>jsonb</c> ones are never fetched. They are the widest part of the row and no caller of
     /// this method reads them.
     /// </para>
+    /// <para>
+    /// The lap ordering is the contract that lets a caller split the flat list back into laps by
+    /// watching <see cref="LapSample.LapNumber"/> change, and it is the same ordering
+    /// <see cref="ListChannelsForLapsAsync"/> uses so the two line up row for row.
+    /// </para>
     /// </remarks>
-    public async Task<IReadOnlyList<LapSample>> ListForLapAsync(
+    public async Task<IReadOnlyList<LapSample>> ListForLapsAsync(
         Guid sessionId,
-        int lapNumber,
-        CancellationToken ct = default) =>
-        await db.TelemetrySamples
+        IReadOnlyList<int> lapNumbers,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(lapNumbers);
+
+        if (lapNumbers.Count == 0)
+        {
+            return [];
+        }
+
+        var laps = lapNumbers.ToArray();
+
+        return await db.TelemetrySamples
             .AsNoTracking()
-            .Where(t => t.SessionId == sessionId && t.LapNumber == lapNumber)
-            .OrderBy(t => t.SequenceNumber)
+            .Where(t => t.SessionId == sessionId && laps.Contains(t.LapNumber))
+            .OrderBy(t => t.LapNumber)
+            .ThenBy(t => t.SequenceNumber)
             .Select(t => new LapSample(
                 t.SequenceNumber,
                 t.Timestamp,
@@ -78,9 +121,11 @@ public sealed class TelemetryReadRepository(RaceRoomDbContext db)
                 t.TrackPositionFraction))
             .ToListAsync(ct)
             .ConfigureAwait(false);
+    }
 
     /// <summary>
-    /// The requested channels for every sample of one lap, in capture order.
+    /// The requested channels for every sample of the named laps, in the same order as
+    /// <see cref="ListForLapsAsync"/> returns them.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -92,18 +137,25 @@ public sealed class TelemetryReadRepository(RaceRoomDbContext db)
     /// <para>
     /// <b>The column names come from the manifest, never from the request.</b> The caller hands over
     /// <see cref="RaceRoomChannels.Channel"/> values it looked up by name; a name that is not a
-    /// channel never reaches here, and there is no path from request text into this SQL.
+    /// channel never reaches here, and there is no path from request text into this SQL. The lap
+    /// numbers are a parameter rather than interpolated text, for the same reason.
+    /// </para>
+    /// <para>
+    /// The rows carry no lap number of their own. They are matched to samples <b>by position</b>,
+    /// which holds because both queries order by <c>(lap_number, sequence_number)</c> over the same
+    /// rows — the same alignment the single-lap version relied on, widened by one sort key.
     /// </para>
     /// </remarks>
-    public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> ListChannelsForLapAsync(
+    public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> ListChannelsForLapsAsync(
         Guid sessionId,
-        int lapNumber,
+        IReadOnlyList<int> lapNumbers,
         IReadOnlyList<RaceRoomChannels.Channel> channels,
         CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(lapNumbers);
         ArgumentNullException.ThrowIfNull(channels);
 
-        if (channels.Count == 0)
+        if (channels.Count == 0 || lapNumbers.Count == 0)
         {
             return [];
         }
@@ -114,10 +166,10 @@ public sealed class TelemetryReadRepository(RaceRoomDbContext db)
         var columns = string.Join(", ", channels.Select(channel => channel.Column));
         command.CommandText =
             $"SELECT {columns} FROM telemetry_samples " +
-            "WHERE session_id = @session_id AND lap_number = @lap_number " +
-            "ORDER BY sequence_number";
+            "WHERE session_id = @session_id AND lap_number = ANY(@lap_numbers) " +
+            "ORDER BY lap_number, sequence_number";
         command.Parameters.Add(Parameter(command, "session_id", sessionId));
-        command.Parameters.Add(Parameter(command, "lap_number", lapNumber));
+        command.Parameters.Add(Parameter(command, "lap_numbers", lapNumbers.ToArray()));
 
         await db.Database.OpenConnectionAsync(ct).ConfigureAwait(false);
         try
