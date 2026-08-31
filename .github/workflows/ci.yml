@@ -266,15 +266,36 @@ jobs:
       #
       # Only the dashboard is smoke-tested here. The backend images need a database to get past
       # startup, which is what the Aspire and Testcontainers suites already cover; this one needs
-      # nothing but a port.
+      # nothing but a port and its two origins.
+      #
+      # HUB_URL and READ_URL are passed because the image now requires them: they are read at run
+      # time and injected into the document, and server.mjs exits rather than falling back to
+      # localhost and serving a dashboard nobody can connect through. Passing them here is also what
+      # lets the last step below check that the injection actually happens in the real image, which
+      # is the whole point of the change and is not covered by any unit test.
       - name: Smoke-test the dashboard image
         if: matrix.service == 'dashboard'
         run: |
-          docker run -d --name dashboard-smoke -p 3000:3000 ci-dashboard:test
+          docker run -d --name dashboard-smoke -p 3000:3000 \
+            -e HUB_URL=https://race-api.example.com \
+            -e READ_URL=https://race-read.example.com \
+            ci-dashboard:test
 
           for i in $(seq 1 30); do
-            if curl -fsS -o /dev/null http://localhost:3000/; then
+            if curl -fsS -o /tmp/dashboard.html http://localhost:3000/; then
               echo "dashboard answered on attempt $i"
+
+              # The image is deployment-agnostic, so the origins must have arrived from the
+              # environment above rather than from anything baked in at build time. Checking the
+              # served document is the only place that is true end to end.
+              if ! grep -q 'https://race-api.example.com' /tmp/dashboard.html; then
+                echo "::error file=src/RaceIntelligence.Dashboard/server.mjs::The served document does not carry the configured HUB_URL, so the runtime config was not injected."
+                head -c 2000 /tmp/dashboard.html
+                docker rm -f dashboard-smoke >/dev/null
+                exit 1
+              fi
+
+              echo "runtime config was injected into the document"
               docker rm -f dashboard-smoke >/dev/null
               exit 0
             fi
