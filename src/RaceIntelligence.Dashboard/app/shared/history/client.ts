@@ -11,7 +11,7 @@
  * least. Adding one would be a sixth runtime dependency for behaviour the router already has.
  */
 
-import type { StoredLap, StoredLapTelemetry, StoredSessionPage, StoredSession } from './contracts';
+import type { StoredLap, StoredTelemetry, StoredSessionPage, StoredSession } from './contracts';
 import { readUrl } from './readUrl';
 
 /**
@@ -117,14 +117,18 @@ export function fetchSampledLapNumbers(sessionId: string, signal?: AbortSignal):
   return getJson<number[]>(`/api/v1/sessions/${sessionId}/telemetry/laps`, signal);
 }
 
-/** One lap's telemetry, in capture order. */
+/**
+ * Telemetry for one or more laps, each in capture order.
+ *
+ * Several laps in one request because an overlay — your best lap against your current one — is the
+ * normal way this is read, and four round trips to draw one picture is four chances for the laps to
+ * arrive out of step. The server caps how many it will serve at once and refuses the rest by name.
+ */
 export function fetchLapTelemetry(
   sessionId: string,
-  lapNumber: number,
+  lapNumbers: readonly number[],
   signal?: AbortSignal,
-): Promise<StoredLapTelemetry> {
-  return getJson<StoredLapTelemetry>(
-    `/api/v1/sessions/${sessionId}/telemetry?lap=${lapNumber}`,
-    signal,
-  );
+): Promise<StoredTelemetry> {
+  const laps = lapNumbers.join(',');
+  return getJson<StoredTelemetry>(`/api/v1/sessions/${sessionId}/telemetry?lap=${laps}`, signal);
 }

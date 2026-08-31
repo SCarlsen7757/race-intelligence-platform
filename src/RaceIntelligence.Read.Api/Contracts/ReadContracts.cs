@@ -132,10 +132,20 @@ public sealed record TelemetrySampleResponse(
     IReadOnlyDictionary<string, object?>? Channels = null);
 
 /// <summary>The samples recorded for one lap, in the order they were captured.</summary>
-/// <param name="SessionId">The session read.</param>
 /// <param name="LapNumber">The lap read.</param>
 /// <param name="Samples">Samples ordered by <see cref="TelemetrySampleResponse.SequenceNumber"/>.</param>
-public sealed record LapTelemetryResponse(
-    Guid SessionId,
+public sealed record LapSamplesResponse(
     int LapNumber,
     IReadOnlyList<TelemetrySampleResponse> Samples);
+
+/// <summary>The samples recorded for the laps a request named.</summary>
+/// <remarks>
+/// <b>Keyed by lap even when one lap was asked for.</b> An overlay of two to four laps is the normal
+/// way stored telemetry is read, so the shape that carries several is the shape, and a caller
+/// charting one lap indexes into a list of one rather than meeting a second response type.
+/// </remarks>
+/// <param name="SessionId">The session read.</param>
+/// <param name="Laps">One entry per requested lap, ascending by <see cref="LapSamplesResponse.LapNumber"/>.</param>
+public sealed record TelemetryResponse(
+    Guid SessionId,
+    IReadOnlyList<LapSamplesResponse> Laps);

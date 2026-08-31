@@ -1,3 +1,5 @@
+using System.Globalization;
+using Microsoft.AspNetCore.Mvc;
 using RaceIntelligence.Persistence.RaceRoom.Repositories;
 using RaceIntelligence.RaceRoom.Telemetry;
 using RaceIntelligence.Read.Api.Contracts;
@@ -6,7 +8,7 @@ using RaceIntelligence.Read.Api.Mapping;
 namespace RaceIntelligence.Read.Api.Endpoints;
 
 /// <summary>
-/// Reading stored telemetry, one lap at a time.
+/// Reading stored telemetry, by lap.
 /// </summary>
 /// <remarks>
 /// <b>A lap is the unit, and that is a design decision rather than a first cut.</b>
@@ -15,6 +17,12 @@ namespace RaceIntelligence.Read.Api.Endpoints;
 /// work and then takes the process with it. Every chart in the handover backlog that this endpoint
 /// exists to unblock plots a lap or compares laps, and <c>ix_telemetry_session_lap</c> already
 /// indexes exactly that access.
+/// <para>
+/// <b>Several laps, one request.</b> Comparing laps is the point — your best against your current,
+/// or the same corner on two compounds — so the endpoint takes a list. That is not a step towards a
+/// session read: the ceilings below bound it to an overlay, and the request the paragraph beneath
+/// refuses is still refused however it is spelled.
+/// </para>
 /// <para>
 /// A stint- or session-wide read is a real future need — the scatters and histograms in items 19–28
 /// want one — but it wants aggregation or decimation in the database, not this shape with the cap
@@ -35,6 +43,25 @@ public static class TelemetryReadEndpoints
     /// be said rather than served.
     /// </remarks>
     public const int MaxSamplesPerLap = 36_000;
+
+    /// <summary>
+    /// The most laps this endpoint will read in one request.
+    /// </summary>
+    /// <remarks>
+    /// An overlay is two to four laps; this is deliberately roomier than that and still nowhere
+    /// near a stint. It exists so "read the session by naming every lap" cannot creep in one lap at
+    /// a time.
+    /// </remarks>
+    public const int MaxLapsPerRequest = 8;
+
+    /// <summary>
+    /// The most samples this endpoint will return across all the laps of one request.
+    /// </summary>
+    /// <remarks>
+    /// About a dozen real laps. The per-lap cap catches a malformed lap; this one catches an
+    /// overlay that is individually reasonable and collectively not.
+    /// </remarks>
+    public const int MaxSamplesPerRequest = 72_000;
 
     // The default response is the fifteen canonical fields, and stays that way. A sample is a
     // hundred and seventy-five columns; returning all of them would be about 650 bytes times several
@@ -114,19 +141,71 @@ public static class TelemetryReadEndpoints
         return true;
     }
 
+    /// <summary>
+    /// Resolves a <c>?lap=</c> list, accepting either repeated parameters or one comma-separated
+    /// value.
+    /// </summary>
+    /// <remarks>
+    /// Both spellings because both are natural: a URL assembled in code repeats the parameter, and
+    /// a URL typed by hand writes <c>lap=4,7</c>. Duplicates collapse and the result is ascending,
+    /// so the response's lap order does not depend on how the caller wrote the query.
+    /// </remarks>
+    private static bool TryResolveLaps(string[]? requested, out List<int> laps, out string? invalid)
+    {
+        laps = [];
+        invalid = null;
+
+        if (requested is null)
+        {
+            return true;
+        }
+
+        var seen = new HashSet<int>();
+
+        foreach (var value in requested)
+        {
+            foreach (var part in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lap))
+                {
+                    invalid = part;
+                    return false;
+                }
+
+                if (seen.Add(lap))
+                {
+                    laps.Add(lap);
+                }
+            }
+        }
+
+        laps.Sort();
+        return true;
+    }
+
     private static async Task<IResult> GetLapTelemetryAsync(
         Guid id,
         SessionReadRepository sessions,
         TelemetryReadRepository telemetry,
         CancellationToken ct,
-        int? lap = null,
+        [FromQuery(Name = "lap")] string[]? lap = null,
         string? channels = null)
     {
+        if (!TryResolveLaps(lap, out var laps, out var invalid))
+        {
+            return ProblemResults.InvalidQuery("lap", $"names '{invalid}', which is not a lap number.");
+        }
+
         // Required, not defaulted to lap 1. Defaulting would turn "I forgot the parameter" into a
         // plausible-looking chart of the out-lap, which is the wrong answer delivered convincingly.
-        if (lap is not { } lapNumber)
+        if (laps.Count == 0)
         {
-            return ProblemResults.InvalidQuery("lap", "is required; telemetry is read one lap at a time.");
+            return ProblemResults.InvalidQuery("lap", "is required; telemetry is read by lap.");
+        }
+
+        if (laps.Count > MaxLapsPerRequest)
+        {
+            return ProblemResults.TooManyLaps(laps.Count, MaxLapsPerRequest);
         }
 
         // Refused by name, before any query runs. A misspelling that silently returned fewer
@@ -143,28 +222,58 @@ public static class TelemetryReadEndpoints
             return ProblemResults.SessionNotFound(id);
         }
 
-        int count = await telemetry.CountForLapAsync(id, lapNumber, ct).ConfigureAwait(false);
+        var counts = await telemetry.CountForLapsAsync(id, laps, ct).ConfigureAwait(false);
 
-        if (count == 0)
+        var missing = laps.Where(number => !counts.ContainsKey(number)).ToList();
+        if (missing.Count > 0)
         {
-            return ProblemResults.LapNotFound(id, lapNumber);
+            return ProblemResults.LapsNotFound(id, missing);
         }
 
-        if (count > MaxSamplesPerLap)
+        foreach (var number in laps)
         {
-            return ProblemResults.LapTooLarge(count, MaxSamplesPerLap);
+            if (counts[number] > MaxSamplesPerLap)
+            {
+                return ProblemResults.LapTooLarge(number, counts[number], MaxSamplesPerLap);
+            }
         }
 
-        var samples = await telemetry.ListForLapAsync(id, lapNumber, ct).ConfigureAwait(false);
+        var total = laps.Sum(number => counts[number]);
+        if (total > MaxSamplesPerRequest)
+        {
+            return ProblemResults.RequestTooLarge(total, MaxSamplesPerRequest);
+        }
+
+        var samples = await telemetry.ListForLapsAsync(id, laps, ct).ConfigureAwait(false);
         var extra = await telemetry
-            .ListChannelsForLapAsync(id, lapNumber, requested, ct)
+            .ListChannelsForLapsAsync(id, laps, requested, ct)
             .ConfigureAwait(false);
 
-        return Results.Ok(new LapTelemetryResponse(
-            id,
-            lapNumber,
-            [.. samples.Select((sample, index) => sample.ToResponse(
-                extra.Count == samples.Count ? extra[index] : null))]));
+        // Positional alignment, as before: both queries order by (lap_number, sequence_number) over
+        // the same rows. The count check is what makes a mismatch drop the channels rather than
+        // pair a sample with another sample's values.
+        var aligned = extra.Count == samples.Count;
+
+        var byLap = new List<LapSamplesResponse>(laps.Count);
+        var index = 0;
+
+        // Split on the lap number changing rather than on the counts read a moment ago, so the
+        // response describes the rows that actually arrived.
+        while (index < samples.Count)
+        {
+            var number = samples[index].LapNumber;
+            var rows = new List<TelemetrySampleResponse>();
+
+            while (index < samples.Count && samples[index].LapNumber == number)
+            {
+                rows.Add(samples[index].ToResponse(aligned ? extra[index] : null));
+                index++;
+            }
+
+            byLap.Add(new LapSamplesResponse(number, rows));
+        }
+
+        return Results.Ok(new TelemetryResponse(id, byLap));
     }
 
     private static async Task<IResult> GetSampledLapsAsync(
