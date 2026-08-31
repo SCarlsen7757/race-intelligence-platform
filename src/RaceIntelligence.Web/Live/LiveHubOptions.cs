@@ -21,10 +21,10 @@ public sealed class LiveHubOptions
     /// from a real one by looking at it.
     /// </para>
     /// <para>
-    /// Same Phase-1 compromise as the ingest API's key: one static secret, no per-client identity,
-    /// no rotation. Unlike that one, this endpoint is meant to be reachable from the internet
-    /// through a tunnel, so the comparison here is constant-time — see
-    /// <see cref="LiveApiKeyGate"/>.
+    /// One static secret, no per-client identity, no rotation — now the only key in the platform
+    /// still shaped that way, since the ingest API moved to a labelled key per collector. There is
+    /// one publisher per room and the hub stores nothing, so a second key would name nothing here;
+    /// the comparison is constant-time regardless — see <see cref="LiveApiKeyGate"/>.
     /// </para>
     /// </remarks>
     [Required(AllowEmptyStrings = false, ErrorMessage = "Live:ApiKey must be set; the publishing endpoint cannot be left unauthenticated.")]

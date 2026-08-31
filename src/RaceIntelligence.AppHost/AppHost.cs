@@ -17,14 +17,17 @@ var builder = DistributedApplication.CreateBuilder(args);
 // Postgres resource never shares a port or data volume with a real dev run.
 bool isIntegrationTest = builder.Configuration.GetValue<bool>("RaceIntelligence:IsIntegrationTest");
 
-// Shared secret between collector and ingest API. Prompted once and stored in user secrets,
-// so it never lands in source control.
+// This machine's collector key, presented to the ingest API. Prompted once and stored in user
+// secrets, so it never lands in source control.
+//
+// The ingest API holds a set of these, one per collector, keyed by a label — a second driver on
+// another network gets their own, and revoking either leaves the other working. Aspire runs one
+// collector, so it configures one label.
 var ingestApiKey = builder.AddParameter("ingest-api-key", secret: true);
 
 // Shared secret between collector and live hub. A separate parameter from the ingest key on
-// purpose: the two guard different services with different exposure — the ingest API is LAN-only,
-// while the hub is the one meant to be reachable through a tunnel — and one key for both would mean
-// a leak of either compromises both.
+// purpose: the two guard different services, and one key for both would mean a leak of either
+// compromises both.
 var liveApiKey = builder.AddParameter("live-api-key", secret: true);
 
 // Shared secret guarding the identity registry. A third parameter rather than a reuse of either
@@ -59,7 +62,10 @@ var identityDatabase = postgres.AddDatabase("identity");
 var ingestApi = builder.AddProject<Projects.RaceIntelligence_Ingest_RaceRoom>("ingest-api")
     .WithReference(database)
     .WaitFor(database)
-    .WithEnvironment("Ingest__ApiKey", ingestApiKey)
+    // One labelled collector key. The label names which collector, and appears in the ingest
+    // API's logs; the double underscore is configuration binding's separator, so this lands as
+    // Ingest:ApiKeys["local-collector"].
+    .WithEnvironment("Ingest__ApiKeys__local-collector", ingestApiKey)
     // Which simulator this database holds. One per simulator now (ADR 0001), so the ingest API
     // refuses a session claiming any other — and refuses to start at all without this, because an
     // ingest API that accepts anything is the silent mixing the split exists to prevent.
@@ -68,7 +74,7 @@ var ingestApi = builder.AddProject<Projects.RaceIntelligence_Ingest_RaceRoom>("i
 // RaceRoom's read API: the same database as the ingest API above, reached read-only.
 //
 // A separate service rather than more endpoints on the ingest host, because the two have opposite
-// exposure. The ingest host holds a key and stays on the LAN (ADR 0003); this one holds no key at
+// exposure. The ingest host holds keys and is written to be presented one; this one holds no key at
 // all and is the half a browser is meant to reach. Merging them would mean picking one posture for
 // both, and the safe pick would put a key in the dashboard's bundle where it is not a secret.
 //

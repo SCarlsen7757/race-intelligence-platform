@@ -30,6 +30,7 @@ builder.Services.AddScoped<PersonRepository>();
 // Injected rather than reached for statically, so a test can assert on the timestamps a claim was
 // written with instead of on "roughly now".
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<RaceIntelligence.Identity.Api.Auth.IdentityApiKeyGate>();
 
 var app = builder.Build();
 

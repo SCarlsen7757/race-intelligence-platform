@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using RaceIntelligence.Ingest.Api.Auth;
 using RaceIntelligence.Ingest.Api.Endpoints;
 using RaceIntelligence.Persistence.Core;
 using RaceIntelligence.Persistence.Core.Bulk;
@@ -52,6 +53,18 @@ builder.Services.AddScoped<TelemetryDbContext>(sp => sp.GetRequiredService<RaceR
 builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
 builder.Services.AddScoped<ITelemetryWriter, NpgsqlTelemetryWriter>();
 
+// Per-collector keys, validated at startup. There is more than one collector now — one beside the
+// server, one on another driver's network — so a single shared secret would mean revoking either
+// revokes both. An ingest API with no keys configured refuses to boot rather than 401-ing every
+// request, which would look like a client bug rather than the server misconfiguration it is.
+builder.Services.AddOptions<IngestAuthOptions>()
+    .Bind(builder.Configuration.GetSection(IngestAuthOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<CollectorKeyGate>();
+
+builder.Services.AddIngestRateLimiter();
+
 builder.Services.AddScoped<GameVersionRepository>();
 builder.Services.AddScoped<TrackRepository>();
 builder.Services.AddScoped<CarRepository>();
@@ -60,6 +73,9 @@ builder.Services.AddScoped<DriverRepository>();
 var app = builder.Build();
 
 app.UseSerilogRequestLogging();
+
+// Before the endpoints, and exempting everything outside /api/v1 itself — see IngestRateLimiting.
+app.UseRateLimiter();
 
 app.MapDefaultEndpoints();
 

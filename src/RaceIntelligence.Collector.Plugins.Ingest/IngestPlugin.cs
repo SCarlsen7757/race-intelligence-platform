@@ -56,6 +56,10 @@ public sealed class IngestPlugin : ITelemetryPlugin
         // already attached both the service-discovery handler and the standard resilience handler to
         // every HttpClient via ConfigureHttpClientDefaults, so neither is repeated here — adding
         // AddStandardResilienceHandler again would stack a second set of retries.
+        // The key is read once here and baked into DefaultRequestHeaders, so changing it — a
+        // rotation, or a key the server has revoked — takes a collector restart, not a config
+        // reload. That was invisible while the server held one immutable shared key; now that the
+        // server holds a revocable key per collector, it is an operational limit worth knowing.
         builder.Services.AddHttpClient<IIngestClient, IngestClient>((sp, client) =>
         {
             var options = sp.GetRequiredService<IOptions<IngestOptions>>().Value;

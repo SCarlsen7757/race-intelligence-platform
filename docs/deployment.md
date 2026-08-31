@@ -17,7 +17,7 @@ The topology and the reasoning behind it are recorded in
 Gaming PC (Windows)                Home server VM (Linux, Docker)         Anywhere
 -------------------                ------------------------------         --------
 RaceRoom                           postgres                               a browser
-   | $R3E shared memory            ingest-api   :5443  (LAN only)             |
+   | $R3E shared memory            ingest-api   :5443  (not published)        |
 collector  ------- LAN ---------->  live hub    :5044  --- cloudflared ---> race-api.<domain>
                                    dashboard    :3000  --- cloudflared ---> race-web.<domain>
 ```
@@ -27,9 +27,10 @@ Three things about this are deliberate and worth reading before changing anythin
 **The collector is not containerised and never will be.** It reads a Windows named shared-memory
 block that exists only while RaceRoom is running. It belongs on the gaming PC.
 
-**The ingest API is not on the tunnel.** `Ingest.Api/Auth/ApiKeyFilter.cs` documents its own key
-check as a Phase-1 compromise with a non-constant-time comparison, and says it should not be exposed
-beyond the LAN. The live hub is the service built for exposure — constant-time key comparison, an
+**The ingest API is not on the tunnel.** Its key check is no longer the reason — that is now one
+key per collector, compared in constant time, behind a rate limiter — but publishing it is a
+separate decision about TLS termination and the 8 MB batch body as a DoS surface, and ADR 0003 has
+not been amended to make it. The live hub is the service built for exposure — constant-time key comparison, an
 origin allowlist, and a WebSocket keep-alive that exists to survive proxy idle timeouts. The read
 API is published too, for the opposite reason: it holds no key at all, writes nothing, applies no
 migrations, and serves only GETs behind its own origin allowlist. The collector reaches the ingest
