@@ -146,12 +146,18 @@ changing that code to serve compose's convenience.
 
 ## Consequences
 
-- **`HUB_URL` and `READ_URL` are baked into the dashboard image at build time.** Vite `define`s it into the client
-  bundle because the browser has no environment to read and the live routes are client-only.
-  Repointing the dashboard at a different hub is a rebuild, not a restart, and it must be the public
-  `https://` origin — the socket scheme is derived from that value, so an internal `http://` address
-  produces a `ws://` URL that browsers block as mixed content. This is the single sharpest edge in
-  the whole topology and the most likely cause of a dashboard that loads but never connects.
+- **`HUB_URL` and `READ_URL` reach the dashboard at run time, so the image is portable.** They were
+  baked into the client bundle at build time, on the reasoning that the browser has no environment
+  to read and the live routes are client-only — true, but it made an image built on one server carry
+  that server's hostnames and be useless to anyone else. The browser can be told at run time; it
+  just has to be told by somebody, and `server.mjs` is somebody: it reads both origins and injects
+  them into the document's head. `docker build` now takes no deployment-specific arguments, and
+  repointing a dashboard is a restart.
+  The sharp edge did not disappear, it moved: `HUB_URL` must still be the public `https://` origin,
+  because the socket scheme is derived from that value and an internal `http://` address produces a
+  `ws://` URL browsers block as mixed content. It is now set by whoever deploys rather than whoever
+  builds, so it is more likely to be got wrong, not less — which is why the dashboard refuses to
+  start without both values and warns when one is plain http.
 - **Four kinds of secret, and one of them multiplies.** The original three — the ingest key, the hub
   key and PostgreSQL's password — were already four in practice, because the identity registry has
   its own key that this ADR never counted. And the ingest key is now one *per collector*: a new

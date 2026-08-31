@@ -26,9 +26,11 @@ npm run dev        # http://localhost:3000
 
 ## Where the hub is
 
-`HUB_URL`, read at build time — see `app/shared/live/hubUrlBuild.ts` for why it is baked in rather
-than fetched, and what that costs. It defaults to `http://localhost:5044`, which is the hub's
-`http` launch profile, so two terminals and no configuration is enough to develop against it.
+`HUB_URL`. In a deployment `server.mjs` reads it at run time and injects it into the document, so
+one image works anywhere — see `app/shared/config/runtimeConfig.ts`. Under `npm run dev` there is no
+`server.mjs`, so Vite's config-time value is used instead; it defaults to `http://localhost:5044`,
+the hub's `http` launch profile, so two terminals and no configuration is enough to develop
+against it.
 
 The hub must list this app's origin in `Live:AllowedOrigins`, or the WebSocket upgrade is rejected.
 

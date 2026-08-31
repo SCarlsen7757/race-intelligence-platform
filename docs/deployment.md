@@ -72,12 +72,14 @@ starting before one exists would fail on its first query rather than at startup.
 
 ### Three settings that are easy to get wrong
 
-**`HUB_ORIGIN` and `READ_ORIGIN` are baked into the dashboard image at build time.** Both are passed
-as Docker build arguments, and `vite.config.ts` compiles them into the client bundle — the browser
-has no environment to read, and the routes are client-only, so there is no server render to ship the
-values down with. Two consequences:
+**`HUB_ORIGIN` and `READ_ORIGIN` are read by the dashboard at run time.** They are passed as
+ordinary environment variables; `server.mjs` reads them at startup and injects them into the
+document before any application script runs. The dashboard image is therefore the same everywhere
+and takes no build arguments at all. Two consequences:
 
-- Changing either means `docker compose -f compose.test.yml build dashboard`, **not** a restart.
+- Changing either means `docker compose -f compose.test.yml up -d dashboard`, **not** a rebuild.
+- Setting neither is not an option: the dashboard refuses to start without both, rather than falling
+  back to localhost and serving a page whose every visitor opens a socket to their own machine.
 - `HUB_ORIGIN` must be the public `https://` origin of the **hub**. `app/shared/live/hubUrl.ts`
   derives the socket scheme from this value rather than from the page, so an `http://` origin
   produces a `ws://` URL that browsers block as mixed content on an https page.

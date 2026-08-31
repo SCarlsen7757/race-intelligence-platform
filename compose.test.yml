@@ -139,17 +139,16 @@ services:
     build:
       context: .
       dockerfile: src/RaceIntelligence.Dashboard/Dockerfile
-      args:
-        # A BUILD argument, and it has to be. vite.config.ts bakes it into the client bundle, so
-        # this is not something an `environment:` entry can change — repointing means
-        # `docker compose build dashboard`, not a restart. It must be the public https origin of
-        # the HUB (not of the dashboard): the browser opens its socket straight at the hub.
-        HUB_URL: ${HUB_ORIGIN:?set HUB_ORIGIN in .env}
-        # The read API's public origin, baked in for exactly the same reason and with the same
-        # cost: repointing it is a rebuild, not a restart. Two addresses because history and live
-        # are two services.
-        READ_URL: ${READ_ORIGIN:?set READ_ORIGIN in .env}
     restart: unless-stopped
+    environment:
+      # Runtime, not build arguments: server.mjs reads these at startup and injects them into the
+      # document, so the image carries no deployment's hostnames and repointing it is a restart.
+      #
+      # It must be the public https origin of the HUB, not of the dashboard — the browser opens its
+      # socket straight at the hub, and the socket scheme is derived from this value.
+      HUB_URL: ${HUB_ORIGIN:?set HUB_ORIGIN in .env}
+      # The read API's public origin. Two addresses because history and live are two services.
+      READ_URL: ${READ_ORIGIN:?set READ_ORIGIN in .env}
     ports:
       - '3000:3000'
     depends_on:

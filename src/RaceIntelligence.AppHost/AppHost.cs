@@ -115,16 +115,17 @@ var web = builder.AddProject<Projects.RaceIntelligence_Web>("web")
 // a README that drifts: the dashboard is told where the hub is, and the hub is told which origin to
 // accept. Aspire allocates the ports, so neither side has one hard-coded.
 //
-// HUB_URL is read by Vite at config time and baked into the bundle, so it must be set before the
-// process starts — which it is, as an environment variable, exactly like the collector's BaseUrl.
+// HUB_URL is read by Vite at config time here, so it must be set before the process starts — which
+// it is, as an environment variable, exactly like the collector's BaseUrl. A deployed dashboard
+// gets this at run time instead, injected into the document by server.mjs; the dev server has no
+// server.mjs in front of it, so the config-time value is what a `npm run dev` session uses.
 // The http endpoint rather than https for the same reason as the collector below: it is the one
 // that exists under either launch profile.
 var dashboard = builder.AddViteApp("dashboard", "../RaceIntelligence.Dashboard")
     .WithEnvironment("HUB_URL", web.GetEndpoint("http"))
-    // READ_URL is the second baked-in origin, and it is baked for the same reason HUB_URL is: Vite
-    // reads it at config time and the browser has no environment to read at run time. Two URLs now,
-    // because history and live genuinely come from two services — the hub holds no database and the
-    // read API holds no live state.
+    // READ_URL is the second origin, and it arrives the same way HUB_URL does. Two URLs because
+    // history and live genuinely come from two services — the hub holds no database and the read
+    // API holds no live state.
     .WithEnvironment("READ_URL", readApi.GetEndpoint("http"))
     .WaitFor(web)
     .WaitFor(readApi);

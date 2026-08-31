@@ -482,10 +482,12 @@ $env:HUB_URL = "https://home-server:5444"
 npm run dev
 ```
 
-**`HUB_URL` is read at build time, not per request**, because the browser has no environment to
-read and the live routes are client-only — there is no server render to ship the value down with.
-So a deployed dashboard is repointed by rebuilding, not by restarting. See
-`app/shared/live/hubUrlBuild.ts` for the full argument.
+**`HUB_URL` and `READ_URL` are read at run time in a deployment, and at config time in dev.** A
+built dashboard is told both origins by `server.mjs`, which injects them into the document — so the
+image is deployment-agnostic and repointing it is a restart. `npm run dev` runs Vite's dev server
+rather than `server.mjs`, so nothing injects anything and the value Vite substituted at config time
+is what dev uses. That is why AppHost's `HUB_URL` reaches a dev session with no configuration. See
+`app/shared/config/runtimeConfig.ts`.
 
 | Command | Purpose |
 |---|---|
@@ -507,8 +509,8 @@ on the host that serves it, or a container built from the same three commands
 else, so running it starts no listener and Node exits 0 immediately, which looks like success.
 `server.mjs` is the entry that hosts it: it serves the handler with `srvx` and serves the hashed
 bundles in `dist/client/` in front of it, since the SSR handler renders references to those files
-but does not serve them. It reads `PORT` and `HOST` at run time — unlike `HUB_URL`, which is a
-build-time value and cannot be changed by restarting.
+but does not serve them. It reads `PORT`, `HOST`, `HUB_URL` and `READ_URL` at run time, and refuses
+to start without the last two.
 
 `app/routeTree.gen.ts` is generated from `app/routes/` by the Vite plugin and **is** tracked, so
 `npm run typecheck` works without building first. Adding or renaming a route means committing the
