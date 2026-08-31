@@ -1,25 +1,26 @@
 # The dashboard — a TanStack Start app on Node, its own service on its own origin.
 #
 # Build from the REPOSITORY ROOT, not from this directory:
-#   docker build -f src/RaceIntelligence.Dashboard/Dockerfile \
-#       --build-arg HUB_URL=https://race-api.example.com #       --build-arg READ_URL=https://race-read.example.com .
+#   docker build -f src/RaceIntelligence.Dashboard/Dockerfile .
 #
 # ---------------------------------------------------------------------------------------------
-# HUB_URL AND READ_URL ARE BUILD ARGUMENTS, NOT RUNTIME VARIABLES. Setting either in compose's `environment:`
-# does nothing.
+# THIS BUILD TAKES NO DEPLOYMENT-SPECIFIC ARGUMENTS. The image is the same everywhere.
 #
-# vite.config.ts resolves it at config time and `define`s it into the client bundle, because the
-# browser has no environment to read and the live routes are client-only — there is no server render
-# to ship the value down with. Two consequences worth stating plainly:
+# HUB_URL and READ_URL are RUNTIME variables, set in compose's `environment:`. server.mjs reads them
+# at startup and injects them into the document, so one image serves any deployment and repointing
+# it is a restart rather than a rebuild.
 #
-#   * Build without it and hubUrlBuild.ts falls back to http://localhost:5044. Every visitor's
-#     browser then tries to open a socket to their OWN machine, which fails in a way that looks like
-#     the hub is down.
-#   * It must be the PUBLIC https origin, not an internal one like http://web:8080. hubUrl.ts
-#     derives the socket scheme from the hub origin rather than from the page, so an http:// value
-#     produces a ws:// URL that browsers block as mixed content on an https page.
+# They used to be build arguments baked into the client bundle, which meant an image built on one
+# server carried that server's hostnames and was useless to anybody else. Two things still worth
+# knowing, because they moved rather than went away:
 #
-# Repointing the dashboard at a different hub is therefore a rebuild, not a restart.
+#   * Neither has a default. server.mjs refuses to start without both, rather than falling back to
+#     localhost and serving a dashboard whose every visitor opens a socket to their OWN machine — a
+#     failure that reads as "the hub is down" and mentions configuration nowhere.
+#   * HUB_URL must be the PUBLIC https origin, not an internal one like http://web:8080. The socket
+#     scheme is derived from the hub's origin rather than from the page, so an http:// value yields
+#     a ws:// URL that browsers block as mixed content on an https page. server.mjs warns about that
+#     combination at startup.
 # ---------------------------------------------------------------------------------------------
 
 # Node 24, matching the `dashboard` job in .github/workflows/ci.yml.
@@ -34,19 +35,8 @@ RUN npm ci
 
 COPY src/RaceIntelligence.Dashboard/ ./
 
-ARG HUB_URL
-ENV HUB_URL=${HUB_URL}
-
-# The read API's origin, and it has to be declared here for the same reason HUB_URL does: Vite reads
-# it at config time and bakes it into the client bundle, so a value that only reaches compose is a
-# value the build never sees. Leaving it out does not fail — the bundle quietly falls back to
-# localhost:5049 and the history view breaks only in a browser, which is the most expensive place to
-# find out.
-ARG READ_URL
-ENV READ_URL=${READ_URL}
-
 # `npm run build` runs `tsc --noEmit` first, so a type error fails the image build rather than
-# shipping. Vite bakes HUB_URL and READ_URL in here.
+# shipping. Nothing deployment-specific enters the image here — the two origins arrive at run time.
 RUN npm run build
 
 FROM node:24-slim AS app
@@ -63,8 +53,10 @@ COPY --from=build /app/dist ./dist
 # directly exits 0 immediately — see the comment at the top of server.mjs.
 COPY src/RaceIntelligence.Dashboard/server.mjs ./server.mjs
 
-# vite.config.ts reads PORT and falls back to 3000, which is what docs/development.md and the hub's
-# development Live:AllowedOrigins both assume.
+# server.mjs reads PORT and falls back to 3000, which is what docs/development.md and the hub's
+# development Live:AllowedOrigins both assume. HUB_URL and READ_URL are deliberately NOT given
+# defaults here: there is no value that is right for every deployment, and a wrong one that starts
+# is worse than a missing one that does not.
 ENV PORT=3000
 EXPOSE 3000
 

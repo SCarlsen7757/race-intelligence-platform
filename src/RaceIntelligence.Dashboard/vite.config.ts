@@ -1,8 +1,8 @@
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-import { resolveReadUrlAtBuildTime } from './app/shared/history/readUrlBuild';
-import { resolveHubUrlAtBuildTime } from './app/shared/live/hubUrlBuild';
+import { resolveReadUrl } from './app/shared/history/readUrlBuild';
+import { resolveHubUrl } from './app/shared/live/hubUrlBuild';
 
 /**
  * The dashboard is its own service now: a Node process on its own origin, talking to the hub
@@ -19,16 +19,17 @@ import { resolveHubUrlAtBuildTime } from './app/shared/live/hubUrlBuild';
 export default defineConfig({
   plugins: [tanstackStart({ srcDirectory: 'app' }), viteReact()],
 
-  // The hub's address is baked in here rather than read at runtime in the browser, because the
-  // browser has no environment to read. `HUB_URL` is taken from whatever launched this process —
-  // AppHost injects the hub's resolved endpoint — so `npm run dev` under AppHost needs no
-  // configuration, and a production build takes it from the deploying environment. See
-  // hubUrlBuild.ts for why the fallback is what it is.
+  // These are the DEVELOPMENT source of the two origins, not the deployed one. A built image gets
+  // them at run time, injected into the document by server.mjs, so that one image works for any
+  // deployment. But `npm run dev` runs this dev server rather than server.mjs, so nothing injects
+  // anything — the accessors fall back to what is substituted here, and AppHost's injected HUB_URL
+  // reaches a dev session for free. A production build still substitutes these; nothing ever reads
+  // them, because server.mjs refuses to start without the real values.
   define: {
-    __HUB_URL__: JSON.stringify(resolveHubUrlAtBuildTime(process.env.HUB_URL)),
+    __HUB_URL__: JSON.stringify(resolveHubUrl(process.env.HUB_URL)),
     // The read API's address, baked in for the same reason and by the same mechanism. Two
     // addresses because history and live are two services — see readUrlBuild.ts.
-    __READ_URL__: JSON.stringify(resolveReadUrlAtBuildTime(process.env.READ_URL)),
+    __READ_URL__: JSON.stringify(resolveReadUrl(process.env.READ_URL)),
   },
 
   // `PORT` because that is what Aspire assigns a JavaScript resource, and Vite does not read it on

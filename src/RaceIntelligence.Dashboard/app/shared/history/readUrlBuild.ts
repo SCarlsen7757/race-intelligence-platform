@@ -27,7 +27,7 @@ export const DEFAULT_READ_URL = 'http://localhost:5049';
  * `http://host//api/v1/sessions` is a different request from the one intended — answered with a
  * 404 that looks nothing like a configuration mistake.
  */
-export function resolveReadUrlAtBuildTime(raw: string | undefined): string {
+export function resolveReadUrl(raw: string | undefined): string {
   const trimmed = raw?.trim();
   if (trimmed === undefined || trimmed === '') {
     return DEFAULT_READ_URL;

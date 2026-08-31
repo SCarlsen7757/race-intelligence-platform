@@ -253,11 +253,6 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: false
-          # The dashboard bakes its two origins in at build time; any value compiles, and this job
-          # is asking whether the image builds rather than whether it points anywhere real.
-          build-args: |
-            HUB_URL=https://race-api.example.com
-            READ_URL=https://race-read.example.com
           load: ${{ matrix.service == 'dashboard' }}
           tags: ci-${{ matrix.service }}:test
           cache-from: type=gha,scope=${{ matrix.service }}

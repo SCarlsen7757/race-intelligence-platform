@@ -4,16 +4,17 @@
  * Kept in its own module because it is imported by `vite.config.ts` and `vitest.config.ts`, which
  * run in Node before any application code exists. Nothing here may import from the app.
  *
- * **Why build time and not request time.** The browser has no environment to read, so the address
- * has to reach it somehow, and the two honest options are baking it into the bundle or shipping it
- * down with the document. Baking it in is chosen because it keeps the live routes free of a
- * server round trip they would otherwise have to make before opening a socket — and those routes
- * are client-only by design, so there is no server render to piggyback on. The cost is that
- * repointing a deployed dashboard at a different hub is a rebuild, not a restart. That is
- * acceptable for a service whose hub address changes about as often as its own does.
+ * **This used to be the whole mechanism, and is now only the development half.** The browser has
+ * no environment to read, so the address has to reach it somehow: either baked into the bundle or
+ * shipped down with the document. It was baked in, which made a built image carry one deployment's
+ * hostnames and be useless to anyone else. Production now ships it down — see
+ * `app/shared/config/runtimeConfig.ts` and `server.mjs`.
  *
- * `npm run dev` under AppHost picks the value up for free: Aspire injects `HUB_URL` into the
- * process environment, and Vite reads it here at config time.
+ * What is left here is normalisation, and the default that makes `npm run dev` work with no
+ * configuration at all. Vite still substitutes the result, and that substituted value is what the
+ * accessors fall back to when nothing was injected — which is exactly the dev server, since
+ * `server.mjs` is a production entry point. AppHost's injected `HUB_URL` therefore keeps reaching a
+ * `npm run dev` session for free.
  */
 
 /**
@@ -32,7 +33,7 @@ export const DEFAULT_HUB_URL = 'http://localhost:5044';
  * `http://host//live/view` is a different request from `http://host/live/view` — one the hub
  * answers with a 404 that looks nothing like a configuration mistake.
  */
-export function resolveHubUrlAtBuildTime(raw: string | undefined): string {
+export function resolveHubUrl(raw: string | undefined): string {
   const trimmed = raw?.trim();
   if (trimmed === undefined || trimmed === '') {
     return DEFAULT_HUB_URL;
